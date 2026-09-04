@@ -1,0 +1,33 @@
+{
+  "name": "ai-browser-agent",
+  "version": "1.0.0",
+  "description": "Self-hosted, autonomous browser-automation agent that runs 24/7 in the cloud without your PC.",
+  "type": "module",
+  "private": true,
+  "main": "agent/main.js",
+  "scripts": {
+    "start": "node agent/main.js",
+    "dev": "NODE_ENV=development node agent/main.js",
+    "run-task": "node scripts/run-task.js",
+    "test": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "test:all": "vitest run",
+    "postinstall": "playwright install --with-deps chromium"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.3.0",
+    "cron-parser": "^4.9.0",
+    "express": "^4.19.2",
+    "express-basic-auth": "^1.2.1",
+    "nanoid": "^5.0.7",
+    "node-fetch": "^3.3.2",
+    "nodemailer": "^6.9.14",
+    "playwright": "^1.47.0"
+  },
+  "devDependencies": {
+    "vitest": "^2.0.5"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

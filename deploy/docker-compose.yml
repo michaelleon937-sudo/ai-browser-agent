@@ -1,0 +1,37 @@
+# deploy/docker-compose.yml
+# Local / self-hosted VM deployment (no Fly/Render). Run with:
+#   docker compose -f deploy/docker-compose.yml up -d --build
+version: "3.8"
+
+services:
+  agent:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: ai-browser-agent:local
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      NODE_ENV: production
+      PORT: 8080
+      DATA_DIR: /data
+      AI_PROVIDER: ${AI_PROVIDER:-cloudflare}
+      CF_ACCOUNT_ID: ${CF_ACCOUNT_ID:-}
+      CF_API_TOKEN: ${CF_API_TOKEN:-}
+      CF_MODEL: ${CF_MODEL:-@cf/openai/gpt-oss-20b}
+      HUMAN_APPROVAL_REQUIRED: ${HUMAN_APPROVAL_REQUIRED:-true}
+      DASHBOARD_USER: ${DASHBOARD_USER:-}
+      DASHBOARD_PASS: ${DASHBOARD_PASS:-}
+      NOTIFY_WEBHOOK_URL: ${NOTIFY_WEBHOOK_URL:-}
+    volumes:
+      - agent_data:/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  agent_data:
