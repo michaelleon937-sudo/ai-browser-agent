@@ -63,19 +63,26 @@ export function cloudflareProvider({ config }) {
         throw new Error(`Cloudflare AI ${res.status}: ${body.slice(0, 500)}`);
       }
       const json = await res.json();
-      const msg = json?.result?.response?.choices?.[0]?.message || json?.result?.response || {};
-      const toolCalls = msg.tool_calls || msg.toolCalls;
-      const content = msg.content || '';
+      const msg =
+        json?.result?.choices?.[0]?.message ||
+        json?.result?.response?.choices?.[0]?.message ||
+        json?.result?.response ||
+        {};
 
+      const toolCalls = msg.tool_calls || msg.toolCalls || json?.result?.tool_calls || [];
+      const content = msg.content || '';
 
       if (Array.isArray(toolCalls) && toolCalls.length) {
         const call = toolCalls[0];
-        const name = call.name || call.function?.name;
-        const args = typeof call.arguments === 'string' ? safeJson(call.arguments) : (call.arguments || {});
+        const fn = call.function || call;
+        const name = fn.name;
+        const rawArgs = fn.arguments;
+        const args = typeof rawArgs === 'string' ? safeJson(rawArgs) : (rawArgs || {});
+
         return {
           action: { tool: name, args, reasoning: call.reasoning || '' },
           done: name === 'task_complete' || name === 'task_fail',
-          usage: json?.result?.response?.usage,
+          usage: json?.result?.usage || json?.result?.response?.usage,
         };
       }
 
