@@ -1,4 +1,4 @@
-// agent/ai/cloudflare.js
+﻿// agent/ai/cloudflare.js
 // Cloudflare Workers AI provider (https://developers.cloudflare.com/workers-ai/)
 // Uses the REST inference API. Supports function-calling capable models like
 // @cf/meta/llama-3.1-8b-instruct (others may ignore tools; we fall back to
@@ -96,6 +96,26 @@ export function cloudflareProvider({ config }) {
           usage: json?.result?.response?.usage,
         };
       }
+      // Handle direct Cloudflare browser results.
+      if (content) {
+        try {
+          const direct = JSON.parse(content);
+          if (direct && typeof direct.result === 'string') {
+            return {
+              action: {
+                tool: 'task_complete',
+                args: { result: direct.result },
+                reasoning: '',
+              },
+              done: true,
+              usage: json?.result?.usage || json?.result?.response?.usage,
+            };
+          }
+        } catch {
+          // Continue to normal error handling.
+        }
+      }
+
 
 
       throw new Error(`Cloudflare AI returned no actionable response: ${String(content).slice(0, 300)}`);
@@ -150,4 +170,5 @@ function extractJsonAction(content) {
   }
   return null;
 }
+
 
