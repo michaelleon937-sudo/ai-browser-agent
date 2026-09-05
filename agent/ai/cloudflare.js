@@ -20,7 +20,7 @@ Use the SHORTHAND for element refs: when the snapshot has elements like "ref=e12
 
 export function cloudflareProvider({ config }) {
   const { accountId, apiToken, model } = config.ai.cloudflare;
-  const baseUrl = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${encodeURIComponent(model)}`;
+  const baseUrl = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`;
 
 
   return {
