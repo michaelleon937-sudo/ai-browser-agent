@@ -2,11 +2,11 @@
 services:
   - type: web
     name: ai-browser-agent
-    env: docker
+    runtime: docker
     plan: standard
     region: oregon
-    dockerfilePath: ../Dockerfile
-    dockerContext: ..
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
     healthCheckPath: /healthz
     autoDeploy: true
     disk:
