@@ -29,9 +29,11 @@ export function cloudflareProvider({ config }) {
     async nextAction({ goal, history, observation, availableTools }) {
       const tools = availableTools.map((t) => ({
         type: 'function',
-        name: t.name,
-        description: t.description,
-        parameters: t.parameters,
+        function: {
+          name: t.name,
+          description: t.description,
+          parameters: t.parameters,
+        },
       }));
 
 
@@ -49,7 +51,9 @@ export function cloudflareProvider({ config }) {
         },
         body: JSON.stringify({
           messages,
-          max_tokens: 1024,
+          tools,
+          tool_choice: 'auto',
+          max_tokens: 2048,
         }),
       });
 
@@ -97,7 +101,7 @@ function buildUserPrompt({ goal, history, observation }) {
   const recent = (history?.steps || []).slice(-12).map((s, i) => {
     const obs = s.observation ? `\n   observation: ${truncate(JSON.stringify(s.observation), 600)}` : '';
     const err = s.errorMessage ? `\n   error: ${truncate(s.errorMessage, 200)}` : '';
-    return `${i + 1}. ${s.tool}(${truncate(JSON.stringify(s.action?.args || {}), 200)}) → ${s.status}${obs}${err}`;
+    return `${i + 1}. ${s.tool}(${truncate(JSON.stringify(s.action?.args || {}), 200)}) -> ${s.status}${obs}${err}`;
   }).join('\n');
   const obs = observation ? `\nCurrent page observation:\n${truncate(JSON.stringify(observation), 1500)}` : '';
   return `GOAL: ${goal}\n\nRecent steps (latest last):\n${recent || '(none yet)'}${obs}\n\nPick the next single tool call.`;
@@ -106,7 +110,7 @@ function buildUserPrompt({ goal, history, observation }) {
 
 function truncate(s, n) {
   s = String(s);
-  return s.length > n ? s.slice(0, n) + '…' : s;
+  return s.length > n ? s.slice(0, n) + '...' : s;
 }
 
 
@@ -139,3 +143,4 @@ function extractJsonAction(content) {
   }
   return null;
 }
+
