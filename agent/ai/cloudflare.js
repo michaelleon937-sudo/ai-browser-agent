@@ -49,8 +49,6 @@ export function cloudflareProvider({ config }) {
         },
         body: JSON.stringify({
           messages,
-          tools,
-          tool_choice: 'auto',
           max_tokens: 1024,
         }),
       });
