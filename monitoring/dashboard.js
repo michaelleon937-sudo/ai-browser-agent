@@ -142,43 +142,363 @@ export function stopDashboard() {
 
 
 function renderHomePage() {
-  const recentTasks = tasks.list({ limit: 10 });
+  const recentTasks = tasks.list({ limit: 20 });
+
   const rows = recentTasks.map((t) => `
     <tr>
-      <td>${escapeHtml(t.name)}</td>
-      <td>${t.status}</td>
-      <td>${t.cron_expression || 'â€”'}</td>
-      <td>${t.last_run_at || 'â€”'}</td>
-      <td>${t.next_run_at || 'â€”'}</td>
-    </tr>`).join('\n');
-
+      <td><strong>${escapeHtml(t.name)}</strong></td>
+      <td><span class="status">${escapeHtml(t.status)}</span></td>
+      <td>${escapeHtml(t.cron_expression || 'Run once')}</td>
+      <td>${escapeHtml(t.last_run_at || '—')}</td>
+      <td><button onclick="runTask('${escapeHtml(t.id)}')">Run</button></td>
+    </tr>
+  `).join('');
 
   return `<!doctype html>
-<html><head><meta charset="utf-8"><title>AI Browser Agent</title>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AI Real Estate Automation</title>
+
 <style>
-  body { font-family: system-ui, sans-serif; margin: 2rem; background:#0b0d12; color:#e5e7eb; }
-  h1 { font-size: 1.25rem; }
-  table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
-  th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid #23262f; font-size: 0.9rem; }
-  th { color: #9ca3af; font-weight: 600; }
-  .pill { padding: 2px 8px; border-radius: 999px; font-size: 0.75rem; }
-</style>
-</head>
-<body>
-  <h1>ðŸ¤– AI Browser Agent â€” Dashboard</h1>
-  <p>Uptime: ${Math.round(process.uptime())}s Â· Provider: <code>${config.ai.provider}</code></p>
-  <table>
-    <thead><tr><th>Task</th><th>Status</th><th>Cron</th><th>Last run</th><th>Next run</th></tr></thead>
-    <tbody>${rows || '<tr><td colspan="5">No tasks yet.</td></tr>'}</tbody>
-  </table>
-  <p style="margin-top:2rem;color:#6b7280;font-size:0.8rem;">
-    JSON API: /api/tasks, /api/runs, /api/errors, /api/approvals, /api/notifications
-  </p>
-</body></html>`;
+* { box-sizing:border-box; }
+
+body {
+  margin:0;
+  font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  background:#080b12;
+  color:#f3f4f6;
 }
 
+.container {
+  max-width:1200px;
+  margin:auto;
+  padding:40px 24px 60px;
+}
+
+.header {
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  margin-bottom:32px;
+}
+
+h1 {
+  margin:0;
+  font-size:30px;
+  letter-spacing:-.5px;
+}
+
+.subtitle {
+  color:#9ca3af;
+  margin-top:7px;
+}
+
+.card {
+  background:#111621;
+  border:1px solid #252b38;
+  border-radius:16px;
+  padding:24px;
+  margin-bottom:24px;
+  box-shadow:0 10px 30px rgba(0,0,0,.25);
+}
+
+.card h2 {
+  margin:0 0 20px;
+  font-size:20px;
+}
+
+.grid {
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:18px;
+}
+
+.field {
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+
+.full {
+  grid-column:1 / -1;
+}
+
+label {
+  color:#cbd5e1;
+  font-size:14px;
+  font-weight:600;
+}
+
+input, textarea, select {
+  width:100%;
+  border:1px solid #303746;
+  background:#0b0f18;
+  color:#f9fafb;
+  border-radius:10px;
+  padding:12px 13px;
+  outline:none;
+  font-size:14px;
+}
+
+textarea {
+  min-height:130px;
+  resize:vertical;
+}
+
+input:focus, textarea:focus, select:focus {
+  border-color:#64748b;
+}
+
+.actions {
+  margin-top:20px;
+  display:flex;
+  gap:12px;
+}
+
+button {
+  border:0;
+  border-radius:10px;
+  padding:11px 17px;
+  background:#f3f4f6;
+  color:#090b10;
+  font-weight:700;
+  cursor:pointer;
+}
+
+button:hover {
+  opacity:.88;
+}
+
+.secondary {
+  background:#202735;
+  color:#f3f4f6;
+}
+
+table {
+  width:100%;
+  border-collapse:collapse;
+}
+
+th, td {
+  padding:14px 10px;
+  border-bottom:1px solid #252b38;
+  text-align:left;
+  font-size:14px;
+}
+
+th {
+  color:#9ca3af;
+  font-weight:600;
+}
+
+.status {
+  display:inline-block;
+  padding:5px 9px;
+  border-radius:999px;
+  background:#1d2939;
+  color:#dbeafe;
+  font-size:12px;
+}
+
+.notice {
+  color:#9ca3af;
+  font-size:13px;
+  margin-top:12px;
+}
+
+@media(max-width:750px) {
+  .grid { grid-template-columns:1fr; }
+  .full { grid-column:auto; }
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+  <div class="header">
+    <div>
+      <h1>🤖 AI Real Estate Automation</h1>
+      <div class="subtitle">
+        Autonomous lead generation, research and marketing automation
+      </div>
+    </div>
+
+    <button class="secondary" onclick="location.reload()">Refresh</button>
+  </div>
+
+  <div class="card">
+
+    <h2>Create New Task</h2>
+
+    <div class="grid">
+
+      <div class="field">
+        <label>Task Name</label>
+        <input id="name" placeholder="e.g. Tanzania Real Estate Leads">
+      </div>
+
+      <div class="field">
+        <label>Target Location</label>
+        <input id="location" placeholder="e.g. Dar es Salaam, Tanzania">
+      </div>
+
+      <div class="field full">
+        <label>AI Prompt / Task Goal</label>
+        <textarea id="goal" placeholder="Tell the AI exactly what you want it to research or automate..."></textarea>
+      </div>
+
+      <div class="field">
+        <label>Maximum Results</label>
+        <input id="maxResults" type="number" value="10" min="1" max="1000">
+      </div>
+
+      <div class="field">
+        <label>Schedule</label>
+        <select id="schedule">
+          <option value="">Run Once</option>
+          <option value="0 9 * * *">Every day at 09:00</option>
+          <option value="0 9 * * 1-5">Every weekday at 09:00</option>
+          <option value="0 9 * * 1">Every Monday at 09:00</option>
+          <option value="0 9 * * 1,3,5">Monday / Wednesday / Friday</option>
+        </select>
+      </div>
+
+    </div>
+
+    <div class="actions">
+      <button onclick="createTask()">Create & Run Task</button>
+    </div>
+
+    <div id="message" class="notice"></div>
+
+  </div>
+
+  <div class="card">
+
+    <h2>Active Tasks</h2>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Task</th>
+          <th>Status</th>
+          <th>Schedule</th>
+          <th>Last Run</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+
+      <tbody>
+        ${rows || `
+        <tr>
+          <td colspan="5">No tasks yet.</td>
+        </tr>`}
+      </tbody>
+
+    </table>
+
+  </div>
+
+</div>
+
+<script>
+
+async function createTask() {
+
+  const name = document.getElementById('name').value.trim();
+  const goal = document.getElementById('goal').value.trim();
+  const location = document.getElementById('location').value.trim();
+  const maxResults = document.getElementById('maxResults').value;
+  const cronExpression = document.getElementById('schedule').value;
+
+  if (!name || !goal) {
+    document.getElementById('message').textContent =
+      'Please enter a Task Name and AI Prompt.';
+    return;
+  }
+
+  let finalGoal = goal;
+
+  if (location) {
+    finalGoal += "\\n\\nTarget Location: " + location;
+  }
+
+  if (maxResults) {
+    finalGoal += "\\nMaximum Results: " + maxResults;
+  }
+
+  document.getElementById('message').textContent =
+    'Creating task...';
+
+  try {
+
+    const response = await fetch('/api/tasks', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        name,
+        goal:finalGoal,
+        cronExpression,
+        metadata:{
+          targetLocation:location,
+          maximumResults:Number(maxResults || 10),
+          taskType:'real_estate'
+        }
+      })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to create task');
+    }
+
+    await fetch('/api/tasks/' + data.id + '/run', {
+      method:'POST'
+    });
+
+    document.getElementById('message').textContent =
+      'Task created and started successfully.';
+
+    setTimeout(() => location.reload(), 1200);
+
+  } catch(error) {
+
+    document.getElementById('message').textContent =
+      'Error: ' + error.message;
+
+  }
+}
+
+async function runTask(id) {
+
+  try {
+
+    await fetch('/api/tasks/' + id + '/run', {
+      method:'POST'
+    });
+
+    location.reload();
+
+  } catch(error) {
+
+    alert(error.message);
+
+  }
+}
+
+</script>
+
+</body>
+</html>`;
+}
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
+
 
