@@ -1,4 +1,4 @@
-// monitoring/dashboard.js
+﻿// monitoring/dashboard.js
 // Minimal Express dashboard + JSON API. Serves:
 //   GET  /                      health/status page (HTML)
 //   GET  /api/tasks             list tasks
@@ -147,9 +147,9 @@ function renderHomePage() {
     <tr>
       <td>${escapeHtml(t.name)}</td>
       <td>${t.status}</td>
-      <td>${t.cron_expression || '—'}</td>
-      <td>${t.last_run_at || '—'}</td>
-      <td>${t.next_run_at || '—'}</td>
+      <td>${t.cron_expression || 'â€”'}</td>
+      <td>${t.last_run_at || 'â€”'}</td>
+      <td>${t.next_run_at || 'â€”'}</td>
     </tr>`).join('\n');
 
 
@@ -165,8 +165,8 @@ function renderHomePage() {
 </style>
 </head>
 <body>
-  <h1>🤖 AI Browser Agent — Dashboard</h1>
-  <p>Uptime: ${Math.round(process.uptime())}s · Provider: <code>${config.ai.provider}</code></p>
+  <h1>ðŸ¤– AI Browser Agent â€” Dashboard</h1>
+  <p>Uptime: ${Math.round(process.uptime())}s Â· Provider: <code>${config.ai.provider}</code></p>
   <table>
     <thead><tr><th>Task</th><th>Status</th><th>Cron</th><th>Last run</th><th>Next run</th></tr></thead>
     <tbody>${rows || '<tr><td colspan="5">No tasks yet.</td></tr>'}</tbody>
@@ -181,3 +181,4 @@ function renderHomePage() {
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
+
