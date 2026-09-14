@@ -62,4 +62,29 @@ describe('agent/ai', () => {
     }
     expect(last.action.tool).toBe('task_complete');
   });
+
+  it('registers generate_website as a known tool with a structured schema', () => {
+    expect(isKnownTool('generate_website')).toBe(true);
+    const tool = ACTION_TOOLS.find((t) => t.name === 'generate_website');
+    expect(tool).toBeTruthy();
+    expect(tool.parameters.type).toBe('object');
+    expect(tool.parameters.properties).toHaveProperty('prospectName');
+    expect(tool.parameters.properties).toHaveProperty('propertyListings');
+  });
+
+  it('does not flag generate_website as sensitive (no human approval needed to draft a sample)', () => {
+    process.env.HUMAN_APPROVAL_REQUIRED = 'true';
+    expect(isSensitive('generate_website', { prospectName: 'Acme' })).toBe(false);
+  });
+
+  it('the stub provider routes a website-generation goal to generate_website', async () => {
+    const provider = getProvider();
+    const { action } = await provider.nextAction({
+      goal: 'Generate a speculative real-estate website sample for a fictional company called Example Property Tanzania.',
+      history: { steps: [] },
+      observation: {},
+      availableTools: ACTION_TOOLS,
+    });
+    expect(action.tool).toBe('generate_website');
+  });
 });

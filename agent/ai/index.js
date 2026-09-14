@@ -78,6 +78,7 @@ const TOOL_NAMES = new Set([
   'task_complete',
   'task_fail',
   'request_human_approval',
+  'generate_website',
 ]);
 
 
@@ -114,6 +115,48 @@ export const ACTION_TOOLS = [
   { type: 'function', name: 'task_complete', description: 'Mark the task complete and provide a final result summary.', parameters: { type: 'object', properties: { result: { type: 'string' } }, required: ['result'] } },
   { type: 'function', name: 'task_fail', description: 'Abort the task with a clear reason.', parameters: { type: 'object', properties: { reason: { type: 'string' } }, required: ['reason'] } },
   { type: 'function', name: 'request_human_approval', description: 'Pause and request human approval before a sensitive action.', parameters: { type: 'object', properties: { what: { type: 'string' }, why: { type: 'string' } }, required: ['what','why'] } },
+  {
+    type: 'function',
+    name: 'generate_website',
+    description: 'Generates a speculative real-estate website sample/concept (static HTML/CSS/JS) from structured input. This does NOT publish, deploy, or send the website to anyone — it only creates a local sample the human can review. Do not invent facts (testimonials, awards, stats, property details) that were not provided; use placeholders instead.',
+    parameters: {
+      type: 'object',
+      properties: {
+        prospectName: { type: 'string', description: 'Name of the prospect business.' },
+        businessType: { type: 'string', description: 'e.g. "Real Estate Agency", "Property Developer".' },
+        location: { type: 'string', description: 'City/region the business operates in.' },
+        websiteGoal: { type: 'string', description: 'What the sample website should communicate or achieve.' },
+        brandStyle: { type: 'string', description: 'e.g. "modern", "luxury", "minimal", "sharp".' },
+        primaryColor: { type: 'string', description: 'Hex color, e.g. "#1a2b4c".' },
+        secondaryColor: { type: 'string', description: 'Hex color, e.g. "#c9a227".' },
+        sections: { type: 'array', items: { type: 'string' }, description: 'Which sections to include, e.g. ["hero","about","services","properties","why","contact","cta","footer"].' },
+        services: { type: 'array', items: { type: 'string' }, description: 'Services offered, listed as-is (no invented services).' },
+        propertyListings: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              title: { type: 'string' },
+              location: { type: 'string' },
+              price: { type: 'string' },
+              description: { type: 'string' },
+            },
+          },
+          description: 'Only include real/provided listings — never fabricate property facts.',
+        },
+        contactInformation: {
+          type: 'object',
+          properties: {
+            phone: { type: 'string' },
+            email: { type: 'string' },
+            address: { type: 'string' },
+          },
+        },
+        callToAction: { type: 'string', description: 'Primary call-to-action text, e.g. "Book a viewing".' },
+      },
+      required: [],
+    },
+  },
 ];
 
 

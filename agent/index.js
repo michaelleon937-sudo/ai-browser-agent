@@ -10,11 +10,12 @@
 
 
 import browser from '../browser/index.js';
-import { tasks, runs, steps, errors as dbErrors, kv, sessions, notifications } from '../database/index.js';
+import { tasks, runs, steps, errors as dbErrors, kv, sessions, notifications, websiteSamples } from '../database/index.js';
 import { config, redact } from '../config/index.js';
 import { getProvider, isKnownTool, ACTION_TOOLS, isSensitive } from './ai/index.js';
 import { notify } from '../notifications/index.js';
 import { enqueueApproval, awaitApproval } from './approval.js';
+import { generateWebsite } from '../integrations/website-gen.js';
 
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -173,6 +174,7 @@ export async function runAgent({ taskId, goal: providedGoal, onEvent, runId: pro
         stepTimeoutMs: config.agent.stepTimeoutMs,
         maxRetries: config.agent.maxRetriesPerStep,
         onAttempt: (attempt) => { state.retriesTotal++; },
+        context: { taskId: task?.id, runId: run.id },
       });
 
 
@@ -248,12 +250,12 @@ async function observeLight() {
 }
 
 
-async function executeWithRetry(action, { stepTimeoutMs, maxRetries, onAttempt }) {
+async function executeWithRetry(action, { stepTimeoutMs, maxRetries, onAttempt, context }) {
   let lastErr = null;
   for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
     if (attempt > 1) onAttempt(attempt - 1);
     try {
-      const observation = await withTimeout(executeAction(action), stepTimeoutMs);
+      const observation = await withTimeout(executeAction(action, context), stepTimeoutMs);
       return { ok: true, observation };
     } catch (err) {
       lastErr = err;
@@ -276,8 +278,11 @@ function withTimeout(promise, ms) {
 }
 
 
-// Maps a tool-call action to a browser call.
-async function executeAction(action) {
+// Maps a tool-call action to a browser call (or, for non-browser tools such
+// as generate_website, to the relevant integration module). `context` carries
+// { taskId, runId } so non-browser tools can attribute their output to the
+// current task/run without a second execution system.
+async function executeAction(action, context = {}) {
   const { tool, args = {} } = action;
   switch (tool) {
     case 'browser_navigate':           return browser.navigate(args.url, args);
@@ -301,6 +306,26 @@ async function executeAction(action) {
     case 'browser_wait_for_text':      return browser.waitForText(args.text, args);
     case 'browser_wait_ms':            return browser.waitMs(args.ms);
     case 'request_human_approval':     return { requested: true, ...args };
+    case 'generate_website': {
+      // Non-browser tool: does not touch Playwright at all.
+      const result = generateWebsite(args);
+      websiteSamples.create({
+        id: result.sampleId,
+        taskId: context.taskId,
+        runId: context.runId,
+        prospectName: args.prospectName,
+        status: result.status,
+        businessType: args.businessType,
+        location: args.location,
+        websiteGoal: args.websiteGoal,
+        style: args.brandStyle,
+        files: result.files,
+        previewPath: result.previewPath,
+      });
+      // Don't leak the absolute on-disk directory to the AI/dashboard consumer.
+      const { dir, ...observation } = result;
+      return observation;
+    }
     default:
       throw new Error(`Tool not implemented in executor: ${tool}`);
   }

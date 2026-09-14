@@ -78,6 +78,13 @@ export const config = {
   },
 
 
+  storage: {
+    // Generated, non-source artifacts (website samples, future generated
+    // assets) live under DATA_DIR, never inside the source tree.
+    websiteSamplesDir: process.env.WEBSITE_SAMPLES_DIR || path.join(DATA_DIR, 'website-samples'),
+  },
+
+
   scheduler: {
     tickMs: num(process.env.SCHEDULER_TICK_MS, 15_000),
     defaultTimezone: process.env.SCHEDULER_DEFAULT_TZ || 'UTC',
@@ -106,6 +113,7 @@ export function ensureDirs() {
   fs.mkdirSync(config.browser.userDataDir, { recursive: true });
   fs.mkdirSync(config.browser.screenshotDir, { recursive: true });
   fs.mkdirSync(path.dirname(config.database.path), { recursive: true });
+  fs.mkdirSync(config.storage.websiteSamplesDir, { recursive: true });
 }
 
 

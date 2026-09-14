@@ -4,13 +4,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
-let tasks, runs, steps, migrate, closeDb;
+let tasks, runs, steps, migrate, closeDb, websiteSamples;
 let tmpDbPath;
 
 beforeAll(async () => {
   tmpDbPath = path.join(os.tmpdir(), `agent-test-${Date.now()}.db`);
   process.env.DATABASE_PATH = tmpDbPath;
-  ({ tasks, runs, steps, migrate, closeDb } = await import('../../database/index.js'));
+  ({ tasks, runs, steps, migrate, closeDb, websiteSamples } = await import('../../database/index.js'));
   migrate();
 });
 
@@ -61,5 +61,47 @@ describe('database/runs + steps', () => {
 
     runs.finish(run.id, { status: 'success', result: { result: 'done' } });
     expect(runs.get(run.id).status).toBe('success');
+  });
+});
+
+describe('database/websiteSamples', () => {
+  it('creates and retrieves a website sample record', () => {
+    const t = tasks.create({ name: 'Website task', goal: 'Generate a sample' });
+    const run = runs.start({ taskId: t.id });
+
+    const created = websiteSamples.create({
+      id: 'website_test123',
+      taskId: t.id,
+      runId: run.id,
+      prospectName: 'Example Property Tanzania',
+      status: 'SPECULATIVE_SAMPLE',
+      businessType: 'Real Estate Agency',
+      location: 'Dar es Salaam',
+      websiteGoal: 'Generate inquiries',
+      style: 'modern',
+      files: ['index.html', 'styles.css', 'script.js'],
+      previewPath: '/website-samples/website_test123/',
+    });
+
+    expect(created.id).toBe('website_test123');
+    expect(created.status).toBe('SPECULATIVE_SAMPLE');
+    expect(JSON.parse(created.files_json)).toEqual(['index.html', 'styles.css', 'script.js']);
+
+    const fetched = websiteSamples.get('website_test123');
+    expect(fetched.prospect_name).toBe('Example Property Tanzania');
+    expect(fetched.task_id).toBe(t.id);
+    expect(fetched.run_id).toBe(run.id);
+  });
+
+  it('lists website samples most-recent first', () => {
+    websiteSamples.create({ id: 'website_list_a', prospectName: 'A', files: [] });
+    websiteSamples.create({ id: 'website_list_b', prospectName: 'B', files: [] });
+    const list = websiteSamples.list({ limit: 10 });
+    expect(list.map((r) => r.id)).toContain('website_list_a');
+    expect(list.map((r) => r.id)).toContain('website_list_b');
+  });
+
+  it('returns undefined for an unknown sample id', () => {
+    expect(websiteSamples.get('website_does_not_exist')).toBeUndefined();
   });
 });

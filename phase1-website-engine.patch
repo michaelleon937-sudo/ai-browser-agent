@@ -1,0 +1,1038 @@
+diff --git a/agent/ai/index.js b/agent/ai/index.js
+index 5fd358f..161c093 100644
+--- a/agent/ai/index.js
++++ b/agent/ai/index.js
+@@ -78,6 +78,7 @@ const TOOL_NAMES = new Set([
+   'task_complete',
+   'task_fail',
+   'request_human_approval',
++  'generate_website',
+ ]);
+ 
+ 
+@@ -114,6 +115,48 @@ export const ACTION_TOOLS = [
+   { type: 'function', name: 'task_complete', description: 'Mark the task complete and provide a final result summary.', parameters: { type: 'object', properties: { result: { type: 'string' } }, required: ['result'] } },
+   { type: 'function', name: 'task_fail', description: 'Abort the task with a clear reason.', parameters: { type: 'object', properties: { reason: { type: 'string' } }, required: ['reason'] } },
+   { type: 'function', name: 'request_human_approval', description: 'Pause and request human approval before a sensitive action.', parameters: { type: 'object', properties: { what: { type: 'string' }, why: { type: 'string' } }, required: ['what','why'] } },
++  {
++    type: 'function',
++    name: 'generate_website',
++    description: 'Generates a speculative real-estate website sample/concept (static HTML/CSS/JS) from structured input. This does NOT publish, deploy, or send the website to anyone — it only creates a local sample the human can review. Do not invent facts (testimonials, awards, stats, property details) that were not provided; use placeholders instead.',
++    parameters: {
++      type: 'object',
++      properties: {
++        prospectName: { type: 'string', description: 'Name of the prospect business.' },
++        businessType: { type: 'string', description: 'e.g. "Real Estate Agency", "Property Developer".' },
++        location: { type: 'string', description: 'City/region the business operates in.' },
++        websiteGoal: { type: 'string', description: 'What the sample website should communicate or achieve.' },
++        brandStyle: { type: 'string', description: 'e.g. "modern", "luxury", "minimal", "sharp".' },
++        primaryColor: { type: 'string', description: 'Hex color, e.g. "#1a2b4c".' },
++        secondaryColor: { type: 'string', description: 'Hex color, e.g. "#c9a227".' },
++        sections: { type: 'array', items: { type: 'string' }, description: 'Which sections to include, e.g. ["hero","about","services","properties","why","contact","cta","footer"].' },
++        services: { type: 'array', items: { type: 'string' }, description: 'Services offered, listed as-is (no invented services).' },
++        propertyListings: {
++          type: 'array',
++          items: {
++            type: 'object',
++            properties: {
++              title: { type: 'string' },
++              location: { type: 'string' },
++              price: { type: 'string' },
++              description: { type: 'string' },
++            },
++          },
++          description: 'Only include real/provided listings — never fabricate property facts.',
++        },
++        contactInformation: {
++          type: 'object',
++          properties: {
++            phone: { type: 'string' },
++            email: { type: 'string' },
++            address: { type: 'string' },
++          },
++        },
++        callToAction: { type: 'string', description: 'Primary call-to-action text, e.g. "Book a viewing".' },
++      },
++      required: [],
++    },
++  },
+ ];
+ 
+ 
+diff --git a/agent/ai/stub.js b/agent/ai/stub.js
+index 7a94d31..6b8ba74 100644
+--- a/agent/ai/stub.js
++++ b/agent/ai/stub.js
+@@ -40,6 +40,30 @@ export function stubProvider() {
+       }
+ 
+ 
++      // ── Website Engine (Phase 1) smoke-test goal ─────────────────
++      if (/generate.*website|website.*sample|real.estate website/.test(g)) {
++        if (!steps.some((s) => s.tool === 'generate_website')) {
++          return call('generate_website', {
++            prospectName: 'Example Property Tanzania',
++            businessType: 'Real Estate Agency',
++            location: 'Dar es Salaam, Tanzania',
++            websiteGoal: 'Showcase available properties and generate inquiries',
++            brandStyle: 'modern',
++            primaryColor: '#1a2b4c',
++            secondaryColor: '#c9a227',
++            sections: ['hero', 'about', 'services', 'properties', 'why', 'contact', 'cta', 'footer'],
++            services: ['Property sales', 'Property rentals', 'Property management'],
++            propertyListings: [
++              { title: 'Sample listing — replace with real data', location: 'Dar es Salaam', price: 'TBD', description: 'Placeholder property for the speculative sample.' },
++            ],
++            contactInformation: { phone: '', email: '', address: 'Dar es Salaam, Tanzania' },
++            callToAction: 'Book a viewing',
++          }, 'generate a speculative website sample for the prospect');
++        }
++        return { action: { tool: 'task_complete', args: { result: 'Generated a speculative website sample.' }, reasoning: 'done' }, done: true };
++      }
++
++
+       // ── Form-filling practice goal ──────────────────────────────
+       if (/fill.*form|practice.*automation|automationexercise|theautomation/.test(g)) {
+         const done = (s) => steps.some((x) => x.tool === s);
+diff --git a/agent/index.js b/agent/index.js
+index c438cf1..5fb5298 100644
+--- a/agent/index.js
++++ b/agent/index.js
+@@ -10,11 +10,12 @@
+ 
+ 
+ import browser from '../browser/index.js';
+-import { tasks, runs, steps, errors as dbErrors, kv, sessions, notifications } from '../database/index.js';
++import { tasks, runs, steps, errors as dbErrors, kv, sessions, notifications, websiteSamples } from '../database/index.js';
+ import { config, redact } from '../config/index.js';
+ import { getProvider, isKnownTool, ACTION_TOOLS, isSensitive } from './ai/index.js';
+ import { notify } from '../notifications/index.js';
+ import { enqueueApproval, awaitApproval } from './approval.js';
++import { generateWebsite } from '../integrations/website-gen.js';
+ 
+ 
+ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+@@ -173,6 +174,7 @@ export async function runAgent({ taskId, goal: providedGoal, onEvent, runId: pro
+         stepTimeoutMs: config.agent.stepTimeoutMs,
+         maxRetries: config.agent.maxRetriesPerStep,
+         onAttempt: (attempt) => { state.retriesTotal++; },
++        context: { taskId: task?.id, runId: run.id },
+       });
+ 
+ 
+@@ -248,12 +250,12 @@ async function observeLight() {
+ }
+ 
+ 
+-async function executeWithRetry(action, { stepTimeoutMs, maxRetries, onAttempt }) {
++async function executeWithRetry(action, { stepTimeoutMs, maxRetries, onAttempt, context }) {
+   let lastErr = null;
+   for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
+     if (attempt > 1) onAttempt(attempt - 1);
+     try {
+-      const observation = await withTimeout(executeAction(action), stepTimeoutMs);
++      const observation = await withTimeout(executeAction(action, context), stepTimeoutMs);
+       return { ok: true, observation };
+     } catch (err) {
+       lastErr = err;
+@@ -276,8 +278,11 @@ function withTimeout(promise, ms) {
+ }
+ 
+ 
+-// Maps a tool-call action to a browser call.
+-async function executeAction(action) {
++// Maps a tool-call action to a browser call (or, for non-browser tools such
++// as generate_website, to the relevant integration module). `context` carries
++// { taskId, runId } so non-browser tools can attribute their output to the
++// current task/run without a second execution system.
++async function executeAction(action, context = {}) {
+   const { tool, args = {} } = action;
+   switch (tool) {
+     case 'browser_navigate':           return browser.navigate(args.url, args);
+@@ -301,6 +306,26 @@ async function executeAction(action) {
+     case 'browser_wait_for_text':      return browser.waitForText(args.text, args);
+     case 'browser_wait_ms':            return browser.waitMs(args.ms);
+     case 'request_human_approval':     return { requested: true, ...args };
++    case 'generate_website': {
++      // Non-browser tool: does not touch Playwright at all.
++      const result = generateWebsite(args);
++      websiteSamples.create({
++        id: result.sampleId,
++        taskId: context.taskId,
++        runId: context.runId,
++        prospectName: args.prospectName,
++        status: result.status,
++        businessType: args.businessType,
++        location: args.location,
++        websiteGoal: args.websiteGoal,
++        style: args.brandStyle,
++        files: result.files,
++        previewPath: result.previewPath,
++      });
++      // Don't leak the absolute on-disk directory to the AI/dashboard consumer.
++      const { dir, ...observation } = result;
++      return observation;
++    }
+     default:
+       throw new Error(`Tool not implemented in executor: ${tool}`);
+   }
+diff --git a/config/index.js b/config/index.js
+index 7f9c053..c76f53e 100644
+--- a/config/index.js
++++ b/config/index.js
+@@ -78,6 +78,13 @@ export const config = {
+   },
+ 
+ 
++  storage: {
++    // Generated, non-source artifacts (website samples, future generated
++    // assets) live under DATA_DIR, never inside the source tree.
++    websiteSamplesDir: process.env.WEBSITE_SAMPLES_DIR || path.join(DATA_DIR, 'website-samples'),
++  },
++
++
+   scheduler: {
+     tickMs: num(process.env.SCHEDULER_TICK_MS, 15_000),
+     defaultTimezone: process.env.SCHEDULER_DEFAULT_TZ || 'UTC',
+@@ -106,6 +113,7 @@ export function ensureDirs() {
+   fs.mkdirSync(config.browser.userDataDir, { recursive: true });
+   fs.mkdirSync(config.browser.screenshotDir, { recursive: true });
+   fs.mkdirSync(path.dirname(config.database.path), { recursive: true });
++  fs.mkdirSync(config.storage.websiteSamplesDir, { recursive: true });
+ }
+ 
+ 
+diff --git a/database/index.js b/database/index.js
+index 19982ac..de56959 100644
+--- a/database/index.js
++++ b/database/index.js
+@@ -35,6 +35,17 @@ export function migrate() {
+   const schemaPath = fileURLToPath(new URL('./schema.sql', import.meta.url));
+   const sql = fs.readFileSync(schemaPath, 'utf8');
+   getDb().exec(sql);
++
++  // Pre-existing gap (found while validating Phase 1 end-to-end): runAgent()
++  // uses the sentinel taskId 'ad-hoc' for goal-only runs with no parent task
++  // (agent/index.js), but no such row was ever seeded, which trips the
++  // runs.task_id FOREIGN KEY the moment it's enforced. Seed it idempotently
++  // here so ad-hoc runs (any tool, not just generate_website) work.
++  const now = new Date().toISOString();
++  getDb().prepare(`
++    INSERT OR IGNORE INTO tasks (id, name, goal, status, created_at, updated_at)
++    VALUES ('ad-hoc', 'Ad-hoc run', '(ad-hoc — goal supplied at run time)', 'idle', ?, ?)
++  `).run(now, now);
+ }
+ 
+ 
+@@ -218,6 +229,39 @@ export const sessions = {
+ };
+ 
+ 
++// ── website samples (generated by the Website Engine, Phase 1) ──────
++export const websiteSamples = {
++  create({ id, taskId, runId, prospectName, status, businessType, location, websiteGoal, style, files, previewPath }) {
++    const now = new Date().toISOString();
++    getDb().prepare(`
++      INSERT INTO website_samples
++        (id, task_id, run_id, prospect_name, status, business_type, location, website_goal, style, files_json, preview_path, created_at)
++      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
++    `).run(
++      id,
++      taskId || null,
++      runId || null,
++      prospectName || null,
++      status || 'SPECULATIVE_SAMPLE',
++      businessType || null,
++      location || null,
++      websiteGoal || null,
++      style || null,
++      JSON.stringify(files || []),
++      previewPath || null,
++      now,
++    );
++    return websiteSamples.get(id);
++  },
++  get(id) {
++    return getDb().prepare('SELECT * FROM website_samples WHERE id = ?').get(id);
++  },
++  list({ limit = 50 } = {}) {
++    return getDb().prepare('SELECT * FROM website_samples ORDER BY created_at DESC LIMIT ?').all(limit);
++  },
++};
++
++
+ // ── notifications log (sent notifications, for audit / dashboard) ───
+ export const notifications = {
+   record({ level, subject, body, channel, ok, errorMessage }) {
+diff --git a/database/schema.sql b/database/schema.sql
+index c98afc4..295d0bd 100644
+--- a/database/schema.sql
++++ b/database/schema.sql
+@@ -97,3 +97,24 @@ CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications_log (creat
+ 
+ -- pending_approvals is created lazily by agent/approval.js on first use,
+ -- since it is only needed when HUMAN_APPROVAL_REQUIRED=true.
++
++-- website_samples: generated by integrations/website-gen.js via the
++-- generate_website tool (Phase 1 — Website Engine). Every row represents a
++-- speculative sample, never a published/live site.
++CREATE TABLE IF NOT EXISTS website_samples (
++  id                TEXT PRIMARY KEY,   -- the sampleId returned by generateWebsite(), e.g. website_<nanoid>
++  task_id           TEXT,
++  run_id            TEXT,
++  prospect_name     TEXT,
++  status            TEXT NOT NULL DEFAULT 'SPECULATIVE_SAMPLE',
++  business_type     TEXT,
++  location          TEXT,
++  website_goal      TEXT,
++  style             TEXT,
++  files_json        TEXT,
++  preview_path      TEXT,
++  created_at        TEXT NOT NULL
++);
++
++CREATE INDEX IF NOT EXISTS idx_website_samples_created ON website_samples (created_at);
++CREATE INDEX IF NOT EXISTS idx_website_samples_task ON website_samples (task_id);
+diff --git a/integrations/website-gen.js b/integrations/website-gen.js
+new file mode 100644
+index 0000000..65cd43a
+--- /dev/null
++++ b/integrations/website-gen.js
+@@ -0,0 +1,337 @@
++// integrations/website-gen.js
++// Website Engine — Phase 1.
++//
++// Generates a speculative, non-published static website sample (index.html,
++// styles.css, script.js) for a real-estate prospect from structured input.
++// Every sample is marked SPECULATIVE_SAMPLE and is never automatically
++// published, deployed, or sent anywhere. This module has no knowledge of the
++// AI provider, the agent loop, or the browser — it is a pure generation
++// utility, called by the tool executor in agent/index.js.
++//
++// Safety properties (see SKILL/audit notes):
++//   - Output directory is server-generated (nanoid), never derived from
++//     user-supplied strings, so path traversal via prospectName etc. is
++//     structurally impossible.
++//   - All user-supplied strings are HTML-escaped before being interpolated
++//     into generated markup.
++//   - Nothing is fabricated: testimonials, awards, stats, and property facts
++//     are included only if explicitly provided; otherwise a clearly marked
++//     placeholder is used.
++//   - Generated JavaScript is written to disk only — it is never executed
++//     server-side.
++
++
++import fs from 'node:fs';
++import path from 'node:path';
++import { nanoid } from 'nanoid';
++import { config } from '../config/index.js';
++
++
++const STATUS = 'SPECULATIVE_SAMPLE';
++
++
++// ── safety helpers ────────────────────────────────────────────────
++
++function escapeHtml(value) {
++  return String(value ?? '').replace(/[&<>"']/g, (c) => ({
++    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
++  }[c]));
++}
++
++// Server-generated ID only — never built from user input. Still validated
++// defensively before ever touching the filesystem.
++function makeSampleId() {
++  return `website_${nanoid(12)}`;
++}
++
++const SAMPLE_ID_PATTERN = /^website_[A-Za-z0-9_-]{6,40}$/;
++
++export function isValidSampleId(id) {
++  return typeof id === 'string' && SAMPLE_ID_PATTERN.test(id);
++}
++
++// Resolves a sample's directory and guarantees the result is still inside
++// the configured samples root (defense in depth against path traversal,
++// even though isValidSampleId() already rejects '..' and '/').
++export function resolveSampleDir(id) {
++  if (!isValidSampleId(id)) {
++    throw new Error('Invalid website sample id');
++  }
++  const root = path.resolve(config.storage.websiteSamplesDir);
++  const dir = path.resolve(root, id);
++  if (dir !== root && !dir.startsWith(root + path.sep)) {
++    throw new Error('Resolved sample path escapes the samples root');
++  }
++  return dir;
++}
++
++function placeholder(label) {
++  return `[${label} — add real content before using this sample]`;
++}
++
++
++// ── content builders ──────────────────────────────────────────────
++
++function buildSections(opts) {
++  const {
++    prospectName, businessType, location, websiteGoal, brandStyle,
++    services, propertyListings, contactInformation, callToAction, sections,
++  } = opts;
++
++  const name = escapeHtml(prospectName || placeholder('Business name'));
++  const type = escapeHtml(businessType || 'Real Estate');
++  const loc = escapeHtml(location || placeholder('Location'));
++  const goal = escapeHtml(websiteGoal || '');
++  const style = escapeHtml(brandStyle || 'modern');
++
++  const svcList = Array.isArray(services) && services.length
++    ? services.map((s) => `<li class="service-item">${escapeHtml(s)}</li>`).join('\n        ')
++    : `<li class="service-item">${escapeHtml(placeholder('Add services offered'))}</li>`;
++
++  const properties = Array.isArray(propertyListings) && propertyListings.length
++    ? propertyListings.map((p) => `
++        <div class="property-card">
++          <div class="property-image-placeholder">${escapeHtml(placeholder('Property photo'))}</div>
++          <h3>${escapeHtml(p.title || placeholder('Property title'))}</h3>
++          <p class="property-meta">${escapeHtml(p.location || '')}${p.price ? ' · ' + escapeHtml(p.price) : ''}</p>
++          <p>${escapeHtml(p.description || placeholder('Property description'))}</p>
++        </div>`).join('\n')
++    : `
++        <div class="property-card">
++          <div class="property-image-placeholder">${escapeHtml(placeholder('Property photo'))}</div>
++          <h3>${escapeHtml(placeholder('Sample property — replace with real listing'))}</h3>
++        </div>`;
++
++  const contact = contactInformation || {};
++  const contactBlock = `
++        <p>${escapeHtml(contact.phone || placeholder('Phone number'))}</p>
++        <p>${escapeHtml(contact.email || placeholder('Email address'))}</p>
++        <p>${escapeHtml(contact.address || loc)}</p>`;
++
++  const cta = escapeHtml(callToAction || 'Get in touch to learn more');
++
++  const wantSections = Array.isArray(sections) && sections.length
++    ? sections.map((s) => String(s).toLowerCase())
++    : ['hero', 'about', 'services', 'properties', 'why', 'contact', 'cta', 'footer'];
++
++  const has = (s) => wantSections.includes(s);
++
++  const parts = [];
++
++  if (has('hero')) {
++    parts.push(`
++  <header class="hero">
++    <nav class="navbar">
++      <div class="logo">${name}</div>
++      <div class="nav-links"><a href="#about">About</a><a href="#services">Services</a><a href="#properties">Properties</a><a href="#contact">Contact</a></div>
++    </nav>
++    <div class="hero-content">
++      <h1>${name}</h1>
++      <p class="hero-subtitle">${type} in ${loc}</p>
++      ${goal ? `<p class="hero-goal">${goal}</p>` : ''}
++      <a href="#contact" class="btn-primary">${cta}</a>
++    </div>
++  </header>`);
++  }
++
++  if (has('about')) {
++    parts.push(`
++  <section id="about" class="section about">
++    <h2>About ${name}</h2>
++    <p>${escapeHtml(placeholder('Add a real company description here'))}</p>
++  </section>`);
++  }
++
++  if (has('services')) {
++    parts.push(`
++  <section id="services" class="section services">
++    <h2>Our Services</h2>
++    <ul class="service-list">
++        ${svcList}
++    </ul>
++  </section>`);
++  }
++
++  if (has('properties')) {
++    parts.push(`
++  <section id="properties" class="section properties">
++    <h2>Featured Properties</h2>
++    <p class="section-note">${escapeHtml(placeholder('Sample data — replace with verified listings'))}</p>
++    <div class="property-grid">${properties}
++    </div>
++  </section>`);
++  }
++
++  if (has('why')) {
++    parts.push(`
++  <section class="section why-choose-us">
++    <h2>Why Choose Us</h2>
++    <p>${escapeHtml(placeholder('Add real differentiators — do not invent claims'))}</p>
++  </section>`);
++  }
++
++  if (has('contact')) {
++    parts.push(`
++  <section id="contact" class="section contact">
++    <h2>Contact Us</h2>
++    ${contactBlock}
++  </section>`);
++  }
++
++  if (has('cta')) {
++    parts.push(`
++  <section class="section cta-band">
++    <h2>${cta}</h2>
++    <a href="#contact" class="btn-primary">Contact Us</a>
++  </section>`);
++  }
++
++  if (has('footer')) {
++    parts.push(`
++  <footer class="footer">
++    <p>&copy; ${new Date().getFullYear()} ${name}. Speculative sample — not a live site.</p>
++  </footer>`);
++  }
++
++  return { html: parts.join('\n'), style, name };
++}
++
++function buildHtml(opts) {
++  const { html, name } = buildSections(opts);
++  return `<!doctype html>
++<html lang="en">
++<head>
++  <meta charset="utf-8">
++  <meta name="viewport" content="width=device-width, initial-scale=1">
++  <title>${name} — Sample Website (Speculative)</title>
++  <meta name="robots" content="noindex, nofollow">
++  <link rel="stylesheet" href="styles.css">
++</head>
++<body>
++  <div class="sample-banner">SPECULATIVE SAMPLE — generated concept, not a live or published website.</div>
++${html}
++  <script src="script.js"></script>
++</body>
++</html>
++`;
++}
++
++function buildCss({ primaryColor, secondaryColor, brandStyle }) {
++  const primary = /^#[0-9a-fA-F]{3,8}$/.test(primaryColor || '') ? primaryColor : '#1a2b4c';
++  const secondary = /^#[0-9a-fA-F]{3,8}$/.test(secondaryColor || '') ? secondaryColor : '#c9a227';
++  const roundness = brandStyle === 'sharp' ? '2px' : '12px';
++
++  return `/* Generated by Website Engine (Phase 1) — speculative sample */
++:root {
++  --primary: ${primary};
++  --secondary: ${secondary};
++  --radius: ${roundness};
++}
++* { box-sizing: border-box; margin: 0; padding: 0; }
++body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #1c1c1c; line-height: 1.6; }
++.sample-banner { background: #b91c1c; color: #fff; text-align: center; font-size: 13px; padding: 8px; }
++.navbar { display: flex; justify-content: space-between; align-items: center; padding: 20px 6%; }
++.logo { font-weight: 800; font-size: 20px; color: var(--primary); }
++.nav-links a { margin-left: 20px; text-decoration: none; color: #333; font-weight: 500; }
++.hero { background: linear-gradient(135deg, var(--primary), #10151f); color: #fff; }
++.hero-content { padding: 80px 6% 100px; max-width: 720px; }
++.hero-content h1 { font-size: 44px; margin-bottom: 10px; }
++.hero-subtitle { font-size: 18px; opacity: .85; margin-bottom: 18px; }
++.hero-goal { opacity: .75; margin-bottom: 24px; }
++.btn-primary { display: inline-block; background: var(--secondary); color: #111; padding: 13px 26px; border-radius: var(--radius); text-decoration: none; font-weight: 700; }
++.section { padding: 60px 6%; max-width: 1100px; margin: 0 auto; }
++.section h2 { font-size: 28px; margin-bottom: 18px; color: var(--primary); }
++.section-note { font-size: 13px; color: #b91c1c; margin-bottom: 16px; }
++.service-list { list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px,1fr)); gap: 14px; }
++.service-item { background: #f4f4f6; border-radius: var(--radius); padding: 16px; }
++.property-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px,1fr)); gap: 20px; margin-top: 18px; }
++.property-card { border: 1px solid #e5e5e5; border-radius: var(--radius); padding: 16px; }
++.property-image-placeholder { background: #eee; border-radius: var(--radius); height: 140px; display: flex; align-items: center; justify-content: center; font-size: 12px; color: #888; margin-bottom: 10px; text-align: center; padding: 8px; }
++.why-choose-us { background: #f9fafb; }
++.cta-band { background: var(--primary); color: #fff; text-align: center; border-radius: var(--radius); }
++.cta-band h2 { color: #fff; }
++.footer { text-align: center; padding: 30px 6%; color: #888; font-size: 13px; }
++@media (max-width: 700px) {
++  .nav-links { display: none; }
++  .hero-content h1 { font-size: 32px; }
++}
++`;
++}
++
++function buildJs() {
++  return `// Generated by Website Engine (Phase 1) — speculative sample.
++// No tracking, no external calls, no auto-submission. Smooth-scroll only.
++document.addEventListener('DOMContentLoaded', () => {
++  document.querySelectorAll('a[href^="#"]').forEach((link) => {
++    link.addEventListener('click', (e) => {
++      const target = document.querySelector(link.getAttribute('href'));
++      if (target) {
++        e.preventDefault();
++        target.scrollIntoView({ behavior: 'smooth' });
++      }
++    });
++  });
++});
++`;
++}
++
++
++// ── public API ─────────────────────────────────────────────────────
++
++/**
++ * Generate a speculative real-estate website sample and write it to disk
++ * under config.storage.websiteSamplesDir/<sampleId>/.
++ *
++ * @param {object} options
++ * @param {string} [options.prospectName]
++ * @param {string} [options.businessType]
++ * @param {string} [options.location]
++ * @param {string} [options.websiteGoal]
++ * @param {string} [options.brandStyle]
++ * @param {string} [options.primaryColor]
++ * @param {string} [options.secondaryColor]
++ * @param {string[]} [options.sections]
++ * @param {string[]} [options.services]
++ * @param {object[]} [options.propertyListings]
++ * @param {object} [options.contactInformation]
++ * @param {string} [options.callToAction]
++ * @returns {{success:boolean, sampleId:string, status:string, files:string[], previewPath:string, generatedAt:string, dir:string}}
++ */
++export function generateWebsite(options = {}) {
++  const sampleId = makeSampleId();
++  const dir = resolveSampleDir(sampleId); // throws if somehow invalid — defense in depth
++
++  fs.mkdirSync(dir, { recursive: true });
++
++  const html = buildHtml(options);
++  const css = buildCss(options);
++  const js = buildJs();
++  const generatedAt = new Date().toISOString();
++
++  const metadata = {
++    sampleId,
++    status: STATUS,
++    prospectName: options.prospectName || null,
++    businessType: options.businessType || null,
++    location: options.location || null,
++    websiteGoal: options.websiteGoal || null,
++    brandStyle: options.brandStyle || null,
++    generatedAt,
++    note: 'This is a speculative sample only. It has not been published or sent to anyone.',
++  };
++
++  fs.writeFileSync(path.join(dir, 'index.html'), html, 'utf8');
++  fs.writeFileSync(path.join(dir, 'styles.css'), css, 'utf8');
++  fs.writeFileSync(path.join(dir, 'script.js'), js, 'utf8');
++  fs.writeFileSync(path.join(dir, 'metadata.json'), JSON.stringify(metadata, null, 2), 'utf8');
++
++  return {
++    success: true,
++    sampleId,
++    status: STATUS,
++    files: ['index.html', 'styles.css', 'script.js', 'metadata.json'],
++    previewPath: `/website-samples/${sampleId}/`,
++    generatedAt,
++    dir,
++  };
++}
+diff --git a/monitoring/dashboard.js b/monitoring/dashboard.js
+index 7f66ad4..399380f 100644
+--- a/monitoring/dashboard.js
++++ b/monitoring/dashboard.js
+@@ -15,11 +15,14 @@
+ 
+ import express from 'express';
+ import basicAuth from 'express-basic-auth';
+-import { tasks, runs, steps, errors as dbErrors, notifications } from '../database/index.js';
++import fs from 'node:fs';
++import path from 'node:path';
++import { tasks, runs, steps, errors as dbErrors, notifications, websiteSamples } from '../database/index.js';
+ import { runAgent } from '../agent/index.js';
+ import { scheduleTask, unscheduleTask } from '../scheduler/index.js';
+ import { listPending, listAll as listApprovals, recordDecision } from '../agent/approval.js';
+ import { config } from '../config/index.js';
++import { isValidSampleId, resolveSampleDir } from '../integrations/website-gen.js';
+ 
+ 
+ let server = null;
+@@ -127,6 +130,50 @@ export async function startDashboard() {
+   });
+ 
+ 
++  // ── Website Engine (Phase 1) ────────────────────────────────────
++  app.get('/api/website-samples', (req, res) => {
++    res.json(websiteSamples.list({ limit: Number(req.query.limit) || 50 }));
++  });
++
++
++  app.get('/api/website-samples/:id', (req, res) => {
++    if (!isValidSampleId(req.params.id)) return res.status(400).json({ error: 'invalid sample id' });
++    const sample = websiteSamples.get(req.params.id);
++    if (!sample) return res.status(404).json({ error: 'not found' });
++    res.json(sample);
++  });
++
++
++  // Safe static preview: only ever serves the fixed, known filenames that
++  // generateWebsite() writes, from a directory resolved and validated by
++  // resolveSampleDir() (which guarantees containment under the samples
++  // root). No arbitrary filesystem path is ever reachable through this route.
++  const PREVIEW_FILES = {
++    'index.html': 'text/html; charset=utf-8',
++    'styles.css': 'text/css; charset=utf-8',
++    'script.js': 'application/javascript; charset=utf-8',
++    'metadata.json': 'application/json; charset=utf-8',
++  };
++  app.get('/website-samples/:id/:file?', (req, res) => {
++    const { id } = req.params;
++    const file = req.params.file || 'index.html';
++    if (!isValidSampleId(id) || !Object.prototype.hasOwnProperty.call(PREVIEW_FILES, file)) {
++      return res.status(404).send('Not found');
++    }
++    let dir;
++    try {
++      dir = resolveSampleDir(id);
++    } catch {
++      return res.status(400).send('Invalid sample id');
++    }
++    const filePath = path.join(dir, file);
++    fs.readFile(filePath, (err, data) => {
++      if (err) return res.status(404).send('Not found');
++      res.type(PREVIEW_FILES[file]).send(data);
++    });
++  });
++
++
+   return new Promise((resolve) => {
+     server = app.listen(config.dashboard.port, config.dashboard.host, () => {
+       console.log(`[dashboard] listening on http://${config.dashboard.host}:${config.dashboard.port}`);
+diff --git a/tests/integration/agent-loop.test.js b/tests/integration/agent-loop.test.js
+index ca77c61..ab12bf3 100644
+--- a/tests/integration/agent-loop.test.js
++++ b/tests/integration/agent-loop.test.js
+@@ -11,6 +11,7 @@ beforeAll(async () => {
+   process.env.AI_PROVIDER = 'stub';
+   process.env.DATABASE_PATH = path.join(os.tmpdir(), `agent-loop-${Date.now()}.db`);
+   process.env.BROWSER_USER_DATA_DIR = path.join(os.tmpdir(), `agent-loop-profile-${Date.now()}`);
++  process.env.WEBSITE_SAMPLES_DIR = path.join(os.tmpdir(), `agent-loop-samples-${Date.now()}`);
+   process.env.HUMAN_APPROVAL_REQUIRED = 'false';
+   ({ runAgent } = await import('../../agent/index.js'));
+   ({ migrate, closeDb } = await import('../../database/index.js'));
+@@ -38,4 +39,41 @@ describe('agent loop (integration)', () => {
+     });
+     expect(['failed']).toContain(result.status);
+   }, 60_000);
++
++  it('completes a website-generation goal end to end via the generate_website tool', async () => {
++    const result = await runAgent({
++      goal: 'Generate a speculative real-estate website sample for a fictional company called Example Property Tanzania. Create a professional responsive website with a hero section, services, featured properties using clearly marked sample data, about section, contact section and call to action. Do not contact anyone and do not publish the website.',
++    });
++    expect(result.status).toBe('success');
++    expect(result.runId).toBeTruthy();
++
++    // Verify the tool actually reached the executor and produced a step.
++    const { steps } = await import('../../database/index.js');
++    const runSteps = steps.listForRun(result.runId);
++    const genStep = runSteps.find((s) => s.tool === 'generate_website');
++    expect(genStep).toBeTruthy();
++    expect(genStep.status).toBe('success');
++
++    // Verify the SQLite record and files exist on disk.
++    const { websiteSamples } = await import('../../database/index.js');
++    const observation = JSON.parse(genStep.observation_json);
++    expect(observation.status).toBe('SPECULATIVE_SAMPLE');
++
++    const sample = websiteSamples.get(observation.sampleId);
++    expect(sample).toBeTruthy();
++    expect(sample.run_id).toBe(result.runId);
++
++    const { resolveSampleDir } = await import('../../integrations/website-gen.js');
++    const fs = await import('node:fs');
++    const pathMod = await import('node:path');
++    const dir = resolveSampleDir(observation.sampleId);
++    expect(fs.existsSync(pathMod.join(dir, 'index.html'))).toBe(true);
++  }, 60_000);
++
++  it('existing browser tools still work after adding generate_website', async () => {
++    const result = await runAgent({
++      goal: 'Go to example.com and check the status code',
++    });
++    expect(result.status).toBe('success');
++  }, 60_000);
+ });
+diff --git a/tests/integration/dashboard.test.js b/tests/integration/dashboard.test.js
+index b02eeda..45cc723 100644
+--- a/tests/integration/dashboard.test.js
++++ b/tests/integration/dashboard.test.js
+@@ -8,6 +8,7 @@ let baseUrl;
+ 
+ beforeAll(async () => {
+   process.env.DATABASE_PATH = path.join(os.tmpdir(), `dashboard-${Date.now()}.db`);
++  process.env.WEBSITE_SAMPLES_DIR = path.join(os.tmpdir(), `dashboard-samples-${Date.now()}`);
+   process.env.DASHBOARD_PORT = '0'; // let express-style tests hit a fixed test port instead
+   process.env.PORT = '8091';
+   process.env.DASHBOARD_USER = '';
+@@ -63,3 +64,55 @@ describe('dashboard HTTP API (integration)', () => {
+     expect(res.status).toBe(400);
+   });
+ });
++
++describe('website samples API (integration)', () => {
++  it('GET /api/website-samples returns a list (empty or otherwise)', async () => {
++    const res = await fetch(`${baseUrl}/api/website-samples`);
++    expect(res.status).toBe(200);
++    const body = await res.json();
++    expect(Array.isArray(body)).toBe(true);
++  });
++
++  it('GET /api/website-samples/:id returns 404 for an unknown but well-formed id', async () => {
++    const res = await fetch(`${baseUrl}/api/website-samples/website_doesnotexist1`);
++    expect(res.status).toBe(404);
++  });
++
++  it('GET /api/website-samples/:id returns 400 for a malformed id', async () => {
++    const res = await fetch(`${baseUrl}/api/website-samples/${encodeURIComponent('../../etc/passwd')}`);
++    expect(res.status).toBe(400);
++  });
++
++  it('GET /website-samples/:id/ rejects a path-traversal id with 400', async () => {
++    const res = await fetch(`${baseUrl}/website-samples/${encodeURIComponent('website_../../etc/passwd')}/index.html`);
++    expect([400, 404]).toContain(res.status);
++  });
++
++  it('GET /website-samples/:id/:file rejects a disallowed filename with 404', async () => {
++    const res = await fetch(`${baseUrl}/website-samples/website_wellformed123/../../../etc/passwd`);
++    expect([400, 404]).toContain(res.status);
++  });
++
++  it('serves a real generated sample end to end', async () => {
++    const { generateWebsite } = await import('../../integrations/website-gen.js');
++    const { websiteSamples } = await import('../../database/index.js');
++    const result = generateWebsite({ prospectName: 'Dashboard Preview Test' });
++    websiteSamples.create({
++      id: result.sampleId,
++      prospectName: 'Dashboard Preview Test',
++      status: result.status,
++      files: result.files,
++      previewPath: result.previewPath,
++    });
++
++    const apiRes = await fetch(`${baseUrl}/api/website-samples/${result.sampleId}`);
++    expect(apiRes.status).toBe(200);
++    const body = await apiRes.json();
++    expect(body.id).toBe(result.sampleId);
++
++    const previewRes = await fetch(`${baseUrl}/website-samples/${result.sampleId}/`);
++    expect(previewRes.status).toBe(200);
++    const html = await previewRes.text();
++    expect(html).toContain('SPECULATIVE SAMPLE');
++  });
++});
+diff --git a/tests/unit/agent-ai.test.js b/tests/unit/agent-ai.test.js
+index 9bd7101..121e307 100644
+--- a/tests/unit/agent-ai.test.js
++++ b/tests/unit/agent-ai.test.js
+@@ -62,4 +62,29 @@ describe('agent/ai', () => {
+     }
+     expect(last.action.tool).toBe('task_complete');
+   });
++
++  it('registers generate_website as a known tool with a structured schema', () => {
++    expect(isKnownTool('generate_website')).toBe(true);
++    const tool = ACTION_TOOLS.find((t) => t.name === 'generate_website');
++    expect(tool).toBeTruthy();
++    expect(tool.parameters.type).toBe('object');
++    expect(tool.parameters.properties).toHaveProperty('prospectName');
++    expect(tool.parameters.properties).toHaveProperty('propertyListings');
++  });
++
++  it('does not flag generate_website as sensitive (no human approval needed to draft a sample)', () => {
++    process.env.HUMAN_APPROVAL_REQUIRED = 'true';
++    expect(isSensitive('generate_website', { prospectName: 'Acme' })).toBe(false);
++  });
++
++  it('the stub provider routes a website-generation goal to generate_website', async () => {
++    const provider = getProvider();
++    const { action } = await provider.nextAction({
++      goal: 'Generate a speculative real-estate website sample for a fictional company called Example Property Tanzania.',
++      history: { steps: [] },
++      observation: {},
++      availableTools: ACTION_TOOLS,
++    });
++    expect(action.tool).toBe('generate_website');
++  });
+ });
+diff --git a/tests/unit/database.test.js b/tests/unit/database.test.js
+index 3c4e937..5a485ef 100644
+--- a/tests/unit/database.test.js
++++ b/tests/unit/database.test.js
+@@ -4,13 +4,13 @@ import fs from 'node:fs';
+ import path from 'node:path';
+ import os from 'node:os';
+ 
+-let tasks, runs, steps, migrate, closeDb;
++let tasks, runs, steps, migrate, closeDb, websiteSamples;
+ let tmpDbPath;
+ 
+ beforeAll(async () => {
+   tmpDbPath = path.join(os.tmpdir(), `agent-test-${Date.now()}.db`);
+   process.env.DATABASE_PATH = tmpDbPath;
+-  ({ tasks, runs, steps, migrate, closeDb } = await import('../../database/index.js'));
++  ({ tasks, runs, steps, migrate, closeDb, websiteSamples } = await import('../../database/index.js'));
+   migrate();
+ });
+ 
+@@ -63,3 +63,45 @@ describe('database/runs + steps', () => {
+     expect(runs.get(run.id).status).toBe('success');
+   });
+ });
++
++describe('database/websiteSamples', () => {
++  it('creates and retrieves a website sample record', () => {
++    const t = tasks.create({ name: 'Website task', goal: 'Generate a sample' });
++    const run = runs.start({ taskId: t.id });
++
++    const created = websiteSamples.create({
++      id: 'website_test123',
++      taskId: t.id,
++      runId: run.id,
++      prospectName: 'Example Property Tanzania',
++      status: 'SPECULATIVE_SAMPLE',
++      businessType: 'Real Estate Agency',
++      location: 'Dar es Salaam',
++      websiteGoal: 'Generate inquiries',
++      style: 'modern',
++      files: ['index.html', 'styles.css', 'script.js'],
++      previewPath: '/website-samples/website_test123/',
++    });
++
++    expect(created.id).toBe('website_test123');
++    expect(created.status).toBe('SPECULATIVE_SAMPLE');
++    expect(JSON.parse(created.files_json)).toEqual(['index.html', 'styles.css', 'script.js']);
++
++    const fetched = websiteSamples.get('website_test123');
++    expect(fetched.prospect_name).toBe('Example Property Tanzania');
++    expect(fetched.task_id).toBe(t.id);
++    expect(fetched.run_id).toBe(run.id);
++  });
++
++  it('lists website samples most-recent first', () => {
++    websiteSamples.create({ id: 'website_list_a', prospectName: 'A', files: [] });
++    websiteSamples.create({ id: 'website_list_b', prospectName: 'B', files: [] });
++    const list = websiteSamples.list({ limit: 10 });
++    expect(list.map((r) => r.id)).toContain('website_list_a');
++    expect(list.map((r) => r.id)).toContain('website_list_b');
++  });
++
++  it('returns undefined for an unknown sample id', () => {
++    expect(websiteSamples.get('website_does_not_exist')).toBeUndefined();
++  });
++});
+diff --git a/tests/unit/website-gen.test.js b/tests/unit/website-gen.test.js
+new file mode 100644
+index 0000000..c36af34
+--- /dev/null
++++ b/tests/unit/website-gen.test.js
+@@ -0,0 +1,101 @@
++// tests/unit/website-gen.test.js
++import { describe, it, expect, beforeAll, afterAll } from 'vitest';
++import fs from 'node:fs';
++import path from 'node:path';
++import os from 'node:os';
++
++let generateWebsite, isValidSampleId, resolveSampleDir, config;
++let tmpDir;
++
++beforeAll(async () => {
++  tmpDir = path.join(os.tmpdir(), `website-gen-test-${Date.now()}`);
++  process.env.WEBSITE_SAMPLES_DIR = tmpDir;
++  ({ generateWebsite, isValidSampleId, resolveSampleDir } = await import('../../integrations/website-gen.js'));
++  ({ config } = await import('../../config/index.js'));
++});
++
++afterAll(() => {
++  fs.rmSync(tmpDir, { recursive: true, force: true });
++});
++
++describe('integrations/website-gen', () => {
++  it('creates all expected files for a full input', () => {
++    const result = generateWebsite({
++      prospectName: 'Example Property Tanzania',
++      businessType: 'Real Estate Agency',
++      location: 'Dar es Salaam, Tanzania',
++      services: ['Sales', 'Rentals'],
++      propertyListings: [{ title: 'Sample Villa', location: 'Masaki', price: 'TBD', description: 'Placeholder.' }],
++      contactInformation: { phone: '+255 000 000', email: 'info@example.com' },
++      callToAction: 'Book a viewing',
++    });
++
++    expect(result.success).toBe(true);
++    expect(result.status).toBe('SPECULATIVE_SAMPLE');
++    expect(result.sampleId).toMatch(/^website_[A-Za-z0-9_-]+$/);
++    expect(result.files).toEqual(['index.html', 'styles.css', 'script.js', 'metadata.json']);
++    expect(result.previewPath).toBe(`/website-samples/${result.sampleId}/`);
++
++    for (const file of result.files) {
++      expect(fs.existsSync(path.join(result.dir, file))).toBe(true);
++    }
++  });
++
++  it('generated index.html exists and contains the speculative-sample banner', () => {
++    const result = generateWebsite({ prospectName: 'Acme Realty' });
++    const html = fs.readFileSync(path.join(result.dir, 'index.html'), 'utf8');
++    expect(html).toContain('SPECULATIVE SAMPLE');
++    expect(html).toContain('Acme Realty');
++  });
++
++  it('generated styles.css exists and is non-empty', () => {
++    const result = generateWebsite({ prospectName: 'Acme Realty' });
++    const css = fs.readFileSync(path.join(result.dir, 'styles.css'), 'utf8');
++    expect(css.length).toBeGreaterThan(50);
++  });
++
++  it('generated script.js exists and is non-empty', () => {
++    const result = generateWebsite({ prospectName: 'Acme Realty' });
++    const js = fs.readFileSync(path.join(result.dir, 'script.js'), 'utf8');
++    expect(js.length).toBeGreaterThan(10);
++  });
++
++  it('uses clearly marked placeholders instead of fabricating missing info', () => {
++    const result = generateWebsite({}); // nothing provided
++    const html = fs.readFileSync(path.join(result.dir, 'index.html'), 'utf8');
++    expect(html).toMatch(/\[.*add.*\]/i);
++  });
++
++  it('escapes HTML in user-supplied fields to prevent injection', () => {
++    const result = generateWebsite({ prospectName: '<script>alert(1)</script>' });
++    const html = fs.readFileSync(path.join(result.dir, 'index.html'), 'utf8');
++    expect(html).not.toContain('<script>alert(1)</script>');
++    expect(html).toContain('&lt;script&gt;');
++  });
++
++  it('every generated sample lives inside the configured samples root', () => {
++    const result = generateWebsite({ prospectName: 'Containment Check' });
++    const root = path.resolve(config.storage.websiteSamplesDir);
++    expect(path.resolve(result.dir).startsWith(root + path.sep)).toBe(true);
++  });
++
++  it('isValidSampleId rejects path traversal and malformed ids', () => {
++    expect(isValidSampleId('website_abc123')).toBe(true);
++    expect(isValidSampleId('../../etc/passwd')).toBe(false);
++    expect(isValidSampleId('website_../../etc/passwd')).toBe(false);
++    expect(isValidSampleId('random-id')).toBe(false);
++    expect(isValidSampleId('')).toBe(false);
++    expect(isValidSampleId(undefined)).toBe(false);
++  });
++
++  it('resolveSampleDir throws on an invalid/traversal id instead of resolving it', () => {
++    expect(() => resolveSampleDir('../../etc/passwd')).toThrow();
++    expect(() => resolveSampleDir('website_../evil')).toThrow();
++  });
++
++  it('resolveSampleDir returns a path safely contained under the samples root for a valid id', () => {
++    const result = generateWebsite({ prospectName: 'Resolve Check' });
++    const resolved = resolveSampleDir(result.sampleId);
++    expect(resolved).toBe(result.dir);
++  });
++});

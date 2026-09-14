@@ -15,11 +15,14 @@
 
 import express from 'express';
 import basicAuth from 'express-basic-auth';
-import { tasks, runs, steps, errors as dbErrors, notifications } from '../database/index.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { tasks, runs, steps, errors as dbErrors, notifications, websiteSamples } from '../database/index.js';
 import { runAgent } from '../agent/index.js';
 import { scheduleTask, unscheduleTask } from '../scheduler/index.js';
 import { listPending, listAll as listApprovals, recordDecision } from '../agent/approval.js';
 import { config } from '../config/index.js';
+import { isValidSampleId, resolveSampleDir } from '../integrations/website-gen.js';
 
 
 let server = null;
@@ -124,6 +127,50 @@ export async function startDashboard() {
 
   app.get('/api/notifications', (req, res) => {
     res.json(notifications.listRecent({ limit: Number(req.query.limit) || 50 }));
+  });
+
+
+  // ── Website Engine (Phase 1) ────────────────────────────────────
+  app.get('/api/website-samples', (req, res) => {
+    res.json(websiteSamples.list({ limit: Number(req.query.limit) || 50 }));
+  });
+
+
+  app.get('/api/website-samples/:id', (req, res) => {
+    if (!isValidSampleId(req.params.id)) return res.status(400).json({ error: 'invalid sample id' });
+    const sample = websiteSamples.get(req.params.id);
+    if (!sample) return res.status(404).json({ error: 'not found' });
+    res.json(sample);
+  });
+
+
+  // Safe static preview: only ever serves the fixed, known filenames that
+  // generateWebsite() writes, from a directory resolved and validated by
+  // resolveSampleDir() (which guarantees containment under the samples
+  // root). No arbitrary filesystem path is ever reachable through this route.
+  const PREVIEW_FILES = {
+    'index.html': 'text/html; charset=utf-8',
+    'styles.css': 'text/css; charset=utf-8',
+    'script.js': 'application/javascript; charset=utf-8',
+    'metadata.json': 'application/json; charset=utf-8',
+  };
+  app.get('/website-samples/:id/:file?', (req, res) => {
+    const { id } = req.params;
+    const file = req.params.file || 'index.html';
+    if (!isValidSampleId(id) || !Object.prototype.hasOwnProperty.call(PREVIEW_FILES, file)) {
+      return res.status(404).send('Not found');
+    }
+    let dir;
+    try {
+      dir = resolveSampleDir(id);
+    } catch {
+      return res.status(400).send('Invalid sample id');
+    }
+    const filePath = path.join(dir, file);
+    fs.readFile(filePath, (err, data) => {
+      if (err) return res.status(404).send('Not found');
+      res.type(PREVIEW_FILES[file]).send(data);
+    });
   });
 
 

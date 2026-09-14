@@ -40,6 +40,30 @@ export function stubProvider() {
       }
 
 
+      // ── Website Engine (Phase 1) smoke-test goal ─────────────────
+      if (/generate.*website|website.*sample|real.estate website/.test(g)) {
+        if (!steps.some((s) => s.tool === 'generate_website')) {
+          return call('generate_website', {
+            prospectName: 'Example Property Tanzania',
+            businessType: 'Real Estate Agency',
+            location: 'Dar es Salaam, Tanzania',
+            websiteGoal: 'Showcase available properties and generate inquiries',
+            brandStyle: 'modern',
+            primaryColor: '#1a2b4c',
+            secondaryColor: '#c9a227',
+            sections: ['hero', 'about', 'services', 'properties', 'why', 'contact', 'cta', 'footer'],
+            services: ['Property sales', 'Property rentals', 'Property management'],
+            propertyListings: [
+              { title: 'Sample listing — replace with real data', location: 'Dar es Salaam', price: 'TBD', description: 'Placeholder property for the speculative sample.' },
+            ],
+            contactInformation: { phone: '', email: '', address: 'Dar es Salaam, Tanzania' },
+            callToAction: 'Book a viewing',
+          }, 'generate a speculative website sample for the prospect');
+        }
+        return { action: { tool: 'task_complete', args: { result: 'Generated a speculative website sample.' }, reasoning: 'done' }, done: true };
+      }
+
+
       // ── Form-filling practice goal ──────────────────────────────
       if (/fill.*form|practice.*automation|automationexercise|theautomation/.test(g)) {
         const done = (s) => steps.some((x) => x.tool === s);

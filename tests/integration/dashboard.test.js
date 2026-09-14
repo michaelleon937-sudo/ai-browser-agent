@@ -8,6 +8,7 @@ let baseUrl;
 
 beforeAll(async () => {
   process.env.DATABASE_PATH = path.join(os.tmpdir(), `dashboard-${Date.now()}.db`);
+  process.env.WEBSITE_SAMPLES_DIR = path.join(os.tmpdir(), `dashboard-samples-${Date.now()}`);
   process.env.DASHBOARD_PORT = '0'; // let express-style tests hit a fixed test port instead
   process.env.PORT = '8091';
   process.env.DASHBOARD_USER = '';
@@ -61,5 +62,57 @@ describe('dashboard HTTP API (integration)', () => {
       body: JSON.stringify({ decision: 'maybe' }),
     });
     expect(res.status).toBe(400);
+  });
+});
+
+describe('website samples API (integration)', () => {
+  it('GET /api/website-samples returns a list (empty or otherwise)', async () => {
+    const res = await fetch(`${baseUrl}/api/website-samples`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(Array.isArray(body)).toBe(true);
+  });
+
+  it('GET /api/website-samples/:id returns 404 for an unknown but well-formed id', async () => {
+    const res = await fetch(`${baseUrl}/api/website-samples/website_doesnotexist1`);
+    expect(res.status).toBe(404);
+  });
+
+  it('GET /api/website-samples/:id returns 400 for a malformed id', async () => {
+    const res = await fetch(`${baseUrl}/api/website-samples/${encodeURIComponent('../../etc/passwd')}`);
+    expect(res.status).toBe(400);
+  });
+
+  it('GET /website-samples/:id/ rejects a path-traversal id with 400', async () => {
+    const res = await fetch(`${baseUrl}/website-samples/${encodeURIComponent('website_../../etc/passwd')}/index.html`);
+    expect([400, 404]).toContain(res.status);
+  });
+
+  it('GET /website-samples/:id/:file rejects a disallowed filename with 404', async () => {
+    const res = await fetch(`${baseUrl}/website-samples/website_wellformed123/../../../etc/passwd`);
+    expect([400, 404]).toContain(res.status);
+  });
+
+  it('serves a real generated sample end to end', async () => {
+    const { generateWebsite } = await import('../../integrations/website-gen.js');
+    const { websiteSamples } = await import('../../database/index.js');
+    const result = generateWebsite({ prospectName: 'Dashboard Preview Test' });
+    websiteSamples.create({
+      id: result.sampleId,
+      prospectName: 'Dashboard Preview Test',
+      status: result.status,
+      files: result.files,
+      previewPath: result.previewPath,
+    });
+
+    const apiRes = await fetch(`${baseUrl}/api/website-samples/${result.sampleId}`);
+    expect(apiRes.status).toBe(200);
+    const body = await apiRes.json();
+    expect(body.id).toBe(result.sampleId);
+
+    const previewRes = await fetch(`${baseUrl}/website-samples/${result.sampleId}/`);
+    expect(previewRes.status).toBe(200);
+    const html = await previewRes.text();
+    expect(html).toContain('SPECULATIVE SAMPLE');
   });
 });
