@@ -306,6 +306,64 @@ export const prospects = {
 };
 
 
+// ── opportunities (Phase 3 — Real Estate Opportunity Intelligence) ───
+export const opportunities = {
+  createOpportunity({ id, prospectId, taskId, runId, score, priority, opportunityType, summary, identifiedProblems, recommendedServices, recommendedActions, recommendedSampleType, recommendedSampleReason, estimatedValue, confidence, status }) {
+    const genId = id || nanoid(12);
+    const now = new Date().toISOString();
+    getDb().prepare(`
+      INSERT INTO opportunities
+        (id, prospect_id, task_id, run_id, score, priority, opportunity_type, summary, identified_problems_json, recommended_services_json, recommended_actions_json, recommended_sample_type, recommended_sample_reason, estimated_value, confidence, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      genId,
+      prospectId,
+      taskId || null,
+      runId || null,
+      score,
+      priority,
+      opportunityType || null,
+      summary || null,
+      JSON.stringify(identifiedProblems || []),
+      JSON.stringify(recommendedServices || []),
+      JSON.stringify(recommendedActions || []),
+      recommendedSampleType || null,
+      recommendedSampleReason || null,
+      estimatedValue || null,
+      confidence || null,
+      status || 'NEW',
+      now,
+      now,
+    );
+    return opportunities.getOpportunity(genId);
+  },
+  getOpportunity(id) {
+    return getDb().prepare('SELECT * FROM opportunities WHERE id = ?').get(id);
+  },
+  listOpportunities({ limit = 50, status, priority, minScore } = {}) {
+    const clauses = [];
+    const params = [];
+    if (status) { clauses.push('status = ?'); params.push(status); }
+    if (priority) { clauses.push('priority = ?'); params.push(priority); }
+    if (typeof minScore === 'number') { clauses.push('score >= ?'); params.push(minScore); }
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+    params.push(limit);
+    return getDb().prepare(`SELECT * FROM opportunities ${where} ORDER BY score DESC, created_at DESC LIMIT ?`).all(...params);
+  },
+  updateOpportunity(id, fields = {}) {
+    const current = opportunities.getOpportunity(id);
+    if (!current) return null;
+    const status = fields.status ?? current.status;
+    getDb().prepare('UPDATE opportunities SET status = ?, updated_at = ? WHERE id = ?')
+      .run(status, new Date().toISOString(), id);
+    return opportunities.getOpportunity(id);
+  },
+  getOpportunitiesForProspect(prospectId, { limit = 20 } = {}) {
+    return getDb().prepare('SELECT * FROM opportunities WHERE prospect_id = ? ORDER BY created_at DESC LIMIT ?').all(prospectId, limit);
+  },
+};
+
+
 // ── notifications log (sent notifications, for audit / dashboard) ───
 export const notifications = {
   record({ level, subject, body, channel, ok, errorMessage }) {

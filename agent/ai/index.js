@@ -81,6 +81,8 @@ const TOOL_NAMES = new Set([
   'generate_website',
   'analyze_prospect_page',
   'save_prospect',
+  'analyze_opportunity',
+  'save_opportunity',
 ]);
 
 
@@ -194,6 +196,44 @@ export const ACTION_TOOLS = [
         notes: { type: 'string' },
       },
       required: ['businessName'],
+    },
+  },
+  {
+    type: 'function',
+    name: 'analyze_opportunity',
+    description: 'Runs deterministic opportunity-intelligence analysis for a saved prospect (by prospectId), scoring genuine service gaps across website, social, visual marketing, video, 3D, lead-generation, and automation. Returns a score, priority, recommended services, and a recommended sample type. Does not save anything — call save_opportunity afterward to persist the result.',
+    parameters: {
+      type: 'object',
+      properties: {
+        prospectId: { type: 'string', description: 'ID of a previously saved prospect (from save_prospect).' },
+        propertyListingsCount: { type: 'number', description: 'Number of property listings observed for this business, if known.' },
+        hasPromoVideo: { type: 'boolean', description: 'Whether promotional video content was confirmed present, if known.' },
+        has3DVisualization: { type: 'boolean', description: 'Whether 3D visualization content was confirmed present, if known.' },
+        mobileFriendly: { type: 'boolean', description: 'Whether the site was confirmed mobile-friendly, if known.' },
+      },
+      required: ['prospectId'],
+    },
+  },
+  {
+    type: 'function',
+    name: 'save_opportunity',
+    description: 'Saves a validated opportunity-intelligence result (from analyze_opportunity) to SQLite, linked to its prospect. Does not contact anyone, submit anything, or publish anything — it only records the analysis locally for human review.',
+    parameters: {
+      type: 'object',
+      properties: {
+        prospectId: { type: 'string' },
+        score: { type: 'number' },
+        priority: { type: 'string', enum: ['HIGH', 'MEDIUM', 'LOW'] },
+        opportunityType: { type: 'string' },
+        summary: { type: 'string' },
+        identifiedProblems: { type: 'array', items: { type: 'object' } },
+        recommendedServices: { type: 'array', items: { type: 'object' } },
+        recommendedActions: { type: 'array', items: { type: 'string' } },
+        recommendedSampleType: { type: 'string', enum: ['website', 'property-ad', 'social-media', 'promotional-video', '3d-visualization', 'brand-design', 'automation-demo', 'none'] },
+        estimatedValue: { type: 'string' },
+        confidence: { type: 'string' },
+      },
+      required: ['prospectId', 'score', 'priority'],
     },
   },
 ];

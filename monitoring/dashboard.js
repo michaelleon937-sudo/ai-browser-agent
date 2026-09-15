@@ -17,7 +17,7 @@ import express from 'express';
 import basicAuth from 'express-basic-auth';
 import fs from 'node:fs';
 import path from 'node:path';
-import { tasks, runs, steps, errors as dbErrors, notifications, websiteSamples, prospects } from '../database/index.js';
+import { tasks, runs, steps, errors as dbErrors, notifications, websiteSamples, prospects, opportunities } from '../database/index.js';
 import { runAgent } from '../agent/index.js';
 import { scheduleTask, unscheduleTask } from '../scheduler/index.js';
 import { listPending, listAll as listApprovals, recordDecision } from '../agent/approval.js';
@@ -157,6 +157,32 @@ export async function startDashboard() {
   });
 
 
+  // ── Opportunities (Phase 3) ───────────────────────────────────────
+  app.get('/api/opportunities', (req, res) => {
+    const minScore = req.query.minScore !== undefined ? Number(req.query.minScore) : undefined;
+    res.json(opportunities.listOpportunities({
+      limit: Number(req.query.limit) || 50,
+      status: req.query.status,
+      priority: req.query.priority,
+      minScore,
+    }));
+  });
+
+
+  app.get('/api/opportunities/:id', (req, res) => {
+    const opp = opportunities.getOpportunity(req.params.id);
+    if (!opp) return res.status(404).json({ error: 'not found' });
+    res.json(opp);
+  });
+
+
+  app.get('/api/prospects/:id/opportunities', (req, res) => {
+    const prospect = prospects.get(req.params.id);
+    if (!prospect) return res.status(404).json({ error: 'not found' });
+    res.json(opportunities.getOpportunitiesForProspect(req.params.id, { limit: Number(req.query.limit) || 20 }));
+  });
+
+
   // Safe static preview: only ever serves the fixed, known filenames that
   // generateWebsite() writes, from a directory resolved and validated by
   // resolveSampleDir() (which guarantees containment under the samples
@@ -213,6 +239,22 @@ function renderHomePage() {
       <td><button onclick="runTask('${escapeHtml(t.id)}')">Run</button></td>
     </tr>
   `).join('');
+
+  const recentOpportunities = opportunities.listOpportunities({ limit: 20 });
+  const opportunityRows = recentOpportunities.map((o) => {
+    const prospect = prospects.get(o.prospect_id);
+    return `
+    <tr>
+      <td><strong>${escapeHtml(prospect?.business_name || o.prospect_id)}</strong></td>
+      <td>${escapeHtml(String(o.score))}</td>
+      <td>${escapeHtml(o.priority)}</td>
+      <td>${escapeHtml(o.opportunity_type || '—')}</td>
+      <td>${escapeHtml(o.recommended_sample_type || '—')}</td>
+      <td>${escapeHtml(o.confidence || '—')}</td>
+      <td><span class="status">${escapeHtml(o.status)}</span></td>
+    </tr>
+  `;
+  }).join('');
 
   return `<!doctype html>
 <html>
@@ -456,6 +498,37 @@ th {
         ${rows || `
         <tr>
           <td colspan="5">No tasks yet.</td>
+        </tr>`}
+      </tbody>
+
+    </table>
+
+  </div>
+
+  <div class="card">
+
+    <h2>Opportunities</h2>
+    <p style="color:#9ca3af;margin:-8px 0 16px;font-size:13px;">
+      Filter via the API: <code>/api/opportunities?priority=HIGH&amp;status=...&amp;minScore=...</code>
+    </p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Prospect</th>
+          <th>Score</th>
+          <th>Priority</th>
+          <th>Type</th>
+          <th>Recommended Sample</th>
+          <th>Confidence</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+
+      <tbody>
+        ${opportunityRows || `
+        <tr>
+          <td colspan="7">No opportunities analyzed yet.</td>
         </tr>`}
       </tbody>
 

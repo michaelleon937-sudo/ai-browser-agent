@@ -10,13 +10,14 @@
 
 
 import browser from '../browser/index.js';
-import { tasks, runs, steps, errors as dbErrors, kv, sessions, notifications, websiteSamples, prospects } from '../database/index.js';
+import { tasks, runs, steps, errors as dbErrors, kv, sessions, notifications, websiteSamples, prospects, opportunities } from '../database/index.js';
 import { config, redact } from '../config/index.js';
 import { getProvider, isKnownTool, ACTION_TOOLS, isSensitive } from './ai/index.js';
 import { notify } from '../notifications/index.js';
 import { enqueueApproval, awaitApproval } from './approval.js';
 import { generateWebsite } from '../integrations/website-gen.js';
 import { analyzeProspectPage } from '../integrations/prospecting.js';
+import { analyzeOpportunity } from '../integrations/opportunity-intelligence.js';
 
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -346,6 +347,50 @@ async function executeAction(action, context = {}) {
         notes: args.notes,
       });
       return { success: true, prospectId: saved.id, status: saved.status };
+    }
+    case 'analyze_opportunity': {
+      const prospect = prospects.get(args.prospectId);
+      if (!prospect) {
+        throw new Error(`Prospect not found: ${args.prospectId}`);
+      }
+      const result = analyzeOpportunity(prospect, {
+        propertyListingsCount: args.propertyListingsCount,
+        hasPromoVideo: args.hasPromoVideo,
+        has3DVisualization: args.has3DVisualization,
+        mobileFriendly: args.mobileFriendly,
+      });
+      // Not persisted here — analysis is a read-only preview; the agent
+      // should follow up with save_opportunity to persist it.
+      return { prospectId: args.prospectId, ...result };
+    }
+    case 'save_opportunity': {
+      const prospect = prospects.get(args.prospectId);
+      if (!prospect) {
+        throw new Error(`Prospect not found: ${args.prospectId}`);
+      }
+      const saved = opportunities.createOpportunity({
+        prospectId: args.prospectId,
+        taskId: context.taskId,
+        runId: context.runId,
+        score: args.score,
+        priority: args.priority,
+        opportunityType: args.opportunityType,
+        summary: args.summary,
+        identifiedProblems: args.identifiedProblems,
+        recommendedServices: args.recommendedServices,
+        recommendedActions: args.recommendedActions,
+        recommendedSampleType: args.recommendedSampleType,
+        recommendedSampleReason: args.recommendedSampleReason,
+        estimatedValue: args.estimatedValue,
+        confidence: args.confidence,
+        status: 'ANALYZED',
+      });
+      // Reflect the CRM progression on the prospect itself.
+      prospects.updateStatus(args.prospectId, 'ANALYZED');
+      if (saved.recommended_sample_type && saved.recommended_sample_type !== 'none') {
+        opportunities.updateOpportunity(saved.id, { status: 'SAMPLE_RECOMMENDED' });
+      }
+      return { success: true, opportunityId: saved.id, status: saved.recommended_sample_type && saved.recommended_sample_type !== 'none' ? 'SAMPLE_RECOMMENDED' : saved.status };
     }
     default:
       throw new Error(`Tool not implemented in executor: ${tool}`);

@@ -40,6 +40,53 @@ export function stubProvider() {
       }
 
 
+      // ── Prospecting + Opportunity Intelligence (Phase 2/3) smoke-test ──
+      if (/missing prospect|unknown prospect|opportunity for a prospect that does not exist/.test(g)) {
+        if (lastFailed && lastStep?.tool === 'analyze_opportunity') {
+          return { action: { tool: 'task_fail', args: { reason: lastStep.errorMessage || 'analyze_opportunity failed' }, reasoning: 'the prospect could not be found, so the task cannot proceed' }, done: true };
+        }
+        if (!steps.some((s) => s.tool === 'analyze_opportunity')) {
+          return call('analyze_opportunity', { prospectId: 'does-not-exist-prospect-id' }, 'attempt to analyze a nonexistent prospect');
+        }
+        return { action: { tool: 'task_complete', args: { result: 'done' }, reasoning: 'done' }, done: true };
+      }
+
+      if (/prospect.*opportunity|opportunity.*prospect|analyze.*opportunity/.test(g)) {
+        const saveProspectStep = steps.find((s) => s.tool === 'save_prospect');
+        const analyzeOppStep = steps.find((s) => s.tool === 'analyze_opportunity');
+        const saveOppStep = steps.find((s) => s.tool === 'save_opportunity');
+
+        if (!saveProspectStep) {
+          return call('save_prospect', {
+            businessName: 'Example Property Tanzania',
+            websiteUrl: null,
+            location: 'Dar es Salaam, Tanzania',
+            serviceGaps: ['No public contact information found on the page (no email or phone detected).'],
+            sourceUrl: 'https://example-realty.com',
+          }, 'save the discovered prospect');
+        }
+        if (!analyzeOppStep) {
+          const prospectId = saveProspectStep.observation?.prospectId;
+          return call('analyze_opportunity', { prospectId }, 'analyze the opportunity for this prospect');
+        }
+        if (!saveOppStep) {
+          const obs = analyzeOppStep.observation || {};
+          return call('save_opportunity', {
+            prospectId: obs.prospectId,
+            score: obs.score,
+            priority: obs.priority,
+            opportunityType: obs.opportunityType,
+            summary: obs.summary,
+            identifiedProblems: obs.identifiedProblems,
+            recommendedServices: obs.recommendedServices,
+            recommendedSampleType: obs.recommendedSampleType,
+            confidence: obs.confidence,
+          }, 'save the validated opportunity');
+        }
+        return { action: { tool: 'task_complete', args: { result: 'Prospect analyzed and opportunity saved.' }, reasoning: 'done' }, done: true };
+      }
+
+
       // ── Website Engine (Phase 1) smoke-test goal ─────────────────
       if (/generate.*website|website.*sample|real.estate website/.test(g)) {
         if (!steps.some((s) => s.tool === 'generate_website')) {

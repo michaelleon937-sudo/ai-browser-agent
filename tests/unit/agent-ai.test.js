@@ -110,4 +110,27 @@ describe('agent/ai', () => {
     expect(isSensitive('analyze_prospect_page', { pageText: 'x' })).toBe(false);
     expect(isSensitive('save_prospect', { businessName: 'Acme' })).toBe(false);
   });
+
+  it('registers analyze_opportunity as a known tool with a structured schema', () => {
+    expect(isKnownTool('analyze_opportunity')).toBe(true);
+    const tool = ACTION_TOOLS.find((t) => t.name === 'analyze_opportunity');
+    expect(tool).toBeTruthy();
+    expect(tool.parameters.properties).toHaveProperty('prospectId');
+    expect(tool.parameters.required).toContain('prospectId');
+  });
+
+  it('registers save_opportunity as a known tool with a structured schema', () => {
+    expect(isKnownTool('save_opportunity')).toBe(true);
+    const tool = ACTION_TOOLS.find((t) => t.name === 'save_opportunity');
+    expect(tool).toBeTruthy();
+    expect(tool.parameters.properties).toHaveProperty('score');
+    expect(tool.parameters.properties).toHaveProperty('priority');
+    expect(tool.parameters.required).toEqual(expect.arrayContaining(['prospectId', 'score', 'priority']));
+  });
+
+  it('does not flag analyze_opportunity or save_opportunity as sensitive (analysis/local save only)', () => {
+    process.env.HUMAN_APPROVAL_REQUIRED = 'true';
+    expect(isSensitive('analyze_opportunity', { prospectId: 'x' })).toBe(false);
+    expect(isSensitive('save_opportunity', { prospectId: 'x', score: 50, priority: 'LOW' })).toBe(false);
+  });
 });

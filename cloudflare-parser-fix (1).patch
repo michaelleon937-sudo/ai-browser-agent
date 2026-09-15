@@ -1,0 +1,227 @@
+diff --git a/agent/ai/cloudflare.js b/agent/ai/cloudflare.js
+index bf4965e..9f6b792 100644
+--- a/agent/ai/cloudflare.js
++++ b/agent/ai/cloudflare.js
+@@ -116,6 +116,30 @@ export function cloudflareProvider({ config }) {
+         }
+       }
+ 
++      // Fallback: some models (observed with @cf/openai/gpt-oss-20b when a
++      // tool has a large/nested parameter schema, e.g. generate_website)
++      // emit the intended tool call's arguments as bare JSON in `content`
++      // instead of using the tool_calls mechanism. Only accept this when the
++      // JSON's keys uniquely identify exactly one available tool's
++      // parameter schema — if it could plausibly be more than one tool
++      // (e.g. {"url": "..."} matches both browser_navigate and
++      // browser_new_tab), we do not guess, and fall through to the existing
++      // error below unchanged.
++      if (content) {
++        try {
++          const direct = JSON.parse(content);
++          const matchedTool = matchUniqueTool(direct, availableTools);
++          if (matchedTool) {
++            return {
++              action: { tool: matchedTool.name, args: direct, reasoning: '' },
++              done: matchedTool.name === 'task_complete' || matchedTool.name === 'task_fail',
++              usage: json?.result?.usage || json?.result?.response?.usage,
++            };
++          }
++        } catch {
++          // Continue to normal error handling.
++        }
++      }
+ 
+ 
+       throw new Error(`Cloudflare AI returned no actionable response: ${String(content).slice(0, 300)}`);
+@@ -172,3 +196,25 @@ function extractJsonAction(content) {
+ }
+ 
+ 
++// Returns the single tool from `availableTools` whose parameter schema
++// accepts every key present in `obj`, or null if zero or more than one tool
++// matches (never guesses between ambiguous candidates). `obj` must be a
++// plain, non-array object with at least one key — an empty object or a
++// non-object value never counts as a match, since it would trivially fit
++// too many tools' schemas to be meaningful.
++function matchUniqueTool(obj, availableTools) {
++  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
++  const keys = Object.keys(obj);
++  if (keys.length === 0) return null;
++  if (!Array.isArray(availableTools)) return null;
++
++  const candidates = availableTools.filter((tool) => {
++    const propKeys = Object.keys(tool?.parameters?.properties || {});
++    const requiredKeys = Array.isArray(tool?.parameters?.required) ? tool.parameters.required : [];
++    const allKeysKnownToTool = keys.every((k) => propKeys.includes(k));
++    const allRequiredKeysPresent = requiredKeys.every((k) => keys.includes(k));
++    return allKeysKnownToTool && allRequiredKeysPresent;
++  });
++
++  return candidates.length === 1 ? candidates[0] : null;
++}
+diff --git a/tests/unit/cloudflare-provider.test.js b/tests/unit/cloudflare-provider.test.js
+new file mode 100644
+index 0000000..2fb57a8
+--- /dev/null
++++ b/tests/unit/cloudflare-provider.test.js
+@@ -0,0 +1,160 @@
++// tests/unit/cloudflare-provider.test.js
++//
++// Covers the narrow fallback added to agent/ai/cloudflare.js: when a model
++// response has no tool_calls and no {result: string} content, but the raw
++// JSON content's keys uniquely identify exactly one available tool's
++// parameter schema, treat it as a call to that tool. Includes the exact
++// response shapes observed in the "Website engine test" production failure.
++
++import { describe, it, expect, vi, beforeEach } from 'vitest';
++
++vi.mock('node-fetch', () => ({
++  default: vi.fn(),
++}));
++
++import fetchMock from 'node-fetch';
++import { cloudflareProvider } from '../../agent/ai/cloudflare.js';
++import { ACTION_TOOLS } from '../../agent/ai/index.js';
++
++function mockCloudflareResponse(content) {
++  fetchMock.mockResolvedValueOnce({
++    ok: true,
++    json: async () => ({
++      result: {
++        response: {
++          // No tool_calls at all — this is exactly the shape that caused
++          // the production failure: the model wrote its intended call as
++          // plain JSON text instead of using the tool-calling mechanism.
++          content,
++        },
++      },
++    }),
++  });
++}
++
++describe('agent/ai/cloudflare — unique-schema-match fallback', () => {
++  beforeEach(() => {
++    fetchMock.mockReset();
++  });
++
++  const config = { ai: { cloudflare: { accountId: 'acc', apiToken: 'token', model: '@cf/openai/gpt-oss-20b' } } };
++
++  it('reproduces and fixes the exact production failure: generate_website args sent as bare content', async () => {
++    // Exact shape from the "Website engine test" crash log (truncated at
++    // 300 chars there; full object reconstructed here for the test).
++    const content = JSON.stringify({
++      prospectName: 'Example Property Tanzania',
++      businessType: 'Real Estate Agency',
++      location: 'Tanzania',
++      websiteGoal: 'Showcase properties and generate inquiries',
++    });
++    mockCloudflareResponse(content);
++
++    const provider = cloudflareProvider({ config });
++    const { action, done } = await provider.nextAction({
++      goal: 'Generate a speculative real-estate website sample.',
++      history: { steps: [] },
++      observation: {},
++      availableTools: ACTION_TOOLS,
++    });
++
++    expect(action.tool).toBe('generate_website');
++    expect(action.args).toEqual({
++      prospectName: 'Example Property Tanzania',
++      businessType: 'Real Estate Agency',
++      location: 'Tanzania',
++      websiteGoal: 'Showcase properties and generate inquiries',
++    });
++    expect(done).toBe(false);
++  });
++
++  it('does NOT guess when content matches more than one tool schema (browser_navigate vs browser_new_tab)', async () => {
++    // Exact second shape from the production crash log.
++    const content = JSON.stringify({ url: 'https://localhost/website-samples/website_jsL5YGfzVfeV/' });
++    mockCloudflareResponse(content);
++
++    const provider = cloudflareProvider({ config });
++    await expect(provider.nextAction({
++      goal: 'irrelevant',
++      history: { steps: [] },
++      observation: {},
++      availableTools: ACTION_TOOLS,
++    })).rejects.toThrow(/Cloudflare AI returned no actionable response/);
++  });
++
++  it('still throws the original error for content matching no known tool schema', async () => {
++    mockCloudflareResponse(JSON.stringify({ totallyUnknownField: 'nope' }));
++
++    const provider = cloudflareProvider({ config });
++    await expect(provider.nextAction({
++      goal: 'irrelevant',
++      history: { steps: [] },
++      observation: {},
++      availableTools: ACTION_TOOLS,
++    })).rejects.toThrow(/Cloudflare AI returned no actionable response/);
++  });
++
++  it('still throws for empty/non-JSON content (no regression on the base case)', async () => {
++    mockCloudflareResponse('');
++
++    const provider = cloudflareProvider({ config });
++    await expect(provider.nextAction({
++      goal: 'irrelevant',
++      history: { steps: [] },
++      observation: {},
++      availableTools: ACTION_TOOLS,
++    })).rejects.toThrow(/Cloudflare AI returned no actionable response/);
++  });
++
++  it('regression: proper tool_calls responses still work unchanged', async () => {
++    fetchMock.mockResolvedValueOnce({
++      ok: true,
++      json: async () => ({
++        result: {
++          response: {
++            tool_calls: [{ function: { name: 'browser_navigate', arguments: JSON.stringify({ url: 'https://example.com' }) } }],
++          },
++        },
++      }),
++    });
++
++    const provider = cloudflareProvider({ config });
++    const { action } = await provider.nextAction({
++      goal: 'irrelevant',
++      history: { steps: [] },
++      observation: {},
++      availableTools: ACTION_TOOLS,
++    });
++
++    expect(action.tool).toBe('browser_navigate');
++    expect(action.args).toEqual({ url: 'https://example.com' });
++  });
++
++  it('regression: the existing {result: string} fallback still works unchanged', async () => {
++    mockCloudflareResponse(JSON.stringify({ result: 'All done.' }));
++
++    const provider = cloudflareProvider({ config });
++    const { action, done } = await provider.nextAction({
++      goal: 'irrelevant',
++      history: { steps: [] },
++      observation: {},
++      availableTools: ACTION_TOOLS,
++    });
++
++    expect(action.tool).toBe('task_complete');
++    expect(action.args).toEqual({ result: 'All done.' });
++    expect(done).toBe(true);
++  });
++
++  it('does not match on an empty object (never guesses with zero information)', async () => {
++    mockCloudflareResponse(JSON.stringify({}));
++
++    const provider = cloudflareProvider({ config });
++    await expect(provider.nextAction({
++      goal: 'irrelevant',
++      history: { steps: [] },
++      observation: {},
++      availableTools: ACTION_TOOLS,
++    })).rejects.toThrow(/Cloudflare AI returned no actionable response/);
++  });
++});

@@ -4,13 +4,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
-let tasks, runs, steps, migrate, closeDb, websiteSamples, prospects;
+let tasks, runs, steps, migrate, closeDb, websiteSamples, prospects, opportunities;
 let tmpDbPath;
 
 beforeAll(async () => {
   tmpDbPath = path.join(os.tmpdir(), `agent-test-${Date.now()}.db`);
   process.env.DATABASE_PATH = tmpDbPath;
-  ({ tasks, runs, steps, migrate, closeDb, websiteSamples, prospects } = await import('../../database/index.js'));
+  ({ tasks, runs, steps, migrate, closeDb, websiteSamples, prospects, opportunities } = await import('../../database/index.js'));
   migrate();
 });
 
@@ -150,5 +150,76 @@ describe('database/prospects', () => {
 
   it('returns undefined for an unknown prospect id', () => {
     expect(prospects.get('does-not-exist')).toBeUndefined();
+  });
+});
+
+describe('database/opportunities', () => {
+  it('creates an opportunity linked to a prospect with default status NEW', () => {
+    const prospect = prospects.create({ businessName: 'Opportunity Target Realty' });
+    const created = opportunities.createOpportunity({
+      prospectId: prospect.id,
+      score: 85,
+      priority: 'HIGH',
+      opportunityType: 'website',
+      summary: 'Test summary',
+      identifiedProblems: [{ category: 'website', level: 'confirmed', description: 'No website' }],
+      recommendedServices: [{ service: 'Website Design/Improvement', reason: 'No website', priority: 'high' }],
+      recommendedSampleType: 'website',
+      confidence: 'high',
+    });
+    expect(created.status).toBe('NEW');
+    expect(created.prospect_id).toBe(prospect.id);
+    expect(created.score).toBe(85);
+    expect(JSON.parse(created.recommended_services_json)).toHaveLength(1);
+  });
+
+  it('retrieves an opportunity by id', () => {
+    const prospect = prospects.create({ businessName: 'Retrieve Opp Realty' });
+    const created = opportunities.createOpportunity({ prospectId: prospect.id, score: 50, priority: 'LOW' });
+    const fetched = opportunities.getOpportunity(created.id);
+    expect(fetched.priority).toBe('LOW');
+  });
+
+  it('lists opportunities filtered by status, priority, and minScore', () => {
+    const prospect = prospects.create({ businessName: 'Filter Opp Realty' });
+    opportunities.createOpportunity({ prospectId: prospect.id, score: 90, priority: 'HIGH' });
+    const b = opportunities.createOpportunity({ prospectId: prospect.id, score: 40, priority: 'LOW' });
+    opportunities.updateOpportunity(b.id, { status: 'CONTACTED' });
+
+    const highPriority = opportunities.listOpportunities({ priority: 'HIGH', limit: 10 });
+    expect(highPriority.every((o) => o.priority === 'HIGH')).toBe(true);
+
+    const highScore = opportunities.listOpportunities({ minScore: 80, limit: 10 });
+    expect(highScore.every((o) => o.score >= 80)).toBe(true);
+
+    const contacted = opportunities.listOpportunities({ status: 'CONTACTED', limit: 10 });
+    expect(contacted.map((o) => o.id)).toContain(b.id);
+  });
+
+  it('updates an opportunity status', () => {
+    const prospect = prospects.create({ businessName: 'Update Opp Realty' });
+    const created = opportunities.createOpportunity({ prospectId: prospect.id, score: 70, priority: 'MEDIUM' });
+    const updated = opportunities.updateOpportunity(created.id, { status: 'SAMPLE_RECOMMENDED' });
+    expect(updated.status).toBe('SAMPLE_RECOMMENDED');
+  });
+
+  it('returns null when updating an unknown opportunity', () => {
+    expect(opportunities.updateOpportunity('does-not-exist', { status: 'WON' })).toBeNull();
+  });
+
+  it('lists all opportunities for a given prospect', () => {
+    const prospect = prospects.create({ businessName: 'Multi Opp Realty' });
+    const other = prospects.create({ businessName: 'Other Realty' });
+    opportunities.createOpportunity({ prospectId: prospect.id, score: 60, priority: 'MEDIUM' });
+    opportunities.createOpportunity({ prospectId: prospect.id, score: 70, priority: 'MEDIUM' });
+    opportunities.createOpportunity({ prospectId: other.id, score: 30, priority: 'LOW' });
+
+    const forProspect = opportunities.getOpportunitiesForProspect(prospect.id);
+    expect(forProspect).toHaveLength(2);
+    expect(forProspect.every((o) => o.prospect_id === prospect.id)).toBe(true);
+  });
+
+  it('returns undefined for an unknown opportunity id', () => {
+    expect(opportunities.getOpportunity('does-not-exist')).toBeUndefined();
   });
 });

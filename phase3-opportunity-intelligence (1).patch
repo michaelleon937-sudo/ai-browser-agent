@@ -1,0 +1,1008 @@
+diff --git a/agent/ai/index.js b/agent/ai/index.js
+index 83deb8c..96e6571 100644
+--- a/agent/ai/index.js
++++ b/agent/ai/index.js
+@@ -81,6 +81,8 @@ const TOOL_NAMES = new Set([
+   'generate_website',
+   'analyze_prospect_page',
+   'save_prospect',
++  'analyze_opportunity',
++  'save_opportunity',
+ ]);
+ 
+ 
+@@ -196,6 +198,44 @@ export const ACTION_TOOLS = [
+       required: ['businessName'],
+     },
+   },
++  {
++    type: 'function',
++    name: 'analyze_opportunity',
++    description: 'Runs deterministic opportunity-intelligence analysis for a saved prospect (by prospectId), scoring genuine service gaps across website, social, visual marketing, video, 3D, lead-generation, and automation. Returns a score, priority, recommended services, and a recommended sample type. Does not save anything — call save_opportunity afterward to persist the result.',
++    parameters: {
++      type: 'object',
++      properties: {
++        prospectId: { type: 'string', description: 'ID of a previously saved prospect (from save_prospect).' },
++        propertyListingsCount: { type: 'number', description: 'Number of property listings observed for this business, if known.' },
++        hasPromoVideo: { type: 'boolean', description: 'Whether promotional video content was confirmed present, if known.' },
++        has3DVisualization: { type: 'boolean', description: 'Whether 3D visualization content was confirmed present, if known.' },
++        mobileFriendly: { type: 'boolean', description: 'Whether the site was confirmed mobile-friendly, if known.' },
++      },
++      required: ['prospectId'],
++    },
++  },
++  {
++    type: 'function',
++    name: 'save_opportunity',
++    description: 'Saves a validated opportunity-intelligence result (from analyze_opportunity) to SQLite, linked to its prospect. Does not contact anyone, submit anything, or publish anything — it only records the analysis locally for human review.',
++    parameters: {
++      type: 'object',
++      properties: {
++        prospectId: { type: 'string' },
++        score: { type: 'number' },
++        priority: { type: 'string', enum: ['HIGH', 'MEDIUM', 'LOW'] },
++        opportunityType: { type: 'string' },
++        summary: { type: 'string' },
++        identifiedProblems: { type: 'array', items: { type: 'object' } },
++        recommendedServices: { type: 'array', items: { type: 'object' } },
++        recommendedActions: { type: 'array', items: { type: 'string' } },
++        recommendedSampleType: { type: 'string', enum: ['website', 'property-ad', 'social-media', 'promotional-video', '3d-visualization', 'brand-design', 'automation-demo', 'none'] },
++        estimatedValue: { type: 'string' },
++        confidence: { type: 'string' },
++      },
++      required: ['prospectId', 'score', 'priority'],
++    },
++  },
+ ];
+ 
+ 
+diff --git a/agent/ai/stub.js b/agent/ai/stub.js
+index 6b8ba74..d398044 100644
+--- a/agent/ai/stub.js
++++ b/agent/ai/stub.js
+@@ -40,6 +40,53 @@ export function stubProvider() {
+       }
+ 
+ 
++      // ── Prospecting + Opportunity Intelligence (Phase 2/3) smoke-test ──
++      if (/missing prospect|unknown prospect|opportunity for a prospect that does not exist/.test(g)) {
++        if (lastFailed && lastStep?.tool === 'analyze_opportunity') {
++          return { action: { tool: 'task_fail', args: { reason: lastStep.errorMessage || 'analyze_opportunity failed' }, reasoning: 'the prospect could not be found, so the task cannot proceed' }, done: true };
++        }
++        if (!steps.some((s) => s.tool === 'analyze_opportunity')) {
++          return call('analyze_opportunity', { prospectId: 'does-not-exist-prospect-id' }, 'attempt to analyze a nonexistent prospect');
++        }
++        return { action: { tool: 'task_complete', args: { result: 'done' }, reasoning: 'done' }, done: true };
++      }
++
++      if (/prospect.*opportunity|opportunity.*prospect|analyze.*opportunity/.test(g)) {
++        const saveProspectStep = steps.find((s) => s.tool === 'save_prospect');
++        const analyzeOppStep = steps.find((s) => s.tool === 'analyze_opportunity');
++        const saveOppStep = steps.find((s) => s.tool === 'save_opportunity');
++
++        if (!saveProspectStep) {
++          return call('save_prospect', {
++            businessName: 'Example Property Tanzania',
++            websiteUrl: null,
++            location: 'Dar es Salaam, Tanzania',
++            serviceGaps: ['No public contact information found on the page (no email or phone detected).'],
++            sourceUrl: 'https://example-realty.com',
++          }, 'save the discovered prospect');
++        }
++        if (!analyzeOppStep) {
++          const prospectId = saveProspectStep.observation?.prospectId;
++          return call('analyze_opportunity', { prospectId }, 'analyze the opportunity for this prospect');
++        }
++        if (!saveOppStep) {
++          const obs = analyzeOppStep.observation || {};
++          return call('save_opportunity', {
++            prospectId: obs.prospectId,
++            score: obs.score,
++            priority: obs.priority,
++            opportunityType: obs.opportunityType,
++            summary: obs.summary,
++            identifiedProblems: obs.identifiedProblems,
++            recommendedServices: obs.recommendedServices,
++            recommendedSampleType: obs.recommendedSampleType,
++            confidence: obs.confidence,
++          }, 'save the validated opportunity');
++        }
++        return { action: { tool: 'task_complete', args: { result: 'Prospect analyzed and opportunity saved.' }, reasoning: 'done' }, done: true };
++      }
++
++
+       // ── Website Engine (Phase 1) smoke-test goal ─────────────────
+       if (/generate.*website|website.*sample|real.estate website/.test(g)) {
+         if (!steps.some((s) => s.tool === 'generate_website')) {
+diff --git a/agent/index.js b/agent/index.js
+index f423777..d086249 100644
+--- a/agent/index.js
++++ b/agent/index.js
+@@ -10,13 +10,14 @@
+ 
+ 
+ import browser from '../browser/index.js';
+-import { tasks, runs, steps, errors as dbErrors, kv, sessions, notifications, websiteSamples, prospects } from '../database/index.js';
++import { tasks, runs, steps, errors as dbErrors, kv, sessions, notifications, websiteSamples, prospects, opportunities } from '../database/index.js';
+ import { config, redact } from '../config/index.js';
+ import { getProvider, isKnownTool, ACTION_TOOLS, isSensitive } from './ai/index.js';
+ import { notify } from '../notifications/index.js';
+ import { enqueueApproval, awaitApproval } from './approval.js';
+ import { generateWebsite } from '../integrations/website-gen.js';
+ import { analyzeProspectPage } from '../integrations/prospecting.js';
++import { analyzeOpportunity } from '../integrations/opportunity-intelligence.js';
+ 
+ 
+ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+@@ -347,6 +348,50 @@ async function executeAction(action, context = {}) {
+       });
+       return { success: true, prospectId: saved.id, status: saved.status };
+     }
++    case 'analyze_opportunity': {
++      const prospect = prospects.get(args.prospectId);
++      if (!prospect) {
++        throw new Error(`Prospect not found: ${args.prospectId}`);
++      }
++      const result = analyzeOpportunity(prospect, {
++        propertyListingsCount: args.propertyListingsCount,
++        hasPromoVideo: args.hasPromoVideo,
++        has3DVisualization: args.has3DVisualization,
++        mobileFriendly: args.mobileFriendly,
++      });
++      // Not persisted here — analysis is a read-only preview; the agent
++      // should follow up with save_opportunity to persist it.
++      return { prospectId: args.prospectId, ...result };
++    }
++    case 'save_opportunity': {
++      const prospect = prospects.get(args.prospectId);
++      if (!prospect) {
++        throw new Error(`Prospect not found: ${args.prospectId}`);
++      }
++      const saved = opportunities.createOpportunity({
++        prospectId: args.prospectId,
++        taskId: context.taskId,
++        runId: context.runId,
++        score: args.score,
++        priority: args.priority,
++        opportunityType: args.opportunityType,
++        summary: args.summary,
++        identifiedProblems: args.identifiedProblems,
++        recommendedServices: args.recommendedServices,
++        recommendedActions: args.recommendedActions,
++        recommendedSampleType: args.recommendedSampleType,
++        recommendedSampleReason: args.recommendedSampleReason,
++        estimatedValue: args.estimatedValue,
++        confidence: args.confidence,
++        status: 'ANALYZED',
++      });
++      // Reflect the CRM progression on the prospect itself.
++      prospects.updateStatus(args.prospectId, 'ANALYZED');
++      if (saved.recommended_sample_type && saved.recommended_sample_type !== 'none') {
++        opportunities.updateOpportunity(saved.id, { status: 'SAMPLE_RECOMMENDED' });
++      }
++      return { success: true, opportunityId: saved.id, status: saved.recommended_sample_type && saved.recommended_sample_type !== 'none' ? 'SAMPLE_RECOMMENDED' : saved.status };
++    }
+     default:
+       throw new Error(`Tool not implemented in executor: ${tool}`);
+   }
+diff --git a/database/index.js b/database/index.js
+index cdae915..5f3d5a9 100644
+--- a/database/index.js
++++ b/database/index.js
+@@ -306,6 +306,64 @@ export const prospects = {
+ };
+ 
+ 
++// ── opportunities (Phase 3 — Real Estate Opportunity Intelligence) ───
++export const opportunities = {
++  createOpportunity({ id, prospectId, taskId, runId, score, priority, opportunityType, summary, identifiedProblems, recommendedServices, recommendedActions, recommendedSampleType, recommendedSampleReason, estimatedValue, confidence, status }) {
++    const genId = id || nanoid(12);
++    const now = new Date().toISOString();
++    getDb().prepare(`
++      INSERT INTO opportunities
++        (id, prospect_id, task_id, run_id, score, priority, opportunity_type, summary, identified_problems_json, recommended_services_json, recommended_actions_json, recommended_sample_type, recommended_sample_reason, estimated_value, confidence, status, created_at, updated_at)
++      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
++    `).run(
++      genId,
++      prospectId,
++      taskId || null,
++      runId || null,
++      score,
++      priority,
++      opportunityType || null,
++      summary || null,
++      JSON.stringify(identifiedProblems || []),
++      JSON.stringify(recommendedServices || []),
++      JSON.stringify(recommendedActions || []),
++      recommendedSampleType || null,
++      recommendedSampleReason || null,
++      estimatedValue || null,
++      confidence || null,
++      status || 'NEW',
++      now,
++      now,
++    );
++    return opportunities.getOpportunity(genId);
++  },
++  getOpportunity(id) {
++    return getDb().prepare('SELECT * FROM opportunities WHERE id = ?').get(id);
++  },
++  listOpportunities({ limit = 50, status, priority, minScore } = {}) {
++    const clauses = [];
++    const params = [];
++    if (status) { clauses.push('status = ?'); params.push(status); }
++    if (priority) { clauses.push('priority = ?'); params.push(priority); }
++    if (typeof minScore === 'number') { clauses.push('score >= ?'); params.push(minScore); }
++    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
++    params.push(limit);
++    return getDb().prepare(`SELECT * FROM opportunities ${where} ORDER BY score DESC, created_at DESC LIMIT ?`).all(...params);
++  },
++  updateOpportunity(id, fields = {}) {
++    const current = opportunities.getOpportunity(id);
++    if (!current) return null;
++    const status = fields.status ?? current.status;
++    getDb().prepare('UPDATE opportunities SET status = ?, updated_at = ? WHERE id = ?')
++      .run(status, new Date().toISOString(), id);
++    return opportunities.getOpportunity(id);
++  },
++  getOpportunitiesForProspect(prospectId, { limit = 20 } = {}) {
++    return getDb().prepare('SELECT * FROM opportunities WHERE prospect_id = ? ORDER BY created_at DESC LIMIT ?').all(prospectId, limit);
++  },
++};
++
++
+ // ── notifications log (sent notifications, for audit / dashboard) ───
+ export const notifications = {
+   record({ level, subject, body, channel, ok, errorMessage }) {
+diff --git a/database/schema.sql b/database/schema.sql
+index 7b60087..d71bedc 100644
+--- a/database/schema.sql
++++ b/database/schema.sql
+@@ -147,3 +147,36 @@ CREATE TABLE IF NOT EXISTS prospects (
+ CREATE INDEX IF NOT EXISTS idx_prospects_created ON prospects (created_at);
+ CREATE INDEX IF NOT EXISTS idx_prospects_status ON prospects (status);
+ CREATE INDEX IF NOT EXISTS idx_prospects_task ON prospects (task_id);
++
++-- opportunities: deterministic opportunity intelligence for a prospect
++-- (Phase 3 — Real Estate Opportunity Intelligence). Produced by
++-- integrations/opportunity-intelligence.js via the analyze_opportunity /
++-- save_opportunity tools. `status` uses the same CRM vocabulary as
++-- `prospects.status`; Phase 3 only ever sets NEW, ANALYZED, or
++-- SAMPLE_RECOMMENDED.
++CREATE TABLE IF NOT EXISTS opportunities (
++  id                      TEXT PRIMARY KEY,
++  prospect_id             TEXT NOT NULL,
++  task_id                 TEXT,
++  run_id                  TEXT,
++  score                   INTEGER NOT NULL,
++  priority                TEXT NOT NULL,
++  opportunity_type        TEXT,
++  summary                 TEXT,
++  identified_problems_json    TEXT,
++  recommended_services_json   TEXT,
++  recommended_actions_json    TEXT,
++  recommended_sample_type TEXT,
++  recommended_sample_reason TEXT,
++  estimated_value         TEXT,
++  confidence              TEXT,
++  status                  TEXT NOT NULL DEFAULT 'NEW',
++  created_at              TEXT NOT NULL,
++  updated_at              TEXT NOT NULL,
++  FOREIGN KEY (prospect_id) REFERENCES prospects(id)
++);
++
++CREATE INDEX IF NOT EXISTS idx_opportunities_prospect ON opportunities (prospect_id);
++CREATE INDEX IF NOT EXISTS idx_opportunities_status ON opportunities (status);
++CREATE INDEX IF NOT EXISTS idx_opportunities_score ON opportunities (score);
++CREATE INDEX IF NOT EXISTS idx_opportunities_priority ON opportunities (priority);
+diff --git a/integrations/opportunity-intelligence.js b/integrations/opportunity-intelligence.js
+new file mode 100644
+index 0000000..028f8fa
+--- /dev/null
++++ b/integrations/opportunity-intelligence.js
+@@ -0,0 +1,227 @@
++// integrations/opportunity-intelligence.js
++// Phase 3 — Real Estate Opportunity Intelligence.
++//
++// Purely deterministic and side-effect-free: no AI call, no network, no DB
++// access. Takes a prospect record (as stored by Phase 2's `prospects`
++// repository, or the equivalent camelCase shape) plus optional additional
++// signals, and returns a structured, explainable opportunity assessment.
++// Every claim is labeled with its evidence level (confirmed/likely/possible)
++// and traceable to a specific input field — nothing is invented. Where
++// there is genuinely no evidence for a category, it is marked 'possible'
++// with minimal weight or 'none', never asserted as fact.
++
++const SERVICE_CATEGORIES = ['website', 'social', 'visual', 'video', '3d', 'leadgen', 'automation'];
++
++const SERVICE_LABELS = {
++  website: 'Website Design/Improvement',
++  social: 'Social Media / Content Design',
++  visual: 'Property Promotional Graphics',
++  video: 'Property Promotional Video/Reels/TikTok',
++  '3d': '3D Visualization',
++  leadgen: 'Lead Generation / Marketing',
++  automation: 'AI Automation',
++};
++
++const SAMPLE_TYPE_BY_CATEGORY = {
++  website: 'website',
++  visual: 'property-ad',
++  social: 'social-media',
++  video: 'promotional-video',
++  '3d': '3d-visualization',
++  leadgen: 'brand-design',
++  automation: 'automation-demo',
++};
++
++const LEVEL_TO_PRIORITY = { confirmed: 'high', likely: 'medium', possible: 'low', none: 'low' };
++
++function parseJsonArray(value) {
++  if (Array.isArray(value)) return value;
++  if (typeof value === 'string') {
++    try {
++      const parsed = JSON.parse(value);
++      return Array.isArray(parsed) ? parsed : [];
++    } catch {
++      return [];
++    }
++  }
++  return [];
++}
++
++// Accepts either a raw DB row (snake_case, JSON-string columns) or an
++// already-normalized camelCase object (e.g. tool call args) and returns a
++// single normalized shape.
++function normalizeProspect(prospect) {
++  if (!prospect || typeof prospect !== 'object') return null;
++  return {
++    businessName: prospect.businessName ?? prospect.business_name ?? null,
++    websiteUrl: prospect.websiteUrl ?? prospect.website_url ?? null,
++    location: prospect.location ?? null,
++    contactEmail: prospect.contactEmail ?? prospect.contact_email ?? null,
++    contactPhone: prospect.contactPhone ?? prospect.contact_phone ?? null,
++    socialProfiles: parseJsonArray(prospect.socialProfiles ?? prospect.social_profiles_json),
++    serviceGaps: parseJsonArray(prospect.serviceGaps ?? prospect.service_gaps_json),
++  };
++}
++
++function clamp(n, min, max) {
++  return Math.max(min, Math.min(max, n));
++}
++
++/**
++ * Analyze a prospect + its known analysis for genuine service opportunities.
++ *
++ * @param {object} prospect - prospect record (DB row or camelCase shape)
++ * @param {object} [analysis] - optional additional known signals:
++ *   propertyListingsCount?: number|null
++ *   hasPromoVideo?: boolean|null
++ *   has3DVisualization?: boolean|null
++ *   mobileFriendly?: boolean|null
++ * @returns {object} structured opportunity assessment
++ */
++export function analyzeOpportunity(prospect, analysis = {}) {
++  const p = normalizeProspect(prospect);
++  if (!p) {
++    throw new Error('analyzeOpportunity requires a prospect object');
++  }
++  const a = analysis && typeof analysis === 'object' ? analysis : {};
++
++  const gaps = p.serviceGaps;
++  const hasWebsite = Boolean(p.websiteUrl);
++  const hasContactInfo = Boolean(p.contactEmail || p.contactPhone);
++  const hasSocial = p.socialProfiles.length > 0;
++  const gapText = gaps.join(' ');
++
++  const isThinOrOutdated = /thin, outdated|very short/i.test(gapText);
++  const isNoHttps = /plain HTTP \(no HTTPS\)/i.test(gapText);
++  const isNoPropertyContent = /No property\/listing content/i.test(gapText);
++  const isNoSocialGap = /No linked social media profiles/i.test(gapText);
++  const isNoContactGap = /No public contact information/i.test(gapText);
++
++  const categories = {};
++
++  // ── Website (max 28 points) ──────────────────────────────────────
++  if (!hasWebsite) {
++    categories.website = { level: 'confirmed', points: 28, reason: 'No website URL is on record for this prospect.' };
++  } else if (isThinOrOutdated && isNoHttps) {
++    categories.website = { level: 'likely', points: 22, reason: 'Website exists but the page content was found to be very short and the site is served over plain HTTP without HTTPS.' };
++  } else if (isThinOrOutdated || isNoHttps) {
++    const reason = isThinOrOutdated
++      ? 'the page content was found to be very short, suggesting a thin or outdated site'
++      : 'the site is served over plain HTTP without HTTPS';
++    categories.website = { level: 'likely', points: 14, reason: `Website exists but ${reason}.` };
++  } else if (!hasContactInfo) {
++    categories.website = { level: 'likely', points: 8, reason: 'Website exists but no clear contact path (email/phone) was found on the analyzed page.' };
++  } else {
++    categories.website = { level: 'none', points: 0, reason: 'Website exists with contact information; no confirmed website gap.' };
++  }
++
++  // ── Social (max 22 points) ────────────────────────────────────────
++  if (isNoSocialGap || (!hasSocial && hasWebsite)) {
++    categories.social = { level: 'confirmed', points: 22, reason: 'No linked social media profiles were found on the analyzed page.' };
++  } else if (!hasSocial) {
++    categories.social = { level: 'possible', points: 8, reason: 'No social profiles on record, though no page was confirmed to lack them.' };
++  } else {
++    categories.social = { level: 'none', points: 0, reason: 'Social media profiles were found for this prospect.' };
++  }
++
++  // ── Visual marketing / property presentation (max 18 points) ─────
++  if (isNoPropertyContent) {
++    categories.visual = { level: 'likely', points: 18, reason: 'No property/listing content was detected on the analyzed page, suggesting weak property presentation.' };
++  } else {
++    categories.visual = { level: 'possible', points: 4, reason: 'No confirmed gap in property presentation, but visual marketing quality was not directly assessed.' };
++  }
++
++  // ── Video (max 8 points — rarely confirmable from public info alone) ─
++  if (a.hasPromoVideo === false) {
++    categories.video = { level: 'likely', points: 8, reason: 'No promotional video content was confirmed present for this business.' };
++  } else if (a.hasPromoVideo === true) {
++    categories.video = { level: 'none', points: 0, reason: 'Promotional video content was confirmed already present.' };
++  } else if (typeof a.propertyListingsCount === 'number' && a.propertyListingsCount > 0) {
++    categories.video = { level: 'likely', points: 7, reason: `${a.propertyListingsCount} property listing(s) on record could reasonably benefit from promotional video/Reels content.` };
++  } else {
++    categories.video = { level: 'possible', points: 4, reason: 'Property promotional video is a generally applicable opportunity for real-estate businesses, though not directly confirmed here.' };
++  }
++
++  // ── 3D visualization (max 6 points) ───────────────────────────────
++  if (a.has3DVisualization === false) {
++    categories['3d'] = { level: 'likely', points: 6, reason: 'No 3D visualization content was confirmed present for this business.' };
++  } else if (a.has3DVisualization === true) {
++    categories['3d'] = { level: 'none', points: 0, reason: '3D visualization content was confirmed already present.' };
++  } else if (typeof a.propertyListingsCount === 'number' && a.propertyListingsCount > 0) {
++    categories['3d'] = { level: 'likely', points: 5, reason: `${a.propertyListingsCount} property listing(s) on record could reasonably benefit from 3D visualization.` };
++  } else {
++    categories['3d'] = { level: 'possible', points: 3, reason: '3D visualization is a plausible opportunity for a real-estate business, though not directly confirmed here.' };
++  }
++
++  // ── Lead generation / marketing (max 14 points) ───────────────────
++  const leadGenSignals = [!hasContactInfo || isNoContactGap, !hasSocial || isNoSocialGap, categories.website.level !== 'none'].filter(Boolean).length;
++  if (leadGenSignals >= 2) {
++    categories.leadgen = { level: 'confirmed', points: 14, reason: 'Multiple confirmed gaps (contact path, social presence, and/or website) point to a genuine lead-generation opportunity.' };
++  } else if (leadGenSignals === 1) {
++    categories.leadgen = { level: 'likely', points: 7, reason: 'At least one confirmed gap suggests a lead-generation opportunity.' };
++  } else {
++    categories.leadgen = { level: 'possible', points: 2, reason: 'No confirmed lead-generation gap; general marketing support may still be of interest.' };
++  }
++
++  // ── Automation (max 6 points) ─────────────────────────────────────
++  if (!hasContactInfo && hasWebsite) {
++    categories.automation = { level: 'likely', points: 6, reason: 'Website exists without a clear contact/lead-capture path — a lead-routing or automation gap is plausible.' };
++  } else {
++    categories.automation = { level: 'possible', points: 2, reason: 'No direct evidence of operational/lead-management processes; automation opportunity is speculative.' };
++  }
++
++  // ── Score & priority ─────────────────────────────────────────────
++  const score = clamp(SERVICE_CATEGORIES.reduce((sum, key) => sum + categories[key].points, 0), 0, 100);
++  const priority = score >= 80 ? 'HIGH' : score >= 60 ? 'MEDIUM' : 'LOW';
++
++  // ── Confidence: how much evidence did we actually have? ──────────
++  const evidenceSignals = [gaps.length > 0, hasWebsite, hasSocial || isNoSocialGap, hasContactInfo || isNoContactGap].filter(Boolean).length;
++  const confidence = evidenceSignals >= 3 ? 'high' : evidenceSignals >= 1 ? 'medium' : 'low';
++
++  // ── Recommended services (only categories with any points) ───────
++  const recommendedServices = SERVICE_CATEGORIES
++    .filter((key) => categories[key].points > 0)
++    .sort((a, b) => categories[b].points - categories[a].points)
++    .map((key) => ({
++      service: SERVICE_LABELS[key],
++      reason: categories[key].reason,
++      priority: LEVEL_TO_PRIORITY[categories[key].level],
++    }));
++
++  // ── Identified problems (level != none) ───────────────────────────
++  const identifiedProblems = SERVICE_CATEGORIES
++    .filter((key) => categories[key].level !== 'none')
++    .map((key) => ({ category: key, level: categories[key].level, description: categories[key].reason }));
++
++  // ── Recommended sample type: top-scoring category, or 'none' ─────
++  const topCategory = SERVICE_CATEGORIES
++    .filter((key) => categories[key].points > 0)
++    .sort((a, b) => categories[b].points - categories[a].points)[0];
++  const recommendedSampleType = topCategory ? SAMPLE_TYPE_BY_CATEGORY[topCategory] : 'none';
++  const recommendedSampleReason = topCategory
++    ? `Highest-scoring opportunity is ${SERVICE_LABELS[topCategory]} (${categories[topCategory].level}), so a ${recommendedSampleType} sample would best demonstrate value.`
++    : 'No significant opportunity was identified; no sample is recommended at this time.';
++
++  // ── Estimated value: qualitative only — no fabricated figures ────
++  const estimatedValue = score >= 80 ? 'high' : score >= 60 ? 'medium' : 'low';
++
++  // ── Deterministic summary ─────────────────────────────────────────
++  const topProblem = identifiedProblems[0];
++  const summary = topProblem
++    ? `${p.businessName || 'This prospect'} shows a ${priority}-priority opportunity (score ${score}/100), primarily due to a ${topProblem.level} gap: ${topProblem.description}`
++    : `${p.businessName || 'This prospect'} shows a ${priority}-priority opportunity (score ${score}/100); no significant service gaps were identified from available evidence.`;
++
++  return {
++    score,
++    priority,
++    opportunityType: topCategory || 'none',
++    summary,
++    identifiedProblems,
++    recommendedServices,
++    recommendedSampleType,
++    recommendedSampleReason,
++    estimatedValue,
++    confidence,
++    categories, // full breakdown, for transparency/explainability
++  };
++}
+diff --git a/monitoring/dashboard.js b/monitoring/dashboard.js
+index 9dbdb73..7349883 100644
+--- a/monitoring/dashboard.js
++++ b/monitoring/dashboard.js
+@@ -17,7 +17,7 @@ import express from 'express';
+ import basicAuth from 'express-basic-auth';
+ import fs from 'node:fs';
+ import path from 'node:path';
+-import { tasks, runs, steps, errors as dbErrors, notifications, websiteSamples, prospects } from '../database/index.js';
++import { tasks, runs, steps, errors as dbErrors, notifications, websiteSamples, prospects, opportunities } from '../database/index.js';
+ import { runAgent } from '../agent/index.js';
+ import { scheduleTask, unscheduleTask } from '../scheduler/index.js';
+ import { listPending, listAll as listApprovals, recordDecision } from '../agent/approval.js';
+@@ -157,6 +157,32 @@ export async function startDashboard() {
+   });
+ 
+ 
++  // ── Opportunities (Phase 3) ───────────────────────────────────────
++  app.get('/api/opportunities', (req, res) => {
++    const minScore = req.query.minScore !== undefined ? Number(req.query.minScore) : undefined;
++    res.json(opportunities.listOpportunities({
++      limit: Number(req.query.limit) || 50,
++      status: req.query.status,
++      priority: req.query.priority,
++      minScore,
++    }));
++  });
++
++
++  app.get('/api/opportunities/:id', (req, res) => {
++    const opp = opportunities.getOpportunity(req.params.id);
++    if (!opp) return res.status(404).json({ error: 'not found' });
++    res.json(opp);
++  });
++
++
++  app.get('/api/prospects/:id/opportunities', (req, res) => {
++    const prospect = prospects.get(req.params.id);
++    if (!prospect) return res.status(404).json({ error: 'not found' });
++    res.json(opportunities.getOpportunitiesForProspect(req.params.id, { limit: Number(req.query.limit) || 20 }));
++  });
++
++
+   // Safe static preview: only ever serves the fixed, known filenames that
+   // generateWebsite() writes, from a directory resolved and validated by
+   // resolveSampleDir() (which guarantees containment under the samples
+@@ -214,6 +240,22 @@ function renderHomePage() {
+     </tr>
+   `).join('');
+ 
++  const recentOpportunities = opportunities.listOpportunities({ limit: 20 });
++  const opportunityRows = recentOpportunities.map((o) => {
++    const prospect = prospects.get(o.prospect_id);
++    return `
++    <tr>
++      <td><strong>${escapeHtml(prospect?.business_name || o.prospect_id)}</strong></td>
++      <td>${escapeHtml(String(o.score))}</td>
++      <td>${escapeHtml(o.priority)}</td>
++      <td>${escapeHtml(o.opportunity_type || '—')}</td>
++      <td>${escapeHtml(o.recommended_sample_type || '—')}</td>
++      <td>${escapeHtml(o.confidence || '—')}</td>
++      <td><span class="status">${escapeHtml(o.status)}</span></td>
++    </tr>
++  `;
++  }).join('');
++
+   return `<!doctype html>
+ <html>
+ <head>
+@@ -463,6 +505,37 @@ th {
+ 
+   </div>
+ 
++  <div class="card">
++
++    <h2>Opportunities</h2>
++    <p style="color:#9ca3af;margin:-8px 0 16px;font-size:13px;">
++      Filter via the API: <code>/api/opportunities?priority=HIGH&amp;status=...&amp;minScore=...</code>
++    </p>
++
++    <table>
++      <thead>
++        <tr>
++          <th>Prospect</th>
++          <th>Score</th>
++          <th>Priority</th>
++          <th>Type</th>
++          <th>Recommended Sample</th>
++          <th>Confidence</th>
++          <th>Status</th>
++        </tr>
++      </thead>
++
++      <tbody>
++        ${opportunityRows || `
++        <tr>
++          <td colspan="7">No opportunities analyzed yet.</td>
++        </tr>`}
++      </tbody>
++
++    </table>
++
++  </div>
++
+ </div>
+ 
+ <script>
+diff --git a/tests/integration/agent-loop.test.js b/tests/integration/agent-loop.test.js
+index ab12bf3..fbf21d2 100644
+--- a/tests/integration/agent-loop.test.js
++++ b/tests/integration/agent-loop.test.js
+@@ -76,4 +76,51 @@ describe('agent loop (integration)', () => {
+     });
+     expect(result.status).toBe('success');
+   }, 60_000);
++
++  it('completes a full prospect → opportunity-analysis → save pipeline end to end', async () => {
++    const result = await runAgent({
++      goal: 'Find a real estate prospect, analyze the opportunity, and save the opportunity for this prospect.',
++    });
++    expect(result.status).toBe('success');
++    expect(result.runId).toBeTruthy();
++
++    const { steps, prospects, opportunities } = await import('../../database/index.js');
++    const runSteps = steps.listForRun(result.runId);
++
++    const saveProspectStep = runSteps.find((s) => s.tool === 'save_prospect');
++    expect(saveProspectStep).toBeTruthy();
++    expect(saveProspectStep.status).toBe('success');
++    const prospectObs = JSON.parse(saveProspectStep.observation_json);
++    expect(prospectObs.prospectId).toBeTruthy();
++
++    const prospect = prospects.get(prospectObs.prospectId);
++    expect(prospect).toBeTruthy();
++    expect(prospect.business_name).toBe('Example Property Tanzania');
++
++    const analyzeStep = runSteps.find((s) => s.tool === 'analyze_opportunity');
++    expect(analyzeStep).toBeTruthy();
++    expect(analyzeStep.status).toBe('success');
++    const analysisObs = JSON.parse(analyzeStep.observation_json);
++    expect(typeof analysisObs.score).toBe('number');
++    expect(['HIGH', 'MEDIUM', 'LOW']).toContain(analysisObs.priority);
++
++    const saveOppStep = runSteps.find((s) => s.tool === 'save_opportunity');
++    expect(saveOppStep).toBeTruthy();
++    expect(saveOppStep.status).toBe('success');
++    const oppObs = JSON.parse(saveOppStep.observation_json);
++    expect(oppObs.opportunityId).toBeTruthy();
++
++    const savedOpp = opportunities.getOpportunity(oppObs.opportunityId);
++    expect(savedOpp).toBeTruthy();
++    expect(savedOpp.prospect_id).toBe(prospectObs.prospectId);
++    expect(['NEW', 'ANALYZED', 'SAMPLE_RECOMMENDED']).toContain(savedOpp.status);
++  }, 60_000);
++
++  it('fails cleanly (not silently) when analyzing an opportunity for a prospect that does not exist', async () => {
++    const result = await runAgent({
++      goal: 'Attempt to analyze the opportunity for a prospect that does not exist (missing prospect test).',
++    });
++    expect(result.status).toBe('failed');
++    expect(result.error).toMatch(/Prospect not found/i);
++  }, 60_000);
+ });
+diff --git a/tests/unit/agent-ai.test.js b/tests/unit/agent-ai.test.js
+index 2b827b3..50bc3ac 100644
+--- a/tests/unit/agent-ai.test.js
++++ b/tests/unit/agent-ai.test.js
+@@ -110,4 +110,27 @@ describe('agent/ai', () => {
+     expect(isSensitive('analyze_prospect_page', { pageText: 'x' })).toBe(false);
+     expect(isSensitive('save_prospect', { businessName: 'Acme' })).toBe(false);
+   });
++
++  it('registers analyze_opportunity as a known tool with a structured schema', () => {
++    expect(isKnownTool('analyze_opportunity')).toBe(true);
++    const tool = ACTION_TOOLS.find((t) => t.name === 'analyze_opportunity');
++    expect(tool).toBeTruthy();
++    expect(tool.parameters.properties).toHaveProperty('prospectId');
++    expect(tool.parameters.required).toContain('prospectId');
++  });
++
++  it('registers save_opportunity as a known tool with a structured schema', () => {
++    expect(isKnownTool('save_opportunity')).toBe(true);
++    const tool = ACTION_TOOLS.find((t) => t.name === 'save_opportunity');
++    expect(tool).toBeTruthy();
++    expect(tool.parameters.properties).toHaveProperty('score');
++    expect(tool.parameters.properties).toHaveProperty('priority');
++    expect(tool.parameters.required).toEqual(expect.arrayContaining(['prospectId', 'score', 'priority']));
++  });
++
++  it('does not flag analyze_opportunity or save_opportunity as sensitive (analysis/local save only)', () => {
++    process.env.HUMAN_APPROVAL_REQUIRED = 'true';
++    expect(isSensitive('analyze_opportunity', { prospectId: 'x' })).toBe(false);
++    expect(isSensitive('save_opportunity', { prospectId: 'x', score: 50, priority: 'LOW' })).toBe(false);
++  });
+ });
+diff --git a/tests/unit/database.test.js b/tests/unit/database.test.js
+index 16104ed..3e42b00 100644
+--- a/tests/unit/database.test.js
++++ b/tests/unit/database.test.js
+@@ -4,13 +4,13 @@ import fs from 'node:fs';
+ import path from 'node:path';
+ import os from 'node:os';
+ 
+-let tasks, runs, steps, migrate, closeDb, websiteSamples, prospects;
++let tasks, runs, steps, migrate, closeDb, websiteSamples, prospects, opportunities;
+ let tmpDbPath;
+ 
+ beforeAll(async () => {
+   tmpDbPath = path.join(os.tmpdir(), `agent-test-${Date.now()}.db`);
+   process.env.DATABASE_PATH = tmpDbPath;
+-  ({ tasks, runs, steps, migrate, closeDb, websiteSamples, prospects } = await import('../../database/index.js'));
++  ({ tasks, runs, steps, migrate, closeDb, websiteSamples, prospects, opportunities } = await import('../../database/index.js'));
+   migrate();
+ });
+ 
+@@ -152,3 +152,74 @@ describe('database/prospects', () => {
+     expect(prospects.get('does-not-exist')).toBeUndefined();
+   });
+ });
++
++describe('database/opportunities', () => {
++  it('creates an opportunity linked to a prospect with default status NEW', () => {
++    const prospect = prospects.create({ businessName: 'Opportunity Target Realty' });
++    const created = opportunities.createOpportunity({
++      prospectId: prospect.id,
++      score: 85,
++      priority: 'HIGH',
++      opportunityType: 'website',
++      summary: 'Test summary',
++      identifiedProblems: [{ category: 'website', level: 'confirmed', description: 'No website' }],
++      recommendedServices: [{ service: 'Website Design/Improvement', reason: 'No website', priority: 'high' }],
++      recommendedSampleType: 'website',
++      confidence: 'high',
++    });
++    expect(created.status).toBe('NEW');
++    expect(created.prospect_id).toBe(prospect.id);
++    expect(created.score).toBe(85);
++    expect(JSON.parse(created.recommended_services_json)).toHaveLength(1);
++  });
++
++  it('retrieves an opportunity by id', () => {
++    const prospect = prospects.create({ businessName: 'Retrieve Opp Realty' });
++    const created = opportunities.createOpportunity({ prospectId: prospect.id, score: 50, priority: 'LOW' });
++    const fetched = opportunities.getOpportunity(created.id);
++    expect(fetched.priority).toBe('LOW');
++  });
++
++  it('lists opportunities filtered by status, priority, and minScore', () => {
++    const prospect = prospects.create({ businessName: 'Filter Opp Realty' });
++    opportunities.createOpportunity({ prospectId: prospect.id, score: 90, priority: 'HIGH' });
++    const b = opportunities.createOpportunity({ prospectId: prospect.id, score: 40, priority: 'LOW' });
++    opportunities.updateOpportunity(b.id, { status: 'CONTACTED' });
++
++    const highPriority = opportunities.listOpportunities({ priority: 'HIGH', limit: 10 });
++    expect(highPriority.every((o) => o.priority === 'HIGH')).toBe(true);
++
++    const highScore = opportunities.listOpportunities({ minScore: 80, limit: 10 });
++    expect(highScore.every((o) => o.score >= 80)).toBe(true);
++
++    const contacted = opportunities.listOpportunities({ status: 'CONTACTED', limit: 10 });
++    expect(contacted.map((o) => o.id)).toContain(b.id);
++  });
++
++  it('updates an opportunity status', () => {
++    const prospect = prospects.create({ businessName: 'Update Opp Realty' });
++    const created = opportunities.createOpportunity({ prospectId: prospect.id, score: 70, priority: 'MEDIUM' });
++    const updated = opportunities.updateOpportunity(created.id, { status: 'SAMPLE_RECOMMENDED' });
++    expect(updated.status).toBe('SAMPLE_RECOMMENDED');
++  });
++
++  it('returns null when updating an unknown opportunity', () => {
++    expect(opportunities.updateOpportunity('does-not-exist', { status: 'WON' })).toBeNull();
++  });
++
++  it('lists all opportunities for a given prospect', () => {
++    const prospect = prospects.create({ businessName: 'Multi Opp Realty' });
++    const other = prospects.create({ businessName: 'Other Realty' });
++    opportunities.createOpportunity({ prospectId: prospect.id, score: 60, priority: 'MEDIUM' });
++    opportunities.createOpportunity({ prospectId: prospect.id, score: 70, priority: 'MEDIUM' });
++    opportunities.createOpportunity({ prospectId: other.id, score: 30, priority: 'LOW' });
++
++    const forProspect = opportunities.getOpportunitiesForProspect(prospect.id);
++    expect(forProspect).toHaveLength(2);
++    expect(forProspect.every((o) => o.prospect_id === prospect.id)).toBe(true);
++  });
++
++  it('returns undefined for an unknown opportunity id', () => {
++    expect(opportunities.getOpportunity('does-not-exist')).toBeUndefined();
++  });
++});
+diff --git a/tests/unit/opportunity-intelligence.test.js b/tests/unit/opportunity-intelligence.test.js
+new file mode 100644
+index 0000000..735910d
+--- /dev/null
++++ b/tests/unit/opportunity-intelligence.test.js
+@@ -0,0 +1,182 @@
++// tests/unit/opportunity-intelligence.test.js
++import { describe, it, expect } from 'vitest';
++import { analyzeOpportunity } from '../../integrations/opportunity-intelligence.js';
++
++const NO_CONTACT_GAP = 'No public contact information found on the page (no email or phone detected).';
++const NO_SOCIAL_GAP = 'No linked social media profiles detected — potential social media marketing opportunity.';
++const THIN_GAP = 'Page text content is very short — may indicate a thin, outdated, or under-developed website.';
++const NO_HTTPS_GAP = 'Site is served over plain HTTP (no HTTPS) — a basic website-improvement opportunity.';
++const NO_PROPERTY_GAP = 'No property/listing content detected on this page — may indicate weak property marketing.';
++
++describe('integrations/opportunity-intelligence — analyzeOpportunity', () => {
++  it('produces a HIGH priority for a prospect with multiple confirmed gaps from actual page analysis', () => {
++    // Realistic HIGH case: a real website was analyzed and several gaps
++    // were directly confirmed (thin content, no HTTPS, no social, no
++    // property content, no contact info) — not merely "no website found".
++    const prospect = {
++      businessName: 'Confirmed Gaps Realty',
++      websiteUrl: 'https://confirmed-gaps-realty.com',
++      contactEmail: null,
++      contactPhone: null,
++      socialProfiles: [],
++      serviceGaps: [NO_CONTACT_GAP, NO_SOCIAL_GAP, NO_PROPERTY_GAP, NO_HTTPS_GAP, THIN_GAP],
++    };
++    const result = analyzeOpportunity(prospect);
++    expect(result.score).toBeGreaterThanOrEqual(80);
++    expect(result.priority).toBe('HIGH');
++  });
++
++  it('produces a MEDIUM priority for a prospect with a thin, non-HTTPS website and no recorded social presence', () => {
++    const prospect = {
++      businessName: 'Thin Site Realty',
++      websiteUrl: 'https://thin-realty.com',
++      contactEmail: 'info@thin-realty.com',
++      contactPhone: null,
++      socialProfiles: [],
++      serviceGaps: [THIN_GAP, NO_HTTPS_GAP],
++    };
++    const result = analyzeOpportunity(prospect);
++    expect(result.score).toBeGreaterThanOrEqual(60);
++    expect(result.score).toBeLessThan(80);
++    expect(result.priority).toBe('MEDIUM');
++  });
++
++  it('produces a LOW priority for a prospect with a strong website, contact info, and social presence', () => {
++    const prospect = {
++      businessName: 'Strong Realty',
++      websiteUrl: 'https://strong-realty.com',
++      contactEmail: 'info@strong-realty.com',
++      contactPhone: '+255700000000',
++      socialProfiles: [{ platform: 'facebook', url: 'https://facebook.com/strong' }, { platform: 'instagram', url: 'https://instagram.com/strong' }],
++      serviceGaps: [],
++    };
++    const result = analyzeOpportunity(prospect, { hasPromoVideo: true, has3DVisualization: true });
++    expect(result.score).toBeLessThan(60);
++    expect(result.priority).toBe('LOW');
++  });
++
++  it('flags "no website" as a confirmed website gap with maximum website points', () => {
++    const prospect = { businessName: 'No Site Co', websiteUrl: null, serviceGaps: [] };
++    const result = analyzeOpportunity(prospect);
++    expect(result.categories.website.level).toBe('confirmed');
++    expect(result.categories.website.points).toBe(28);
++  });
++
++  it('flags a weak/thin website as "likely" (not confirmed) since it is inferred, not directly proven', () => {
++    const prospect = { businessName: 'Weak Site Co', websiteUrl: 'https://weak.com', serviceGaps: [THIN_GAP] };
++    const result = analyzeOpportunity(prospect);
++    expect(result.categories.website.level).toBe('likely');
++  });
++
++  it('flags missing social presence as a confirmed gap when the page was actually checked', () => {
++    const prospect = { businessName: 'No Social Co', websiteUrl: 'https://x.com', serviceGaps: [NO_SOCIAL_GAP] };
++    const result = analyzeOpportunity(prospect);
++    expect(result.categories.social.level).toBe('confirmed');
++  });
++
++  it('recommends multiple services when multiple gaps are present', () => {
++    const prospect = {
++      businessName: 'Multi Gap Realty',
++      websiteUrl: null,
++      serviceGaps: [NO_CONTACT_GAP, NO_SOCIAL_GAP, NO_PROPERTY_GAP],
++    };
++    const result = analyzeOpportunity(prospect);
++    expect(result.recommendedServices.length).toBeGreaterThanOrEqual(3);
++    const serviceNames = result.recommendedServices.map((s) => s.service);
++    expect(serviceNames).toContain('Website Design/Improvement');
++    expect(serviceNames).toContain('Social Media / Content Design');
++  });
++
++  it('selects the highest-scoring category as the recommended sample type', () => {
++    const prospect = { businessName: 'No Site Co', websiteUrl: null, serviceGaps: [] };
++    const result = analyzeOpportunity(prospect);
++    expect(result.recommendedSampleType).toBe('website');
++    expect(result.recommendedSampleReason).toBeTruthy();
++  });
++
++  it('recommends "none" as the sample type when there are no positive-point categories', () => {
++    // Construct a prospect where every category should land at 0 points:
++    // impossible in practice (possible-level categories always have some
++    // baseline points), so instead verify the function never crashes and
++    // always returns a valid enum value from the allowed set.
++    const prospect = {
++      businessName: 'Perfect Co',
++      websiteUrl: 'https://perfect.com',
++      contactEmail: 'info@perfect.com',
++      contactPhone: '+255700000000',
++      socialProfiles: [{ platform: 'facebook', url: 'https://facebook.com/perfect' }],
++      serviceGaps: [],
++    };
++    const result = analyzeOpportunity(prospect, { hasPromoVideo: true, has3DVisualization: true });
++    const allowed = ['website', 'property-ad', 'social-media', 'promotional-video', '3d-visualization', 'brand-design', 'automation-demo', 'none'];
++    expect(allowed).toContain(result.recommendedSampleType);
++  });
++
++  it('is fully deterministic — same input always produces the same score', () => {
++    const prospect = { businessName: 'Repeat Co', websiteUrl: 'https://repeat.com', serviceGaps: [THIN_GAP, NO_SOCIAL_GAP] };
++    const r1 = analyzeOpportunity(prospect);
++    const r2 = analyzeOpportunity(prospect);
++    expect(r1.score).toBe(r2.score);
++    expect(r1.priority).toBe(r2.priority);
++    expect(r1.recommendedSampleType).toBe(r2.recommendedSampleType);
++  });
++
++  it('never asserts a "confirmed" level without a specific supporting gap or field', () => {
++    // Video/3D/automation categories have no direct Phase-2 signal for
++    // "confirmed" — they should never reach 'confirmed' purely from
++    // inference; only 'likely' or 'possible'.
++    const prospect = { businessName: 'X', websiteUrl: 'https://x.com', serviceGaps: [] };
++    const result = analyzeOpportunity(prospect);
++    expect(result.categories.video.level).not.toBe('confirmed');
++    expect(result.categories['3d'].level).not.toBe('confirmed');
++    expect(result.categories.automation.level).not.toBe('confirmed');
++  });
++
++  it('uses qualitative estimated_value labels only — never a fabricated dollar figure', () => {
++    const prospect = { businessName: 'X', websiteUrl: null, serviceGaps: [] };
++    const result = analyzeOpportunity(prospect);
++    expect(['low', 'medium', 'high']).toContain(result.estimatedValue);
++  });
++
++  it('throws a clear error for malformed input (null prospect)', () => {
++    expect(() => analyzeOpportunity(null)).toThrow(/prospect/i);
++  });
++
++  it('throws a clear error for malformed input (undefined prospect)', () => {
++    expect(() => analyzeOpportunity(undefined)).toThrow(/prospect/i);
++  });
++
++  it('accepts a raw DB row shape (snake_case + JSON string columns)', () => {
++    const dbRow = {
++      business_name: 'DB Row Realty',
++      website_url: null,
++      contact_email: null,
++      contact_phone: null,
++      social_profiles_json: '[]',
++      service_gaps_json: JSON.stringify([NO_CONTACT_GAP]),
++    };
++    const result = analyzeOpportunity(dbRow);
++    expect(result.score).toBeGreaterThan(0);
++    expect(result.categories.website.level).toBe('confirmed');
++  });
++
++  it('handles malformed JSON string fields gracefully instead of throwing', () => {
++    const dbRow = { business_name: 'Bad JSON Co', social_profiles_json: 'not json', service_gaps_json: 'also not json' };
++    expect(() => analyzeOpportunity(dbRow)).not.toThrow();
++  });
++
++  it('score is always clamped between 0 and 100', () => {
++    const prospect = { businessName: 'X', websiteUrl: null, serviceGaps: [NO_CONTACT_GAP, NO_SOCIAL_GAP, THIN_GAP, NO_HTTPS_GAP, NO_PROPERTY_GAP] };
++    const result = analyzeOpportunity(prospect);
++    expect(result.score).toBeGreaterThanOrEqual(0);
++    expect(result.score).toBeLessThanOrEqual(100);
++  });
++
++  it('every identified problem has a level of confirmed, likely, or possible — never a bare assertion', () => {
++    const prospect = { businessName: 'X', websiteUrl: null, serviceGaps: [NO_CONTACT_GAP, NO_SOCIAL_GAP] };
++    const result = analyzeOpportunity(prospect);
++    for (const problem of result.identifiedProblems) {
++      expect(['confirmed', 'likely', 'possible']).toContain(problem.level);
++    }
++  });
++});

@@ -1,0 +1,522 @@
+diff --git a/agent/ai/index.js b/agent/ai/index.js
+index 161c093..83deb8c 100644
+--- a/agent/ai/index.js
++++ b/agent/ai/index.js
+@@ -79,6 +79,8 @@ const TOOL_NAMES = new Set([
+   'task_fail',
+   'request_human_approval',
+   'generate_website',
++  'analyze_prospect_page',
++  'save_prospect',
+ ]);
+ 
+ 
+@@ -157,6 +159,43 @@ export const ACTION_TOOLS = [
+       required: [],
+     },
+   },
++  {
++    type: 'function',
++    name: 'analyze_prospect_page',
++    description: 'Extracts public contact info, social profiles, and service gaps from the text of a page the browser is already looking at (call this after browser_get_page_info or browser_get_text). Purely reads the given text — does not fetch anything itself, invents nothing, and only reports what is actually present in the text.',
++    parameters: {
++      type: 'object',
++      properties: {
++        pageText: { type: 'string', description: 'Visible text content of the current page.' },
++        pageTitle: { type: 'string', description: 'Title of the current page.' },
++        pageUrl: { type: 'string', description: 'URL of the current page.' },
++      },
++      required: ['pageText'],
++    },
++  },
++  {
++    type: 'function',
++    name: 'save_prospect',
++    description: 'Saves a real-estate business as a prospect for potential outreach, using only public information already gathered (e.g. from analyze_prospect_page). Does NOT contact the prospect, submit anything, or publish anything — it only records the prospect locally for human review.',
++    parameters: {
++      type: 'object',
++      properties: {
++        businessName: { type: 'string' },
++        websiteUrl: { type: 'string' },
++        location: { type: 'string' },
++        contactEmail: { type: 'string' },
++        contactPhone: { type: 'string' },
++        socialProfiles: {
++          type: 'array',
++          items: { type: 'object', properties: { platform: { type: 'string' }, url: { type: 'string' } } },
++        },
++        serviceGaps: { type: 'array', items: { type: 'string' }, description: 'Only genuinely observed gaps — never invented.' },
++        sourceUrl: { type: 'string', description: 'The public page this information was gathered from.' },
++        notes: { type: 'string' },
++      },
++      required: ['businessName'],
++    },
++  },
+ ];
+ 
+ 
+diff --git a/agent/index.js b/agent/index.js
+index 5fb5298..f423777 100644
+--- a/agent/index.js
++++ b/agent/index.js
+@@ -10,12 +10,13 @@
+ 
+ 
+ import browser from '../browser/index.js';
+-import { tasks, runs, steps, errors as dbErrors, kv, sessions, notifications, websiteSamples } from '../database/index.js';
++import { tasks, runs, steps, errors as dbErrors, kv, sessions, notifications, websiteSamples, prospects } from '../database/index.js';
+ import { config, redact } from '../config/index.js';
+ import { getProvider, isKnownTool, ACTION_TOOLS, isSensitive } from './ai/index.js';
+ import { notify } from '../notifications/index.js';
+ import { enqueueApproval, awaitApproval } from './approval.js';
+ import { generateWebsite } from '../integrations/website-gen.js';
++import { analyzeProspectPage } from '../integrations/prospecting.js';
+ 
+ 
+ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+@@ -326,6 +327,26 @@ async function executeAction(action, context = {}) {
+       const { dir, ...observation } = result;
+       return observation;
+     }
++    case 'analyze_prospect_page': {
++      // Pure text analysis — no browser call, no network, no DB write.
++      return analyzeProspectPage(args);
++    }
++    case 'save_prospect': {
++      const saved = prospects.create({
++        taskId: context.taskId,
++        runId: context.runId,
++        businessName: args.businessName,
++        websiteUrl: args.websiteUrl,
++        location: args.location,
++        contactEmail: args.contactEmail,
++        contactPhone: args.contactPhone,
++        socialProfiles: args.socialProfiles,
++        serviceGaps: args.serviceGaps,
++        sourceUrl: args.sourceUrl,
++        notes: args.notes,
++      });
++      return { success: true, prospectId: saved.id, status: saved.status };
++    }
+     default:
+       throw new Error(`Tool not implemented in executor: ${tool}`);
+   }
+diff --git a/database/index.js b/database/index.js
+index de56959..cdae915 100644
+--- a/database/index.js
++++ b/database/index.js
+@@ -262,6 +262,50 @@ export const websiteSamples = {
+ };
+ 
+ 
++// ── prospects (Phase 2 — Real Estate Prospecting) ────────────────────
++export const prospects = {
++  create({ id, taskId, runId, businessName, websiteUrl, location, contactEmail, contactPhone, socialProfiles, serviceGaps, sourceUrl, notes, status }) {
++    const genId = id || nanoid(12);
++    const now = new Date().toISOString();
++    getDb().prepare(`
++      INSERT INTO prospects
++        (id, task_id, run_id, business_name, website_url, location, contact_email, contact_phone, social_profiles_json, service_gaps_json, source_url, notes, status, created_at, updated_at)
++      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
++    `).run(
++      genId,
++      taskId || null,
++      runId || null,
++      businessName || null,
++      websiteUrl || null,
++      location || null,
++      contactEmail || null,
++      contactPhone || null,
++      JSON.stringify(socialProfiles || []),
++      JSON.stringify(serviceGaps || []),
++      sourceUrl || null,
++      notes || null,
++      status || 'NEW',
++      now,
++      now,
++    );
++    return prospects.get(genId);
++  },
++  get(id) {
++    return getDb().prepare('SELECT * FROM prospects WHERE id = ?').get(id);
++  },
++  list({ limit = 50, status } = {}) {
++    if (status) {
++      return getDb().prepare('SELECT * FROM prospects WHERE status = ? ORDER BY created_at DESC LIMIT ?').all(status, limit);
++    }
++    return getDb().prepare('SELECT * FROM prospects ORDER BY created_at DESC LIMIT ?').all(limit);
++  },
++  updateStatus(id, status) {
++    getDb().prepare('UPDATE prospects SET status = ?, updated_at = ? WHERE id = ?').run(status, new Date().toISOString(), id);
++    return prospects.get(id);
++  },
++};
++
++
+ // ── notifications log (sent notifications, for audit / dashboard) ───
+ export const notifications = {
+   record({ level, subject, body, channel, ok, errorMessage }) {
+diff --git a/database/schema.sql b/database/schema.sql
+index 295d0bd..7b60087 100644
+--- a/database/schema.sql
++++ b/database/schema.sql
+@@ -118,3 +118,32 @@ CREATE TABLE IF NOT EXISTS website_samples (
+ 
+ CREATE INDEX IF NOT EXISTS idx_website_samples_created ON website_samples (created_at);
+ CREATE INDEX IF NOT EXISTS idx_website_samples_task ON website_samples (task_id);
++
++-- prospects: real-estate businesses identified as candidates for outreach
++-- (Phase 2 — Real Estate Prospecting). Populated by the save_prospect tool
++-- from information the agent extracted from public pages only — never from
++-- private/authenticated sources. `status` uses the Phase 8 CRM vocabulary
++-- (NEW, ANALYZED, SAMPLE_CREATED, PROPOSAL_READY, AWAITING_APPROVAL,
++-- CONTACTED, REPLIED, FOLLOW_UP, WON, LOST) so later phases can build on
++-- this column without a migration; only 'NEW' is set by this phase.
++CREATE TABLE IF NOT EXISTS prospects (
++  id                TEXT PRIMARY KEY,
++  task_id           TEXT,
++  run_id            TEXT,
++  business_name     TEXT,
++  website_url       TEXT,
++  location          TEXT,
++  contact_email     TEXT,
++  contact_phone     TEXT,
++  social_profiles_json TEXT,
++  service_gaps_json TEXT,
++  source_url        TEXT,
++  notes             TEXT,
++  status            TEXT NOT NULL DEFAULT 'NEW',
++  created_at        TEXT NOT NULL,
++  updated_at        TEXT NOT NULL
++);
++
++CREATE INDEX IF NOT EXISTS idx_prospects_created ON prospects (created_at);
++CREATE INDEX IF NOT EXISTS idx_prospects_status ON prospects (status);
++CREATE INDEX IF NOT EXISTS idx_prospects_task ON prospects (task_id);
+diff --git a/integrations/prospecting.js b/integrations/prospecting.js
+new file mode 100644
+index 0000000..29130c3
+--- /dev/null
++++ b/integrations/prospecting.js
+@@ -0,0 +1,88 @@
++// integrations/prospecting.js
++// Phase 2 — Real Estate Prospecting.
++//
++// Pure, deterministic extraction. This module never fetches anything itself
++// — it only reads text/URL/title that the agent already obtained via its
++// existing browser tools (browser_get_page_info, browser_snapshot,
++// browser_get_text), all of which only ever see PUBLIC page content the
++// browser is already looking at. No network calls, no credentials, no
++// third-party APIs. Nothing here is invented: every field returned is either
++// directly extracted from the given text or explicitly left null/empty.
++
++const EMAIL_RE = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
++
++// Loosely matches common phone formats (E.164-ish, US/local with
++// separators). Intentionally conservative — false negatives (missing a
++// phone number) are safe; false positives are not, so we require at least
++// 7 digits and typical separator characters only.
++const PHONE_RE = /(?:\+?\d{1,3}[\s.-]?)?(?:\(\d{1,4}\)[\s.-]?)?\d{2,4}[\s.-]?\d{2,4}[\s.-]?\d{2,4}(?:[\s.-]?\d{2,4})?/g;
++
++const SOCIAL_DOMAINS = [
++  { key: 'facebook', pattern: /https?:\/\/(?:www\.)?facebook\.com\/[^\s"'<>)]+/gi },
++  { key: 'instagram', pattern: /https?:\/\/(?:www\.)?instagram\.com\/[^\s"'<>)]+/gi },
++  { key: 'twitter', pattern: /https?:\/\/(?:www\.)?(?:twitter|x)\.com\/[^\s"'<>)]+/gi },
++  { key: 'tiktok', pattern: /https?:\/\/(?:www\.)?tiktok\.com\/[^\s"'<>)]+/gi },
++  { key: 'linkedin', pattern: /https?:\/\/(?:www\.)?linkedin\.com\/[^\s"'<>)]+/gi },
++  { key: 'youtube', pattern: /https?:\/\/(?:www\.)?youtube\.com\/[^\s"'<>)]+/gi },
++];
++
++function dedupe(arr) {
++  return [...new Set(arr)];
++}
++
++function isPlausiblePhone(candidate) {
++  const digits = candidate.replace(/\D/g, '');
++  return digits.length >= 7 && digits.length <= 15;
++}
++
++/**
++ * Extract a business's public contact info, social profiles, and basic
++ * service gaps from page text the agent already fetched via its browser
++ * tools. Everything returned is directly traceable to the input text —
++ * nothing is guessed or fabricated.
++ *
++ * @param {object} input
++ * @param {string} [input.pageText] - visible text content of the page
++ * @param {string} [input.pageTitle]
++ * @param {string} [input.pageUrl]
++ * @returns {{
++ *   contactEmail: string|null,
++ *   contactPhone: string|null,
++ *   socialProfiles: Array<{platform:string, url:string}>,
++ *   serviceGaps: string[],
++ * }}
++ */
++export function analyzeProspectPage({ pageText = '', pageTitle = '', pageUrl = '' } = {}) {
++  const text = String(pageText || '');
++
++  const emails = dedupe((text.match(EMAIL_RE) || []).map((e) => e.toLowerCase()));
++  const contactEmail = emails[0] || null;
++
++  const phoneCandidates = (text.match(PHONE_RE) || []).filter(isPlausiblePhone);
++  const contactPhone = phoneCandidates[0]?.trim() || null;
++
++  const socialProfiles = [];
++  for (const { key, pattern } of SOCIAL_DOMAINS) {
++    const found = dedupe(text.match(pattern) || []);
++    for (const url of found) socialProfiles.push({ platform: key, url });
++  }
++
++  const serviceGaps = [];
++  if (!contactEmail && !contactPhone) {
++    serviceGaps.push('No public contact information found on the page (no email or phone detected).');
++  }
++  if (socialProfiles.length === 0) {
++    serviceGaps.push('No linked social media profiles detected — potential social media marketing opportunity.');
++  }
++  if (text.trim().length > 0 && text.trim().length < 200) {
++    serviceGaps.push('Page text content is very short — may indicate a thin, outdated, or under-developed website.');
++  }
++  if (pageUrl && pageUrl.startsWith('http://')) {
++    serviceGaps.push('Site is served over plain HTTP (no HTTPS) — a basic website-improvement opportunity.');
++  }
++  if (!/property|listing|for sale|for rent|real estate|realtor|realty/i.test(text) && text.trim().length > 0) {
++    serviceGaps.push('No property/listing content detected on this page — may indicate weak property marketing.');
++  }
++
++  return { contactEmail, contactPhone, socialProfiles, serviceGaps };
++}
+diff --git a/monitoring/dashboard.js b/monitoring/dashboard.js
+index 399380f..9dbdb73 100644
+--- a/monitoring/dashboard.js
++++ b/monitoring/dashboard.js
+@@ -17,7 +17,7 @@ import express from 'express';
+ import basicAuth from 'express-basic-auth';
+ import fs from 'node:fs';
+ import path from 'node:path';
+-import { tasks, runs, steps, errors as dbErrors, notifications, websiteSamples } from '../database/index.js';
++import { tasks, runs, steps, errors as dbErrors, notifications, websiteSamples, prospects } from '../database/index.js';
+ import { runAgent } from '../agent/index.js';
+ import { scheduleTask, unscheduleTask } from '../scheduler/index.js';
+ import { listPending, listAll as listApprovals, recordDecision } from '../agent/approval.js';
+@@ -144,6 +144,19 @@ export async function startDashboard() {
+   });
+ 
+ 
++  // ── Prospects (Phase 2) ─────────────────────────────────────────
++  app.get('/api/prospects', (req, res) => {
++    res.json(prospects.list({ limit: Number(req.query.limit) || 50, status: req.query.status }));
++  });
++
++
++  app.get('/api/prospects/:id', (req, res) => {
++    const prospect = prospects.get(req.params.id);
++    if (!prospect) return res.status(404).json({ error: 'not found' });
++    res.json(prospect);
++  });
++
++
+   // Safe static preview: only ever serves the fixed, known filenames that
+   // generateWebsite() writes, from a directory resolved and validated by
+   // resolveSampleDir() (which guarantees containment under the samples
+diff --git a/tests/unit/agent-ai.test.js b/tests/unit/agent-ai.test.js
+index 121e307..2b827b3 100644
+--- a/tests/unit/agent-ai.test.js
++++ b/tests/unit/agent-ai.test.js
+@@ -87,4 +87,27 @@ describe('agent/ai', () => {
+     });
+     expect(action.tool).toBe('generate_website');
+   });
++
++  it('registers analyze_prospect_page as a known tool with a structured schema', () => {
++    expect(isKnownTool('analyze_prospect_page')).toBe(true);
++    const tool = ACTION_TOOLS.find((t) => t.name === 'analyze_prospect_page');
++    expect(tool).toBeTruthy();
++    expect(tool.parameters.properties).toHaveProperty('pageText');
++    expect(tool.parameters.required).toContain('pageText');
++  });
++
++  it('registers save_prospect as a known tool with a structured schema', () => {
++    expect(isKnownTool('save_prospect')).toBe(true);
++    const tool = ACTION_TOOLS.find((t) => t.name === 'save_prospect');
++    expect(tool).toBeTruthy();
++    expect(tool.parameters.properties).toHaveProperty('businessName');
++    expect(tool.parameters.properties).toHaveProperty('socialProfiles');
++    expect(tool.parameters.required).toContain('businessName');
++  });
++
++  it('does not flag analyze_prospect_page or save_prospect as sensitive (no external action)', () => {
++    process.env.HUMAN_APPROVAL_REQUIRED = 'true';
++    expect(isSensitive('analyze_prospect_page', { pageText: 'x' })).toBe(false);
++    expect(isSensitive('save_prospect', { businessName: 'Acme' })).toBe(false);
++  });
+ });
+diff --git a/tests/unit/database.test.js b/tests/unit/database.test.js
+index 5a485ef..16104ed 100644
+--- a/tests/unit/database.test.js
++++ b/tests/unit/database.test.js
+@@ -4,13 +4,13 @@ import fs from 'node:fs';
+ import path from 'node:path';
+ import os from 'node:os';
+ 
+-let tasks, runs, steps, migrate, closeDb, websiteSamples;
++let tasks, runs, steps, migrate, closeDb, websiteSamples, prospects;
+ let tmpDbPath;
+ 
+ beforeAll(async () => {
+   tmpDbPath = path.join(os.tmpdir(), `agent-test-${Date.now()}.db`);
+   process.env.DATABASE_PATH = tmpDbPath;
+-  ({ tasks, runs, steps, migrate, closeDb, websiteSamples } = await import('../../database/index.js'));
++  ({ tasks, runs, steps, migrate, closeDb, websiteSamples, prospects } = await import('../../database/index.js'));
+   migrate();
+ });
+ 
+@@ -105,3 +105,50 @@ describe('database/websiteSamples', () => {
+     expect(websiteSamples.get('website_does_not_exist')).toBeUndefined();
+   });
+ });
++
++describe('database/prospects', () => {
++  it('creates a prospect with default status NEW', () => {
++    const created = prospects.create({
++      businessName: 'Example Realty Co',
++      websiteUrl: 'https://example-realty.com',
++      location: 'Dar es Salaam',
++      contactEmail: 'info@example-realty.com',
++      socialProfiles: [{ platform: 'facebook', url: 'https://facebook.com/example' }],
++      serviceGaps: ['No HTTPS'],
++      sourceUrl: 'https://example-realty.com',
++    });
++    expect(created.status).toBe('NEW');
++    expect(created.business_name).toBe('Example Realty Co');
++    expect(JSON.parse(created.social_profiles_json)).toEqual([{ platform: 'facebook', url: 'https://facebook.com/example' }]);
++    expect(JSON.parse(created.service_gaps_json)).toEqual(['No HTTPS']);
++  });
++
++  it('retrieves a prospect by id', () => {
++    const created = prospects.create({ businessName: 'Retrieve Me Realty' });
++    const fetched = prospects.get(created.id);
++    expect(fetched.business_name).toBe('Retrieve Me Realty');
++  });
++
++  it('lists prospects, most-recent first, optionally filtered by status', () => {
++    prospects.create({ businessName: 'List A' });
++    const b = prospects.create({ businessName: 'List B' });
++    prospects.updateStatus(b.id, 'CONTACTED');
++
++    const all = prospects.list({ limit: 10 });
++    expect(all.map((p) => p.business_name)).toContain('List A');
++
++    const contacted = prospects.list({ status: 'CONTACTED', limit: 10 });
++    expect(contacted.every((p) => p.status === 'CONTACTED')).toBe(true);
++    expect(contacted.map((p) => p.id)).toContain(b.id);
++  });
++
++  it('updates a prospect status', () => {
++    const created = prospects.create({ businessName: 'Status Change Realty' });
++    const updated = prospects.updateStatus(created.id, 'ANALYZED');
++    expect(updated.status).toBe('ANALYZED');
++  });
++
++  it('returns undefined for an unknown prospect id', () => {
++    expect(prospects.get('does-not-exist')).toBeUndefined();
++  });
++});
+diff --git a/tests/unit/prospecting.test.js b/tests/unit/prospecting.test.js
+new file mode 100644
+index 0000000..774985e
+--- /dev/null
++++ b/tests/unit/prospecting.test.js
+@@ -0,0 +1,91 @@
++// tests/unit/prospecting.test.js
++import { describe, it, expect } from 'vitest';
++import { analyzeProspectPage } from '../../integrations/prospecting.js';
++
++describe('integrations/prospecting — analyzeProspectPage', () => {
++  it('extracts an email address present in the page text', () => {
++    const result = analyzeProspectPage({
++      pageText: 'Contact us at info@example-realty.com for more details.',
++    });
++    expect(result.contactEmail).toBe('info@example-realty.com');
++  });
++
++  it('extracts a phone number present in the page text', () => {
++    const result = analyzeProspectPage({
++      pageText: 'Call us today at +255 754 123 456 for a free consultation.',
++    });
++    expect(result.contactPhone).toBeTruthy();
++    expect(result.contactPhone.replace(/\D/g, '').length).toBeGreaterThanOrEqual(7);
++  });
++
++  it('does not invent contact info when none is present', () => {
++    const result = analyzeProspectPage({ pageText: 'Welcome to our real estate agency. We sell properties.' });
++    expect(result.contactEmail).toBeNull();
++    expect(result.contactPhone).toBeNull();
++  });
++
++  it('extracts social profile links by platform', () => {
++    const result = analyzeProspectPage({
++      pageText: 'Follow us: https://www.facebook.com/exampleagency and https://instagram.com/example_agency',
++    });
++    const platforms = result.socialProfiles.map((s) => s.platform);
++    expect(platforms).toContain('facebook');
++    expect(platforms).toContain('instagram');
++  });
++
++  it('flags missing contact info as a service gap', () => {
++    const result = analyzeProspectPage({ pageText: 'A real estate agency with no listed contact information here at all whatsoever for anyone.' });
++    expect(result.serviceGaps).toContain('No public contact information found on the page (no email or phone detected).');
++  });
++
++  it('flags missing social presence as a service gap', () => {
++    const result = analyzeProspectPage({
++      pageText: 'Contact us at info@example.com. We are a real estate agency selling properties.',
++    });
++    expect(result.serviceGaps).toContain('No linked social media profiles detected — potential social media marketing opportunity.');
++  });
++
++  it('flags plain HTTP (no HTTPS) as a service gap', () => {
++    const result = analyzeProspectPage({
++      pageText: 'Contact us at info@example.com, follow us at https://facebook.com/example, we sell real estate property listings.',
++      pageUrl: 'http://example-realty.com',
++    });
++    expect(result.serviceGaps).toContain('Site is served over plain HTTP (no HTTPS) — a basic website-improvement opportunity.');
++  });
++
++  it('does not flag HTTPS sites for the HTTP gap', () => {
++    const result = analyzeProspectPage({
++      pageText: 'Contact us at info@example.com, follow us at https://facebook.com/example, we sell real estate property listings that are quite long and detailed indeed.',
++      pageUrl: 'https://example-realty.com',
++    });
++    expect(result.serviceGaps).not.toContain('Site is served over plain HTTP (no HTTPS) — a basic website-improvement opportunity.');
++  });
++
++  it('flags a lack of property/listing content', () => {
++    const result = analyzeProspectPage({
++      pageText: 'Contact us at info@example.com, follow us at https://facebook.com/example. We are a generic business with lots of text content here to avoid the short-page gap triggering incorrectly in this specific test case.',
++    });
++    expect(result.serviceGaps.some((g) => /property\/listing content/.test(g))).toBe(true);
++  });
++
++  it('flags very short page text as a possible thin/outdated site', () => {
++    const result = analyzeProspectPage({ pageText: 'Coming soon.' });
++    expect(result.serviceGaps).toContain('Page text content is very short — may indicate a thin, outdated, or under-developed website.');
++  });
++
++  it('handles empty/missing input without throwing', () => {
++    expect(() => analyzeProspectPage({})).not.toThrow();
++    expect(() => analyzeProspectPage()).not.toThrow();
++    const result = analyzeProspectPage();
++    expect(result.contactEmail).toBeNull();
++    expect(result.contactPhone).toBeNull();
++    expect(result.socialProfiles).toEqual([]);
++  });
++
++  it('deduplicates repeated emails and social links', () => {
++    const result = analyzeProspectPage({
++      pageText: 'info@example.com info@example.com https://facebook.com/x https://facebook.com/x',
++    });
++    expect(result.socialProfiles.filter((s) => s.platform === 'facebook').length).toBe(1);
++  });
++});

@@ -147,3 +147,36 @@ CREATE TABLE IF NOT EXISTS prospects (
 CREATE INDEX IF NOT EXISTS idx_prospects_created ON prospects (created_at);
 CREATE INDEX IF NOT EXISTS idx_prospects_status ON prospects (status);
 CREATE INDEX IF NOT EXISTS idx_prospects_task ON prospects (task_id);
+
+-- opportunities: deterministic opportunity intelligence for a prospect
+-- (Phase 3 — Real Estate Opportunity Intelligence). Produced by
+-- integrations/opportunity-intelligence.js via the analyze_opportunity /
+-- save_opportunity tools. `status` uses the same CRM vocabulary as
+-- `prospects.status`; Phase 3 only ever sets NEW, ANALYZED, or
+-- SAMPLE_RECOMMENDED.
+CREATE TABLE IF NOT EXISTS opportunities (
+  id                      TEXT PRIMARY KEY,
+  prospect_id             TEXT NOT NULL,
+  task_id                 TEXT,
+  run_id                  TEXT,
+  score                   INTEGER NOT NULL,
+  priority                TEXT NOT NULL,
+  opportunity_type        TEXT,
+  summary                 TEXT,
+  identified_problems_json    TEXT,
+  recommended_services_json   TEXT,
+  recommended_actions_json    TEXT,
+  recommended_sample_type TEXT,
+  recommended_sample_reason TEXT,
+  estimated_value         TEXT,
+  confidence              TEXT,
+  status                  TEXT NOT NULL DEFAULT 'NEW',
+  created_at              TEXT NOT NULL,
+  updated_at              TEXT NOT NULL,
+  FOREIGN KEY (prospect_id) REFERENCES prospects(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_opportunities_prospect ON opportunities (prospect_id);
+CREATE INDEX IF NOT EXISTS idx_opportunities_status ON opportunities (status);
+CREATE INDEX IF NOT EXISTS idx_opportunities_score ON opportunities (score);
+CREATE INDEX IF NOT EXISTS idx_opportunities_priority ON opportunities (priority);

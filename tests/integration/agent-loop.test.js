@@ -76,4 +76,51 @@ describe('agent loop (integration)', () => {
     });
     expect(result.status).toBe('success');
   }, 60_000);
+
+  it('completes a full prospect → opportunity-analysis → save pipeline end to end', async () => {
+    const result = await runAgent({
+      goal: 'Find a real estate prospect, analyze the opportunity, and save the opportunity for this prospect.',
+    });
+    expect(result.status).toBe('success');
+    expect(result.runId).toBeTruthy();
+
+    const { steps, prospects, opportunities } = await import('../../database/index.js');
+    const runSteps = steps.listForRun(result.runId);
+
+    const saveProspectStep = runSteps.find((s) => s.tool === 'save_prospect');
+    expect(saveProspectStep).toBeTruthy();
+    expect(saveProspectStep.status).toBe('success');
+    const prospectObs = JSON.parse(saveProspectStep.observation_json);
+    expect(prospectObs.prospectId).toBeTruthy();
+
+    const prospect = prospects.get(prospectObs.prospectId);
+    expect(prospect).toBeTruthy();
+    expect(prospect.business_name).toBe('Example Property Tanzania');
+
+    const analyzeStep = runSteps.find((s) => s.tool === 'analyze_opportunity');
+    expect(analyzeStep).toBeTruthy();
+    expect(analyzeStep.status).toBe('success');
+    const analysisObs = JSON.parse(analyzeStep.observation_json);
+    expect(typeof analysisObs.score).toBe('number');
+    expect(['HIGH', 'MEDIUM', 'LOW']).toContain(analysisObs.priority);
+
+    const saveOppStep = runSteps.find((s) => s.tool === 'save_opportunity');
+    expect(saveOppStep).toBeTruthy();
+    expect(saveOppStep.status).toBe('success');
+    const oppObs = JSON.parse(saveOppStep.observation_json);
+    expect(oppObs.opportunityId).toBeTruthy();
+
+    const savedOpp = opportunities.getOpportunity(oppObs.opportunityId);
+    expect(savedOpp).toBeTruthy();
+    expect(savedOpp.prospect_id).toBe(prospectObs.prospectId);
+    expect(['NEW', 'ANALYZED', 'SAMPLE_RECOMMENDED']).toContain(savedOpp.status);
+  }, 60_000);
+
+  it('fails cleanly (not silently) when analyzing an opportunity for a prospect that does not exist', async () => {
+    const result = await runAgent({
+      goal: 'Attempt to analyze the opportunity for a prospect that does not exist (missing prospect test).',
+    });
+    expect(result.status).toBe('failed');
+    expect(result.error).toMatch(/Prospect not found/i);
+  }, 60_000);
 });
