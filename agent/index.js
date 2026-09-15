@@ -198,7 +198,7 @@ if (action.tool === 'save_opportunity') {
   state.finalResult = execResult.observation?.result ||
     'Prospect and opportunity saved successfully.';
   break;
-}s
+}
         // Stash latest page observation for next AI prompt.
         if (execResult.observation?.url || execResult.observation?.title) {
           state.observations.push(execResult.observation);
