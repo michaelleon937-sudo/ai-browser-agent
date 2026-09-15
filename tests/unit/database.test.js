@@ -4,13 +4,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
-let tasks, runs, steps, migrate, closeDb, websiteSamples;
+let tasks, runs, steps, migrate, closeDb, websiteSamples, prospects;
 let tmpDbPath;
 
 beforeAll(async () => {
   tmpDbPath = path.join(os.tmpdir(), `agent-test-${Date.now()}.db`);
   process.env.DATABASE_PATH = tmpDbPath;
-  ({ tasks, runs, steps, migrate, closeDb, websiteSamples } = await import('../../database/index.js'));
+  ({ tasks, runs, steps, migrate, closeDb, websiteSamples, prospects } = await import('../../database/index.js'));
   migrate();
 });
 
@@ -103,5 +103,52 @@ describe('database/websiteSamples', () => {
 
   it('returns undefined for an unknown sample id', () => {
     expect(websiteSamples.get('website_does_not_exist')).toBeUndefined();
+  });
+});
+
+describe('database/prospects', () => {
+  it('creates a prospect with default status NEW', () => {
+    const created = prospects.create({
+      businessName: 'Example Realty Co',
+      websiteUrl: 'https://example-realty.com',
+      location: 'Dar es Salaam',
+      contactEmail: 'info@example-realty.com',
+      socialProfiles: [{ platform: 'facebook', url: 'https://facebook.com/example' }],
+      serviceGaps: ['No HTTPS'],
+      sourceUrl: 'https://example-realty.com',
+    });
+    expect(created.status).toBe('NEW');
+    expect(created.business_name).toBe('Example Realty Co');
+    expect(JSON.parse(created.social_profiles_json)).toEqual([{ platform: 'facebook', url: 'https://facebook.com/example' }]);
+    expect(JSON.parse(created.service_gaps_json)).toEqual(['No HTTPS']);
+  });
+
+  it('retrieves a prospect by id', () => {
+    const created = prospects.create({ businessName: 'Retrieve Me Realty' });
+    const fetched = prospects.get(created.id);
+    expect(fetched.business_name).toBe('Retrieve Me Realty');
+  });
+
+  it('lists prospects, most-recent first, optionally filtered by status', () => {
+    prospects.create({ businessName: 'List A' });
+    const b = prospects.create({ businessName: 'List B' });
+    prospects.updateStatus(b.id, 'CONTACTED');
+
+    const all = prospects.list({ limit: 10 });
+    expect(all.map((p) => p.business_name)).toContain('List A');
+
+    const contacted = prospects.list({ status: 'CONTACTED', limit: 10 });
+    expect(contacted.every((p) => p.status === 'CONTACTED')).toBe(true);
+    expect(contacted.map((p) => p.id)).toContain(b.id);
+  });
+
+  it('updates a prospect status', () => {
+    const created = prospects.create({ businessName: 'Status Change Realty' });
+    const updated = prospects.updateStatus(created.id, 'ANALYZED');
+    expect(updated.status).toBe('ANALYZED');
+  });
+
+  it('returns undefined for an unknown prospect id', () => {
+    expect(prospects.get('does-not-exist')).toBeUndefined();
   });
 });

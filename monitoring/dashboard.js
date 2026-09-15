@@ -17,7 +17,7 @@ import express from 'express';
 import basicAuth from 'express-basic-auth';
 import fs from 'node:fs';
 import path from 'node:path';
-import { tasks, runs, steps, errors as dbErrors, notifications, websiteSamples } from '../database/index.js';
+import { tasks, runs, steps, errors as dbErrors, notifications, websiteSamples, prospects } from '../database/index.js';
 import { runAgent } from '../agent/index.js';
 import { scheduleTask, unscheduleTask } from '../scheduler/index.js';
 import { listPending, listAll as listApprovals, recordDecision } from '../agent/approval.js';
@@ -141,6 +141,19 @@ export async function startDashboard() {
     const sample = websiteSamples.get(req.params.id);
     if (!sample) return res.status(404).json({ error: 'not found' });
     res.json(sample);
+  });
+
+
+  // ── Prospects (Phase 2) ─────────────────────────────────────────
+  app.get('/api/prospects', (req, res) => {
+    res.json(prospects.list({ limit: Number(req.query.limit) || 50, status: req.query.status }));
+  });
+
+
+  app.get('/api/prospects/:id', (req, res) => {
+    const prospect = prospects.get(req.params.id);
+    if (!prospect) return res.status(404).json({ error: 'not found' });
+    res.json(prospect);
   });
 
 

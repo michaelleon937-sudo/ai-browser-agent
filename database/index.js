@@ -262,6 +262,50 @@ export const websiteSamples = {
 };
 
 
+// ── prospects (Phase 2 — Real Estate Prospecting) ────────────────────
+export const prospects = {
+  create({ id, taskId, runId, businessName, websiteUrl, location, contactEmail, contactPhone, socialProfiles, serviceGaps, sourceUrl, notes, status }) {
+    const genId = id || nanoid(12);
+    const now = new Date().toISOString();
+    getDb().prepare(`
+      INSERT INTO prospects
+        (id, task_id, run_id, business_name, website_url, location, contact_email, contact_phone, social_profiles_json, service_gaps_json, source_url, notes, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      genId,
+      taskId || null,
+      runId || null,
+      businessName || null,
+      websiteUrl || null,
+      location || null,
+      contactEmail || null,
+      contactPhone || null,
+      JSON.stringify(socialProfiles || []),
+      JSON.stringify(serviceGaps || []),
+      sourceUrl || null,
+      notes || null,
+      status || 'NEW',
+      now,
+      now,
+    );
+    return prospects.get(genId);
+  },
+  get(id) {
+    return getDb().prepare('SELECT * FROM prospects WHERE id = ?').get(id);
+  },
+  list({ limit = 50, status } = {}) {
+    if (status) {
+      return getDb().prepare('SELECT * FROM prospects WHERE status = ? ORDER BY created_at DESC LIMIT ?').all(status, limit);
+    }
+    return getDb().prepare('SELECT * FROM prospects ORDER BY created_at DESC LIMIT ?').all(limit);
+  },
+  updateStatus(id, status) {
+    getDb().prepare('UPDATE prospects SET status = ?, updated_at = ? WHERE id = ?').run(status, new Date().toISOString(), id);
+    return prospects.get(id);
+  },
+};
+
+
 // ── notifications log (sent notifications, for audit / dashboard) ───
 export const notifications = {
   record({ level, subject, body, channel, ok, errorMessage }) {

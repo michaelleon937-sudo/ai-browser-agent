@@ -79,6 +79,8 @@ const TOOL_NAMES = new Set([
   'task_fail',
   'request_human_approval',
   'generate_website',
+  'analyze_prospect_page',
+  'save_prospect',
 ]);
 
 
@@ -155,6 +157,43 @@ export const ACTION_TOOLS = [
         callToAction: { type: 'string', description: 'Primary call-to-action text, e.g. "Book a viewing".' },
       },
       required: [],
+    },
+  },
+  {
+    type: 'function',
+    name: 'analyze_prospect_page',
+    description: 'Extracts public contact info, social profiles, and service gaps from the text of a page the browser is already looking at (call this after browser_get_page_info or browser_get_text). Purely reads the given text — does not fetch anything itself, invents nothing, and only reports what is actually present in the text.',
+    parameters: {
+      type: 'object',
+      properties: {
+        pageText: { type: 'string', description: 'Visible text content of the current page.' },
+        pageTitle: { type: 'string', description: 'Title of the current page.' },
+        pageUrl: { type: 'string', description: 'URL of the current page.' },
+      },
+      required: ['pageText'],
+    },
+  },
+  {
+    type: 'function',
+    name: 'save_prospect',
+    description: 'Saves a real-estate business as a prospect for potential outreach, using only public information already gathered (e.g. from analyze_prospect_page). Does NOT contact the prospect, submit anything, or publish anything — it only records the prospect locally for human review.',
+    parameters: {
+      type: 'object',
+      properties: {
+        businessName: { type: 'string' },
+        websiteUrl: { type: 'string' },
+        location: { type: 'string' },
+        contactEmail: { type: 'string' },
+        contactPhone: { type: 'string' },
+        socialProfiles: {
+          type: 'array',
+          items: { type: 'object', properties: { platform: { type: 'string' }, url: { type: 'string' } } },
+        },
+        serviceGaps: { type: 'array', items: { type: 'string' }, description: 'Only genuinely observed gaps — never invented.' },
+        sourceUrl: { type: 'string', description: 'The public page this information was gathered from.' },
+        notes: { type: 'string' },
+      },
+      required: ['businessName'],
     },
   },
 ];

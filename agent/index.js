@@ -10,12 +10,13 @@
 
 
 import browser from '../browser/index.js';
-import { tasks, runs, steps, errors as dbErrors, kv, sessions, notifications, websiteSamples } from '../database/index.js';
+import { tasks, runs, steps, errors as dbErrors, kv, sessions, notifications, websiteSamples, prospects } from '../database/index.js';
 import { config, redact } from '../config/index.js';
 import { getProvider, isKnownTool, ACTION_TOOLS, isSensitive } from './ai/index.js';
 import { notify } from '../notifications/index.js';
 import { enqueueApproval, awaitApproval } from './approval.js';
 import { generateWebsite } from '../integrations/website-gen.js';
+import { analyzeProspectPage } from '../integrations/prospecting.js';
 
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -325,6 +326,26 @@ async function executeAction(action, context = {}) {
       // Don't leak the absolute on-disk directory to the AI/dashboard consumer.
       const { dir, ...observation } = result;
       return observation;
+    }
+    case 'analyze_prospect_page': {
+      // Pure text analysis — no browser call, no network, no DB write.
+      return analyzeProspectPage(args);
+    }
+    case 'save_prospect': {
+      const saved = prospects.create({
+        taskId: context.taskId,
+        runId: context.runId,
+        businessName: args.businessName,
+        websiteUrl: args.websiteUrl,
+        location: args.location,
+        contactEmail: args.contactEmail,
+        contactPhone: args.contactPhone,
+        socialProfiles: args.socialProfiles,
+        serviceGaps: args.serviceGaps,
+        sourceUrl: args.sourceUrl,
+        notes: args.notes,
+      });
+      return { success: true, prospectId: saved.id, status: saved.status };
     }
     default:
       throw new Error(`Tool not implemented in executor: ${tool}`);

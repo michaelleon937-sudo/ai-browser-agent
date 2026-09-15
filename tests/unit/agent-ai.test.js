@@ -87,4 +87,27 @@ describe('agent/ai', () => {
     });
     expect(action.tool).toBe('generate_website');
   });
+
+  it('registers analyze_prospect_page as a known tool with a structured schema', () => {
+    expect(isKnownTool('analyze_prospect_page')).toBe(true);
+    const tool = ACTION_TOOLS.find((t) => t.name === 'analyze_prospect_page');
+    expect(tool).toBeTruthy();
+    expect(tool.parameters.properties).toHaveProperty('pageText');
+    expect(tool.parameters.required).toContain('pageText');
+  });
+
+  it('registers save_prospect as a known tool with a structured schema', () => {
+    expect(isKnownTool('save_prospect')).toBe(true);
+    const tool = ACTION_TOOLS.find((t) => t.name === 'save_prospect');
+    expect(tool).toBeTruthy();
+    expect(tool.parameters.properties).toHaveProperty('businessName');
+    expect(tool.parameters.properties).toHaveProperty('socialProfiles');
+    expect(tool.parameters.required).toContain('businessName');
+  });
+
+  it('does not flag analyze_prospect_page or save_prospect as sensitive (no external action)', () => {
+    process.env.HUMAN_APPROVAL_REQUIRED = 'true';
+    expect(isSensitive('analyze_prospect_page', { pageText: 'x' })).toBe(false);
+    expect(isSensitive('save_prospect', { businessName: 'Acme' })).toBe(false);
+  });
 });

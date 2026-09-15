@@ -118,3 +118,32 @@ CREATE TABLE IF NOT EXISTS website_samples (
 
 CREATE INDEX IF NOT EXISTS idx_website_samples_created ON website_samples (created_at);
 CREATE INDEX IF NOT EXISTS idx_website_samples_task ON website_samples (task_id);
+
+-- prospects: real-estate businesses identified as candidates for outreach
+-- (Phase 2 — Real Estate Prospecting). Populated by the save_prospect tool
+-- from information the agent extracted from public pages only — never from
+-- private/authenticated sources. `status` uses the Phase 8 CRM vocabulary
+-- (NEW, ANALYZED, SAMPLE_CREATED, PROPOSAL_READY, AWAITING_APPROVAL,
+-- CONTACTED, REPLIED, FOLLOW_UP, WON, LOST) so later phases can build on
+-- this column without a migration; only 'NEW' is set by this phase.
+CREATE TABLE IF NOT EXISTS prospects (
+  id                TEXT PRIMARY KEY,
+  task_id           TEXT,
+  run_id            TEXT,
+  business_name     TEXT,
+  website_url       TEXT,
+  location          TEXT,
+  contact_email     TEXT,
+  contact_phone     TEXT,
+  social_profiles_json TEXT,
+  service_gaps_json TEXT,
+  source_url        TEXT,
+  notes             TEXT,
+  status            TEXT NOT NULL DEFAULT 'NEW',
+  created_at        TEXT NOT NULL,
+  updated_at        TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_prospects_created ON prospects (created_at);
+CREATE INDEX IF NOT EXISTS idx_prospects_status ON prospects (status);
+CREATE INDEX IF NOT EXISTS idx_prospects_task ON prospects (task_id);
