@@ -116,6 +116,30 @@ export function cloudflareProvider({ config }) {
         }
       }
 
+      // Fallback: some models (observed with @cf/openai/gpt-oss-20b when a
+      // tool has a large/nested parameter schema, e.g. generate_website)
+      // emit the intended tool call's arguments as bare JSON in `content`
+      // instead of using the tool_calls mechanism. Only accept this when the
+      // JSON's keys uniquely identify exactly one available tool's
+      // parameter schema — if it could plausibly be more than one tool
+      // (e.g. {"url": "..."} matches both browser_navigate and
+      // browser_new_tab), we do not guess, and fall through to the existing
+      // error below unchanged.
+      if (content) {
+        try {
+          const direct = JSON.parse(content);
+          const matchedTool = matchUniqueTool(direct, availableTools);
+          if (matchedTool) {
+            return {
+              action: { tool: matchedTool.name, args: direct, reasoning: '' },
+              done: matchedTool.name === 'task_complete' || matchedTool.name === 'task_fail',
+              usage: json?.result?.usage || json?.result?.response?.usage,
+            };
+          }
+        } catch {
+          // Continue to normal error handling.
+        }
+      }
 
 
       throw new Error(`Cloudflare AI returned no actionable response: ${String(content).slice(0, 300)}`);
@@ -172,3 +196,25 @@ function extractJsonAction(content) {
 }
 
 
+// Returns the single tool from `availableTools` whose parameter schema
+// accepts every key present in `obj`, or null if zero or more than one tool
+// matches (never guesses between ambiguous candidates). `obj` must be a
+// plain, non-array object with at least one key — an empty object or a
+// non-object value never counts as a match, since it would trivially fit
+// too many tools' schemas to be meaningful.
+function matchUniqueTool(obj, availableTools) {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+  const keys = Object.keys(obj);
+  if (keys.length === 0) return null;
+  if (!Array.isArray(availableTools)) return null;
+
+  const candidates = availableTools.filter((tool) => {
+    const propKeys = Object.keys(tool?.parameters?.properties || {});
+    const requiredKeys = Array.isArray(tool?.parameters?.required) ? tool.parameters.required : [];
+    const allKeysKnownToTool = keys.every((k) => propKeys.includes(k));
+    const allRequiredKeysPresent = requiredKeys.every((k) => keys.includes(k));
+    return allKeysKnownToTool && allRequiredKeysPresent;
+  });
+
+  return candidates.length === 1 ? candidates[0] : null;
+}
