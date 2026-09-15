@@ -48,23 +48,18 @@ export async function runAgent({ taskId, goal: providedGoal, onEvent, runId: pro
   const provider = getProvider();
 
 
- const state = {
-  runId: run.id,
-  taskId: task?.id,
-  goal,
-  steps: [],
-  observations: [],
-  retriesTotal: 0,
-  finished: false,
-  finalStatus: null,
-  finalResult: null,
-  finalError: null,
-
-  // Prevent the AI from looping forever on the same successful action.
-  lastActionSignature: null,
-  repeatedActionCount: 0,
-};
-
+  const state = {
+    runId: run.id,
+    taskId: task?.id,
+    goal,
+    steps: [],          // accumulated step history (for AI prompt)
+    observations: [],   // last few page observations
+    retriesTotal: 0,
+    finished: false,
+    finalStatus: null,
+    finalResult: null,
+    finalError: null,
+  };
 
 
   event({ type: 'run_start', runId: run.id, taskId: task?.id, goal });
@@ -118,49 +113,6 @@ export async function runAgent({ taskId, goal: providedGoal, onEvent, runId: pro
       if (!isKnownTool(action.tool)) {
         throw new Error(`AI returned unknown tool: ${action.tool}`);
       }
-// Detect repeated identical actions that are not making progress.
-// This prevents the AI from consuming all maxSteps in a loop.
-const actionSignature = JSON.stringify({
-  tool: action.tool,
-  args: action.args || {},
-});
-
-if (state.lastActionSignature === actionSignature) {
-  state.repeatedActionCount += 1;
-} else {
-  state.lastActionSignature = actionSignature;
-  state.repeatedActionCount = 1;
-}
-
-if (
-  state.repeatedActionCount >= 4 &&
-  action.tool !== 'task_complete' &&
-  action.tool !== 'task_fail'
-) {
-  const reason = `AI repeated the same action ${state.repeatedActionCount} times without making progress: ${action.tool}`;
-
-  const stepRow = steps.create({
-    runId: run.id,
-    seq: state.steps.length + 1,
-    action: {
-      tool: 'task_fail',
-      args: { reason },
-      reasoning: 'Repeated identical action detected',
-    },
-    reasoning: 'Repeated identical action detected',
-  });
-
-  steps.start(stepRow.id);
-  steps.finish(stepRow.id, {
-    status: 'failed',
-    errorMessage: reason,
-  });
-
-  state.finished = true;
-  state.finalStatus = 'failed';
-  state.finalError = reason;
-  break;
-}
 
 
       event({ type: 'step_planned', step: { tool: action.tool, args: action.args, reasoning: action.reasoning } });
@@ -237,6 +189,16 @@ if (
           status: 'success',
           observation: execResult.observation,
         });
+// Phase 3 completion guard:
+// Once the opportunity has been saved successfully, the prospecting
+// workflow is complete. Do not send the AI back into another research loop.
+if (action.tool === 'save_opportunity') {
+  state.finished = true;
+  state.finalStatus = 'success';
+  state.finalResult = execResult.observation?.result ||
+    'Prospect and opportunity saved successfully.';
+  break;
+}s
         // Stash latest page observation for next AI prompt.
         if (execResult.observation?.url || execResult.observation?.title) {
           state.observations.push(execResult.observation);
