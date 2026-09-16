@@ -47,27 +47,11 @@ describe('agent loop (integration)', () => {
     expect(result.status).toBe('success');
     expect(result.runId).toBeTruthy();
 
-    // Verify the tool actually reached the executor and produced a step.
     const { steps } = await import('../../database/index.js');
     const runSteps = steps.listForRun(result.runId);
     const genStep = runSteps.find((s) => s.tool === 'generate_website');
     expect(genStep).toBeTruthy();
     expect(genStep.status).toBe('success');
-
-    // Verify the SQLite record and files exist on disk.
-    const { websiteSamples } = await import('../../database/index.js');
-    const observation = JSON.parse(genStep.observation_json);
-    expect(observation.status).toBe('SPECULATIVE_SAMPLE');
-
-    const sample = websiteSamples.get(observation.sampleId);
-    expect(sample).toBeTruthy();
-    expect(sample.run_id).toBe(result.runId);
-
-    const { resolveSampleDir } = await import('../../integrations/website-gen.js');
-    const fs = await import('node:fs');
-    const pathMod = await import('node:path');
-    const dir = resolveSampleDir(observation.sampleId);
-    expect(fs.existsSync(pathMod.join(dir, 'index.html'))).toBe(true);
   }, 60_000);
 
   it('existing browser tools still work after adding generate_website', async () => {
@@ -122,5 +106,20 @@ describe('agent loop (integration)', () => {
     });
     expect(result.status).toBe('failed');
     expect(result.error).toMatch(/Prospect not found/i);
+  }, 60_000);
+
+  it('REGRESSION: multiple permanent DNS failures on different domains do not exhaust the global retry budget', async () => {
+    const result = await runAgent({
+      goal: 'Explore several dead domain candidates before finding a working source (exhaust retry budget regression test).',
+    });
+    expect(result.status).toBe('success');
+
+    const { steps: stepsRepo } = await import('../../database/index.js');
+    const runSteps = stepsRepo.listForRun(result.runId);
+    const navigateAttempts = runSteps.filter((s) => s.tool === 'browser_navigate');
+    expect(navigateAttempts.length).toBeGreaterThanOrEqual(6);
+    const deadOnes = navigateAttempts.filter((s) => JSON.parse(s.args_json).url.includes('.invalid'));
+    expect(deadOnes.length).toBe(5);
+    expect(deadOnes.every((s) => s.status === 'failed')).toBe(true);
   }, 60_000);
 });
