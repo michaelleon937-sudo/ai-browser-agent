@@ -57,19 +57,76 @@ export function cloudflareProvider({ config }) {
         body: JSON.stringify({
           messages,
           tools,
+          tool_choice: 'auto',
           max_tokens: 2048,
         }),
       });
 
 
       if (!res.ok) {
-        const errText = await res.text().catch(() => '');
-        throw new Error(`Cloudflare AI HTTP ${res.status}: ${errText.slice(0, 400)}`);
+        const body = await res.text();
+        throw new Error(`Cloudflare AI HTTP ${res.status}: ${body.slice(0, 500)}`);
       }
 
 
-      const data = await res.json();
-      return parseToolResponse(data, availableTools);
+      const json = await res.json();
+      const msg =
+        json?.result?.response?.[0]?.message ||
+        json?.result?.message ||
+        json?.result ||
+        json;
+
+      const toolCalls = msg.tool_calls || msg.toolCalls || json?.result?.tool_calls || [];
+      const content = msg.content || '';
+
+      if (Array.isArray(toolCalls) && toolCalls.length) {
+        const call = toolCalls[0];
+        const fn = call.function || call;
+        const name = fn.name;
+        const rawArgs = fn.arguments;
+        const args = typeof rawArgs === 'string' ? safeJson(rawArgs) : (rawArgs || {});
+
+        return {
+          action: { tool: name, args, reasoning: call.reasoning || '' },
+          done: name === 'task_complete' || name === 'task_fail',
+        };
+      }
+
+      // Fallback: parse JSON action from content.
+      const parsed = extractJsonAction(content);
+      if (parsed) {
+        return {
+          action: parsed,
+          done: parsed.tool === 'task_complete' || parsed.tool === 'task_fail',
+        };
+      }
+
+      // Some models emit the whole action as bare JSON content
+      if (content && content.trim().startsWith('{')) {
+        try {
+          const direct = JSON.parse(content);
+          if (direct && (direct.tool || direct.name)) {
+            return {
+              action: {
+                tool: direct.tool || direct.name,
+                args: direct.args || direct.arguments || {},
+                reasoning: direct.reasoning || '',
+              },
+              done: (direct.tool || direct.name) === 'task_complete' || (direct.tool || direct.name) === 'task_fail',
+            };
+          }
+          // Ambiguous bare JSON that looks like tool args for a unique tool
+          const matched = matchUniqueTool(direct, availableTools);
+          if (matched) {
+            return {
+              action: { tool: matched.name, args: direct, reasoning: '' },
+              done: matched.name === 'task_complete' || matched.name === 'task_fail',
+            };
+          }
+        } catch { /* fall through */ }
+      }
+
+      throw new Error(`Cloudflare AI returned no actionable response: ${String(content).slice(0, 300)}`);
     },
   };
 }
@@ -78,47 +135,63 @@ export function cloudflareProvider({ config }) {
 function buildUserPrompt({ goal, history, observation }) {
   const recent = (history?.steps || []).slice(-12).map((s, i) => {
     const obs = s.observation ? `\n   observation: ${truncate(JSON.stringify(s.observation), 600)}` : '';
-    const err = s.errorMessage ? `\n   error: ${s.errorMessage}` : '';
-    return `${i + 1}. ${s.tool} ${JSON.stringify(s.action?.args || {})} -> ${s.status}${obs}${err}`;
+    const err = s.errorMessage ? `\n   error: ${truncate(s.errorMessage, 200)}` : '';
+    return `${i + 1}. ${s.tool}(${truncate(JSON.stringify(s.action?.args || {}), 200)}) -> ${s.status}${obs}${err}`;
   }).join('\n');
   const obs = observation ? `\nCurrent page observation:\n${truncate(JSON.stringify(observation), 1500)}` : '';
-  return `GOAL: ${goal}\n\nRecent steps:\n${recent || '(none yet)'}${obs}\n\nPick the next single tool call.`;
+  return `GOAL: ${goal}\n\nRecent steps (latest last):\n${recent || '(none yet)'}${obs}\n\nPick the next single tool call.`;
 }
 
 
 function truncate(s, n) {
-  if (!s || s.length <= n) return s;
-  return s.slice(0, n) + '…';
+  s = String(s);
+  return s.length > n ? s.slice(0, n) + '...' : s;
 }
 
 
-function parseToolResponse(data, availableTools) {
-  const result = data?.result ?? data;
-  // Prefer structured tool_calls when the model returns them
-  const toolCalls = result?.tool_calls || result?.response?.tool_calls || [];
-  if (Array.isArray(toolCalls) && toolCalls.length > 0) {
-    const tc = toolCalls[0];
-    const name = tc.function?.name || tc.name;
-    let args = tc.function?.arguments ?? tc.arguments ?? {};
-    if (typeof args === 'string') {
-      try { args = JSON.parse(args); } catch { args = {}; }
+function safeJson(s) {
+  try { return JSON.parse(s); } catch { return {}; }
+}
+
+
+function extractJsonAction(content) {
+  if (!content) return null;
+  const text = String(content);
+  const start = text.indexOf('{');
+  if (start < 0) return null;
+  let depth = 0;
+  for (let i = start; i < text.length; i++) {
+    const c = text[i];
+    if (c === '{') depth++;
+    else if (c === '}') {
+      depth--;
+      if (depth === 0) {
+        const slice = text.slice(start, i + 1);
+        try {
+          const obj = JSON.parse(slice);
+          if (obj && obj.tool) return obj;
+        } catch {}
+        return null;
+      }
     }
-    return {
-      action: { tool: name, args, reasoning: '' },
-      done: name === 'task_complete' || name === 'task_fail',
-    };
   }
-  // Fall back: some models embed a JSON tool call in content
-  const content = typeof result?.response === 'string' ? result.response
-    : (typeof result?.content === 'string' ? result.content : JSON.stringify(result));
-  const match = content && content.match(/\{\s*"(?:name|tool)"\s*:\s*"([^"]+)"/);
-  if (match) {
-    try {
-      const parsed = JSON.parse(content.slice(content.indexOf('{')));
-      const name = parsed.name || parsed.tool;
-      const args = parsed.arguments || parsed.args || {};
-      return { action: { tool: name, args, reasoning: '' }, done: name === 'task_complete' || name === 'task_fail' };
-    } catch { /* fall through */ }
-  }
-  throw new Error('Cloudflare AI returned no usable tool call');
+  return null;
+}
+
+
+function matchUniqueTool(obj, availableTools) {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+  const keys = Object.keys(obj);
+  if (keys.length === 0) return null;
+  if (!Array.isArray(availableTools)) return null;
+
+  const candidates = availableTools.filter((tool) => {
+    const propKeys = Object.keys(tool?.parameters?.properties || {});
+    const requiredKeys = Array.isArray(tool?.parameters?.required) ? tool.parameters.required : [];
+    const allKeysKnownToTool = keys.every((k) => propKeys.includes(k));
+    const allRequiredKeysPresent = requiredKeys.every((k) => keys.includes(k));
+    return allKeysKnownToTool && allRequiredKeysPresent;
+  });
+
+  return candidates.length === 1 ? candidates[0] : null;
 }
