@@ -70,14 +70,7 @@ export function cloudflareProvider({ config }) {
 
 
       const json = await res.json();
-      const msg =
-        json?.result?.response?.[0]?.message ||
-        json?.result?.message ||
-        json?.result ||
-        json;
-
-      const toolCalls = msg.tool_calls || msg.toolCalls || json?.result?.tool_calls || [];
-      const content = msg.content || '';
+      const { toolCalls, content } = normalizeCloudflareResponse(json);
 
       if (Array.isArray(toolCalls) && toolCalls.length) {
         const call = toolCalls[0];
@@ -105,6 +98,17 @@ export function cloudflareProvider({ config }) {
       if (content && content.trim().startsWith('{')) {
         try {
           const direct = JSON.parse(content);
+          // Restore 1138232 fallback: { result: string } → task_complete
+          if (direct && typeof direct.result === 'string') {
+            return {
+              action: {
+                tool: 'task_complete',
+                args: { result: direct.result },
+                reasoning: '',
+              },
+              done: true,
+            };
+          }
           if (direct && (direct.tool || direct.name)) {
             return {
               action: {
@@ -128,6 +132,57 @@ export function cloudflareProvider({ config }) {
 
       throw new Error(`Cloudflare AI returned no actionable response: ${String(content).slice(0, 300)}`);
     },
+  };
+}
+
+
+/**
+ * Normalize Cloudflare Workers AI REST response shapes into a uniform
+ * { toolCalls, content } pair.
+ *
+ * Documented text shape: { result: { response: "<string>" } }
+ * Object / OpenAI-ish shapes (from various models and earlier parsers):
+ *   result.choices[0].message
+ *   result.response.choices[0].message
+ *   result.response as { content, tool_calls }
+ *   result.tool_calls at top level
+ */
+export function normalizeCloudflareResponse(json) {
+  const result = json?.result;
+
+  // Prefer explicit message objects (OpenAI-compatible / choices shapes).
+  const msg =
+    result?.choices?.[0]?.message ||
+    result?.response?.choices?.[0]?.message ||
+    (result?.response && typeof result.response === 'object' && !Array.isArray(result.response)
+      ? result.response
+      : null) ||
+    result?.message ||
+    null;
+
+  const toolCalls =
+    (msg && (msg.tool_calls || msg.toolCalls)) ||
+    result?.tool_calls ||
+    result?.response?.tool_calls ||
+    [];
+
+  // Critical production fix: when result.response is a plain string (the
+  // documented Cloudflare REST shape for @cf/meta/llama-3.1-8b-instruct),
+  // treat that string as content so extractJsonAction / bare-JSON fallbacks run.
+  let content = '';
+  if (typeof result?.response === 'string') {
+    content = result.response;
+  } else if (msg && typeof msg.content === 'string') {
+    content = msg.content;
+  } else if (typeof msg === 'string') {
+    content = msg;
+  } else if (typeof result?.response?.content === 'string') {
+    content = result.response.content;
+  }
+
+  return {
+    toolCalls: Array.isArray(toolCalls) ? toolCalls : [],
+    content: content || '',
   };
 }
 
