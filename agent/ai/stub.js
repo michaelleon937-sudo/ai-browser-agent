@@ -28,6 +28,28 @@ export function stubProvider() {
       }
 
 
+      // ── Regression test: many permanent DNS failures must NOT exhaust
+      //    the global retry budget (production bug: "Total retries
+      //    exceeded (8)" after just a handful of dead domains).
+      if (/dead domain|multiple.*nonexistent|exhaust.*retry budget/.test(g)) {
+        const deadDomains = [
+          'https://this-domain-does-not-exist-1.invalid',
+          'https://this-domain-does-not-exist-2.invalid',
+          'https://this-domain-does-not-exist-3.invalid',
+          'https://this-domain-does-not-exist-4.invalid',
+          'https://this-domain-does-not-exist-5.invalid',
+        ];
+        const triedCount = steps.filter((s) => s.tool === 'browser_navigate' && deadDomains.includes(s.action?.args?.url)).length;
+        if (triedCount < deadDomains.length) {
+          return call('browser_navigate', { url: deadDomains[triedCount] }, `try candidate source ${triedCount + 1}`);
+        }
+        if (!steps.some((s) => s.tool === 'browser_navigate' && s.action?.args?.url === 'https://example.com')) {
+          return call('browser_navigate', { url: 'https://example.com' }, 'all prior sources were dead ends; try a working source');
+        }
+        return { action: { tool: 'task_complete', args: { result: 'Recovered after multiple dead-end sources and found a working one.' }, reasoning: 'done' }, done: true };
+      }
+
+
       // ── Generic navigation-to-info goal ─────────────────────────
       if (/example\.com|status code|http status|headers/.test(g)) {
         if (!steps.some((s) => s.tool === 'browser_navigate')) {
@@ -51,48 +73,45 @@ export function stubProvider() {
         return { action: { tool: 'task_complete', args: { result: 'done' }, reasoning: 'done' }, done: true };
       }
 
-      if (/prospect.*opportunity|opportunity.*prospect|analyze.*opportunity/.test(g)) {
-        const saveProspectStep = steps.find((s) => s.tool === 'save_prospect');
-        const analyzeOppStep = steps.find((s) => s.tool === 'analyze_opportunity');
-        const saveOppStep = steps.find((s) => s.tool === 'save_opportunity');
 
-        if (!saveProspectStep) {
+      if (/prospect|opportunity|real.?estate|dar es salaam|property tanzania|analyze.*opportunity|save.*opportunity/.test(g)) {
+        if (!steps.some((s) => s.tool === 'save_prospect')) {
           return call('save_prospect', {
             businessName: 'Example Property Tanzania',
-            websiteUrl: null,
+            websiteUrl: 'https://example.com',
             location: 'Dar es Salaam, Tanzania',
-            serviceGaps: ['No public contact information found on the page (no email or phone detected).'],
-            sourceUrl: 'https://example-realty.com',
-          }, 'save the discovered prospect');
+            contactEmail: '',
+            contactPhone: '',
+            notes: 'Stub prospect for Phase 2/3 pipeline test',
+            source: 'stub',
+          }, 'save a stub prospect');
         }
-        if (!analyzeOppStep) {
-          const prospectId = saveProspectStep.observation?.prospectId;
-          return call('analyze_opportunity', { prospectId }, 'analyze the opportunity for this prospect');
+        const saveProspect = steps.find((s) => s.tool === 'save_prospect' && s.status === 'success');
+        const prospectId = saveProspect?.observation?.prospectId;
+        if (prospectId && !steps.some((s) => s.tool === 'analyze_opportunity')) {
+          return call('analyze_opportunity', { prospectId }, 'analyze opportunity for saved prospect');
         }
-        if (!saveOppStep) {
-          const obs = analyzeOppStep.observation || {};
+        if (prospectId && !steps.some((s) => s.tool === 'save_opportunity')) {
+          const analysis = steps.find((s) => s.tool === 'analyze_opportunity' && s.status === 'success');
+          const obs = analysis?.observation || {};
           return call('save_opportunity', {
-            prospectId: obs.prospectId,
-            score: obs.score,
-            priority: obs.priority,
-            opportunityType: obs.opportunityType,
-            summary: obs.summary,
-            identifiedProblems: obs.identifiedProblems,
-            recommendedServices: obs.recommendedServices,
-            recommendedSampleType: obs.recommendedSampleType,
-            confidence: obs.confidence,
-          }, 'save the validated opportunity');
+            prospectId,
+            score: obs.score ?? 70,
+            priority: obs.priority ?? 'MEDIUM',
+            opportunityType: obs.opportunityType ?? 'website_upgrade',
+            recommendedServices: obs.recommendedServices ?? ['website'],
+            recommendedSampleType: obs.recommendedSampleType ?? 'website',
+          }, 'save the opportunity analysis');
         }
-        return { action: { tool: 'task_complete', args: { result: 'Prospect analyzed and opportunity saved.' }, reasoning: 'done' }, done: true };
+        return { action: { tool: 'task_complete', args: { result: 'Prospect saved, opportunity analyzed and saved.' }, reasoning: 'done' }, done: true };
       }
 
 
-      // ── Website Engine (Phase 1) smoke-test goal ─────────────────
-      if (/generate.*website|website.*sample|real.estate website/.test(g)) {
+      // ── Website generation goal ────────────────────────────
+      if (/generate.*website|website sample|speculative.*website|example property tanzania/.test(g) && !/prospect|opportunity/.test(g)) {
         if (!steps.some((s) => s.tool === 'generate_website')) {
           return call('generate_website', {
             prospectName: 'Example Property Tanzania',
-            businessType: 'Real Estate Agency',
             location: 'Dar es Salaam, Tanzania',
             websiteGoal: 'Showcase available properties and generate inquiries',
             brandStyle: 'modern',
@@ -111,7 +130,7 @@ export function stubProvider() {
       }
 
 
-      // ── Form-filling practice goal ──────────────────────────────
+      // ── Form-filling practice goal ────────────────────────────
       if (/fill.*form|practice.*automation|automationexercise|theautomation/.test(g)) {
         const done = (s) => steps.some((x) => x.tool === s);
         if (!done('browser_navigate')) {
@@ -124,7 +143,7 @@ export function stubProvider() {
       }
 
 
-      // ── Generic safe default: navigate, snapshot, read, complete ─
+      // ── Generic safe default: navigate, snapshot, read, complete ─────
       // Fail safely if the most recent attempt failed.
       if (lastFailed) {
         return { action: { tool: 'task_fail', args: { reason: 'Stub: previous step failed; stopping safely.' }, reasoning: 'give up safely' }, done: true };
