@@ -57,20 +57,19 @@ export function cloudflareProvider({ config }) {
         body: JSON.stringify({
           messages,
           tools,
-          tool_choice: 'auto',
-          max_tokens: 1024,
+          max_tokens: 2048,
         }),
       });
 
 
       if (!res.ok) {
-        const body = await res.text();
-        throw new Error(`Cloudflare AI HTTP ${res.status}: ${body.slice(0, 500)}`);
+        const errText = await res.text().catch(() => '');
+        throw new Error(`Cloudflare AI HTTP ${res.status}: ${errText.slice(0, 400)}`);
       }
 
 
       const data = await res.json();
-      return parseCloudflareResponse(data, availableTools);
+      return parseToolResponse(data, availableTools);
     },
   };
 }
@@ -93,23 +92,33 @@ function truncate(s, n) {
 }
 
 
-function parseCloudflareResponse(data, availableTools) {
-  // Implementation preserved from existing working parser
-  const result = data?.result || data;
+function parseToolResponse(data, availableTools) {
+  const result = data?.result ?? data;
+  // Prefer structured tool_calls when the model returns them
   const toolCalls = result?.tool_calls || result?.response?.tool_calls || [];
   if (Array.isArray(toolCalls) && toolCalls.length > 0) {
     const tc = toolCalls[0];
     const name = tc.function?.name || tc.name;
-    let args = tc.function?.arguments || tc.arguments || {};
+    let args = tc.function?.arguments ?? tc.arguments ?? {};
     if (typeof args === 'string') {
       try { args = JSON.parse(args); } catch { args = {}; }
     }
-    return { action: { tool: name, args, reasoning: tc.function?.reasoning || '' }, done: name === 'task_complete' || name === 'task_fail' };
+    return {
+      action: { tool: name, args, reasoning: '' },
+      done: name === 'task_complete' || name === 'task_fail',
+    };
   }
-  // Fall back to content parsing if present
-  const content = result?.response || result?.content || '';
-  if (typeof content === 'string' && content.includes('task_complete')) {
-    return { action: { tool: 'task_complete', args: { result: content.slice(0, 200) }, reasoning: 'parsed from content' }, done: true };
+  // Fall back: some models embed a JSON tool call in content
+  const content = typeof result?.response === 'string' ? result.response
+    : (typeof result?.content === 'string' ? result.content : JSON.stringify(result));
+  const match = content && content.match(/\{\s*"(?:name|tool)"\s*:\s*"([^"]+)"/);
+  if (match) {
+    try {
+      const parsed = JSON.parse(content.slice(content.indexOf('{')));
+      const name = parsed.name || parsed.tool;
+      const args = parsed.arguments || parsed.args || {};
+      return { action: { tool: name, args, reasoning: '' }, done: name === 'task_complete' || name === 'task_fail' };
+    } catch { /* fall through */ }
   }
-  throw new Error('Cloudflare returned no tool call');
+  throw new Error('Cloudflare AI returned no usable tool call');
 }
