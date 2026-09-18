@@ -1,38 +1,23 @@
-﻿// monitoring/dashboard.js
-// Minimal Express dashboard + JSON API. Serves:
-//   GET  /                      health/status page (HTML)
-//   GET  /api/tasks             list tasks
-//   POST /api/tasks             create a task
-//   POST /api/tasks/:id/run     trigger an immediate run
-//   GET  /api/runs              recent runs (all tasks)
-//   GET  /api/runs/:id/steps    steps for a run
-//   GET  /api/errors            recent errors
-//   GET  /api/approvals         pending approvals
-//   POST /api/approvals/:id     { decision: 'approve' | 'deny' }
-//   GET  /api/notifications     recent notification log
-//   GET  /healthz                liveness probe (used by fly.toml / render.yaml)
-
+// monitoring/dashboard.js
+// Minimal Express dashboard + JSON API.
 
 import express from 'express';
 import basicAuth from 'express-basic-auth';
 import fs from 'node:fs';
 import path from 'node:path';
-import { tasks, runs, steps, errors as dbErrors, notifications, websiteSamples, prospects, opportunities } from '../database/index.js';
+import { tasks, runs, steps, errors as dbErrors, notifications, websiteSamples, prospects, opportunities, samples, proposals } from '../database/index.js';
 import { runAgent } from '../agent/index.js';
 import { scheduleTask, unscheduleTask } from '../scheduler/index.js';
 import { listPending, listAll as listApprovals, recordDecision } from '../agent/approval.js';
 import { config } from '../config/index.js';
 import { isValidSampleId, resolveSampleDir } from '../integrations/website-gen.js';
 
-
 let server = null;
-
 
 export async function startDashboard() {
   if (server) return server;
   const app = express();
   app.use(express.json());
-
 
   if (config.dashboard.user && config.dashboard.pass) {
     app.use(basicAuth({
@@ -42,19 +27,15 @@ export async function startDashboard() {
     }));
   }
 
-
   app.get('/healthz', (req, res) => res.json({ ok: true, uptime: process.uptime() }));
-
 
   app.get('/', (req, res) => {
     res.type('html').send(renderHomePage());
   });
 
-
   app.get('/api/tasks', (req, res) => {
     res.json(tasks.list());
   });
-
 
   app.post('/api/tasks', (req, res) => {
     const { name, goal, cronExpression, timezone, metadata } = req.body || {};
@@ -63,7 +44,6 @@ export async function startDashboard() {
     if (cronExpression) scheduleTask(task.id, cronExpression, timezone);
     res.status(201).json(tasks.get(task.id));
   });
-
 
   app.patch('/api/tasks/:id', (req, res) => {
     const { name, goal, cronExpression, timezone, metadata } = req.body || {};
@@ -75,46 +55,37 @@ export async function startDashboard() {
     res.json(tasks.get(updated.id));
   });
 
-
   app.delete('/api/tasks/:id', (req, res) => {
     tasks.remove(req.params.id);
     res.status(204).end();
   });
 
-
   app.post('/api/tasks/:id/run', async (req, res) => {
     const task = tasks.get(req.params.id);
     if (!task) return res.status(404).json({ error: 'not found' });
-    // Respond immediately; run proceeds asynchronously.
     res.status(202).json({ started: true });
     runAgent({ taskId: task.id }).catch((err) => console.error('[dashboard] run failed:', err));
   });
-
 
   app.get('/api/runs', (req, res) => {
     res.json(runs.listRecent({ limit: Number(req.query.limit) || 50 }));
   });
 
-
   app.get('/api/tasks/:id/runs', (req, res) => {
     res.json(runs.listForTask(req.params.id, { limit: Number(req.query.limit) || 20 }));
   });
-
 
   app.get('/api/runs/:id/steps', (req, res) => {
     res.json(steps.listForRun(req.params.id));
   });
 
-
   app.get('/api/errors', (req, res) => {
     res.json(dbErrors.listRecent({ limit: Number(req.query.limit) || 50 }));
   });
 
-
   app.get('/api/approvals', (req, res) => {
     res.json(req.query.all ? listApprovals() : listPending());
   });
-
 
   app.post('/api/approvals/:id', (req, res) => {
     const { decision } = req.body || {};
@@ -124,17 +95,14 @@ export async function startDashboard() {
     res.json(recordDecision(req.params.id, decision, req.body?.by || 'dashboard'));
   });
 
-
   app.get('/api/notifications', (req, res) => {
     res.json(notifications.listRecent({ limit: Number(req.query.limit) || 50 }));
   });
-
 
   // ── Website Engine (Phase 1) ────────────────────────────────────
   app.get('/api/website-samples', (req, res) => {
     res.json(websiteSamples.list({ limit: Number(req.query.limit) || 50 }));
   });
-
 
   app.get('/api/website-samples/:id', (req, res) => {
     if (!isValidSampleId(req.params.id)) return res.status(400).json({ error: 'invalid sample id' });
@@ -143,19 +111,16 @@ export async function startDashboard() {
     res.json(sample);
   });
 
-
   // ── Prospects (Phase 2) ─────────────────────────────────────────
   app.get('/api/prospects', (req, res) => {
     res.json(prospects.list({ limit: Number(req.query.limit) || 50, status: req.query.status }));
   });
-
 
   app.get('/api/prospects/:id', (req, res) => {
     const prospect = prospects.get(req.params.id);
     if (!prospect) return res.status(404).json({ error: 'not found' });
     res.json(prospect);
   });
-
 
   // ── Opportunities (Phase 3) ───────────────────────────────────────
   app.get('/api/opportunities', (req, res) => {
@@ -168,13 +133,11 @@ export async function startDashboard() {
     }));
   });
 
-
   app.get('/api/opportunities/:id', (req, res) => {
     const opp = opportunities.getOpportunity(req.params.id);
     if (!opp) return res.status(404).json({ error: 'not found' });
     res.json(opp);
   });
-
 
   app.get('/api/prospects/:id/opportunities', (req, res) => {
     const prospect = prospects.get(req.params.id);
@@ -182,11 +145,49 @@ export async function startDashboard() {
     res.json(opportunities.getOpportunitiesForProspect(req.params.id, { limit: Number(req.query.limit) || 20 }));
   });
 
+  // ── Samples & Proposals (Phase 4) ─────────────────────────────────
+  app.get('/api/samples', (req, res) => {
+    res.json(samples.list({
+      limit: Number(req.query.limit) || 50,
+      status: req.query.status,
+      contentKind: req.query.contentKind,
+      sampleType: req.query.sampleType,
+      opportunityId: req.query.opportunityId,
+    }));
+  });
 
-  // Safe static preview: only ever serves the fixed, known filenames that
-  // generateWebsite() writes, from a directory resolved and validated by
-  // resolveSampleDir() (which guarantees containment under the samples
-  // root). No arbitrary filesystem path is ever reachable through this route.
+  app.get('/api/samples/:id', (req, res) => {
+    const sample = samples.get(req.params.id);
+    if (!sample) return res.status(404).json({ error: 'not found' });
+    res.json(sample);
+  });
+
+  app.get('/api/opportunities/:id/samples', (req, res) => {
+    const opp = opportunities.getOpportunity(req.params.id);
+    if (!opp) return res.status(404).json({ error: 'not found' });
+    res.json(samples.getForOpportunity(req.params.id, { limit: Number(req.query.limit) || 20 }));
+  });
+
+  app.get('/api/proposals', (req, res) => {
+    res.json(proposals.list({
+      limit: Number(req.query.limit) || 50,
+      status: req.query.status,
+      opportunityId: req.query.opportunityId,
+    }));
+  });
+
+  app.get('/api/proposals/:id', (req, res) => {
+    const proposal = proposals.get(req.params.id);
+    if (!proposal) return res.status(404).json({ error: 'not found' });
+    res.json(proposal);
+  });
+
+  app.get('/api/opportunities/:id/proposals', (req, res) => {
+    const opp = opportunities.getOpportunity(req.params.id);
+    if (!opp) return res.status(404).json({ error: 'not found' });
+    res.json(proposals.getForOpportunity(req.params.id, { limit: Number(req.query.limit) || 20 }));
+  });
+
   const PREVIEW_FILES = {
     'index.html': 'text/html; charset=utf-8',
     'styles.css': 'text/css; charset=utf-8',
@@ -212,7 +213,6 @@ export async function startDashboard() {
     });
   });
 
-
   return new Promise((resolve) => {
     server = app.listen(config.dashboard.port, config.dashboard.host, () => {
       console.log(`[dashboard] listening on http://${config.dashboard.host}:${config.dashboard.port}`);
@@ -221,15 +221,12 @@ export async function startDashboard() {
   });
 }
 
-
 export function stopDashboard() {
   if (server) { server.close(); server = null; }
 }
 
-
 function renderHomePage() {
   const recentTasks = tasks.list({ limit: 20 });
-
   const rows = recentTasks.map((t) => `
     <tr>
       <td><strong>${escapeHtml(t.name)}</strong></td>
@@ -262,376 +259,41 @@ function renderHomePage() {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>AI Real Estate Automation</title>
-
 <style>
 * { box-sizing:border-box; }
-
-body {
-  margin:0;
-  font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-  background:#080b12;
-  color:#f3f4f6;
-}
-
-.container {
-  max-width:1200px;
-  margin:auto;
-  padding:40px 24px 60px;
-}
-
-.header {
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  margin-bottom:32px;
-}
-
-h1 {
-  margin:0;
-  font-size:30px;
-  letter-spacing:-.5px;
-}
-
-.subtitle {
-  color:#9ca3af;
-  margin-top:7px;
-}
-
-.card {
-  background:#111621;
-  border:1px solid #252b38;
-  border-radius:16px;
-  padding:24px;
-  margin-bottom:24px;
-  box-shadow:0 10px 30px rgba(0,0,0,.25);
-}
-
-.card h2 {
-  margin:0 0 20px;
-  font-size:20px;
-}
-
-.grid {
-  display:grid;
-  grid-template-columns:1fr 1fr;
-  gap:18px;
-}
-
-.field {
-  display:flex;
-  flex-direction:column;
-  gap:8px;
-}
-
-.full {
-  grid-column:1 / -1;
-}
-
-label {
-  color:#cbd5e1;
-  font-size:14px;
-  font-weight:600;
-}
-
-input, textarea, select {
-  width:100%;
-  border:1px solid #303746;
-  background:#0b0f18;
-  color:#f9fafb;
-  border-radius:10px;
-  padding:12px 13px;
-  outline:none;
-  font-size:14px;
-}
-
-textarea {
-  min-height:130px;
-  resize:vertical;
-}
-
-input:focus, textarea:focus, select:focus {
-  border-color:#64748b;
-}
-
-.actions {
-  margin-top:20px;
-  display:flex;
-  gap:12px;
-}
-
-button {
-  border:0;
-  border-radius:10px;
-  padding:11px 17px;
-  background:#f3f4f6;
-  color:#090b10;
-  font-weight:700;
-  cursor:pointer;
-}
-
-button:hover {
-  opacity:.88;
-}
-
-.secondary {
-  background:#202735;
-  color:#f3f4f6;
-}
-
-table {
-  width:100%;
-  border-collapse:collapse;
-}
-
-th, td {
-  padding:14px 10px;
-  border-bottom:1px solid #252b38;
-  text-align:left;
-  font-size:14px;
-}
-
-th {
-  color:#9ca3af;
-  font-weight:600;
-}
-
-.status {
-  display:inline-block;
-  padding:5px 9px;
-  border-radius:999px;
-  background:#1d2939;
-  color:#dbeafe;
-  font-size:12px;
-}
-
-.notice {
-  color:#9ca3af;
-  font-size:13px;
-  margin-top:12px;
-}
-
-@media(max-width:750px) {
-  .grid { grid-template-columns:1fr; }
-  .full { grid-column:auto; }
-}
+body { margin:0; font-family:Inter,system-ui,sans-serif; background:#080b12; color:#f3f4f6; }
+.container { max-width:1200px; margin:auto; padding:40px 24px 60px; }
+.header { display:flex; justify-content:space-between; align-items:center; margin-bottom:32px; }
+h1 { margin:0; font-size:30px; }
+.card { background:#111621; border:1px solid #252b38; border-radius:16px; padding:24px; margin-bottom:24px; }
+table { width:100%; border-collapse:collapse; }
+th, td { padding:14px 10px; border-bottom:1px solid #252b38; text-align:left; font-size:14px; }
+button { border:0; border-radius:10px; padding:11px 17px; background:#f3f4f6; color:#090b10; font-weight:700; cursor:pointer; }
+.status { display:inline-block; padding:5px 9px; border-radius:999px; background:#1d2939; color:#dbeafe; font-size:12px; }
 </style>
 </head>
-
 <body>
-
 <div class="container">
-
-  <div class="header">
-    <div>
-      <h1>🤖 AI Real Estate Automation</h1>
-      <div class="subtitle">
-        Autonomous lead generation, research and marketing automation
-      </div>
-    </div>
-
-    <button class="secondary" onclick="location.reload()">Refresh</button>
+  <div class="header"><div><h1>AI Real Estate Automation</h1></div>
+  <button onclick="location.reload()">Refresh</button></div>
+  <div class="card"><h2>Active Tasks</h2>
+    <table><thead><tr><th>Task</th><th>Status</th><th>Schedule</th><th>Last Run</th><th>Action</th></tr></thead>
+    <tbody>${rows || '<tr><td colspan="5">No tasks yet.</td></tr>'}</tbody></table>
   </div>
-
-  <div class="card">
-
-    <h2>Create New Task</h2>
-
-    <div class="grid">
-
-      <div class="field">
-        <label>Task Name</label>
-        <input id="name" placeholder="e.g. Tanzania Real Estate Leads">
-      </div>
-
-      <div class="field">
-        <label>Target Location</label>
-        <input id="location" placeholder="e.g. Dar es Salaam, Tanzania">
-      </div>
-
-      <div class="field full">
-        <label>AI Prompt / Task Goal</label>
-        <textarea id="goal" placeholder="Tell the AI exactly what you want it to research or automate..."></textarea>
-      </div>
-
-      <div class="field">
-        <label>Maximum Results</label>
-        <input id="maxResults" type="number" value="10" min="1" max="1000">
-      </div>
-
-      <div class="field">
-        <label>Schedule</label>
-        <select id="schedule">
-          <option value="">Run Once</option>
-          <option value="0 9 * * *">Every day at 09:00</option>
-          <option value="0 9 * * 1-5">Every weekday at 09:00</option>
-          <option value="0 9 * * 1">Every Monday at 09:00</option>
-          <option value="0 9 * * 1,3,5">Monday / Wednesday / Friday</option>
-        </select>
-      </div>
-
-    </div>
-
-    <div class="actions">
-      <button onclick="createTask()">Create & Run Task</button>
-    </div>
-
-    <div id="message" class="notice"></div>
-
+  <div class="card"><h2>Opportunities</h2>
+    <table><thead><tr><th>Prospect</th><th>Score</th><th>Priority</th><th>Type</th><th>Sample</th><th>Confidence</th><th>Status</th></tr></thead>
+    <tbody>${opportunityRows || '<tr><td colspan="7">No opportunities yet.</td></tr>'}</tbody></table>
   </div>
-
-  <div class="card">
-
-    <h2>Active Tasks</h2>
-
-    <table>
-      <thead>
-        <tr>
-          <th>Task</th>
-          <th>Status</th>
-          <th>Schedule</th>
-          <th>Last Run</th>
-          <th>Action</th>
-        </tr>
-      </thead>
-
-      <tbody>
-        ${rows || `
-        <tr>
-          <td colspan="5">No tasks yet.</td>
-        </tr>`}
-      </tbody>
-
-    </table>
-
-  </div>
-
-  <div class="card">
-
-    <h2>Opportunities</h2>
-    <p style="color:#9ca3af;margin:-8px 0 16px;font-size:13px;">
-      Filter via the API: <code>/api/opportunities?priority=HIGH&amp;status=...&amp;minScore=...</code>
-    </p>
-
-    <table>
-      <thead>
-        <tr>
-          <th>Prospect</th>
-          <th>Score</th>
-          <th>Priority</th>
-          <th>Type</th>
-          <th>Recommended Sample</th>
-          <th>Confidence</th>
-          <th>Status</th>
-        </tr>
-      </thead>
-
-      <tbody>
-        ${opportunityRows || `
-        <tr>
-          <td colspan="7">No opportunities analyzed yet.</td>
-        </tr>`}
-      </tbody>
-
-    </table>
-
-  </div>
-
 </div>
-
 <script>
-
-async function createTask() {
-
-  const name = document.getElementById('name').value.trim();
-  const goal = document.getElementById('goal').value.trim();
-  const location = document.getElementById('location').value.trim();
-  const maxResults = document.getElementById('maxResults').value;
-  const cronExpression = document.getElementById('schedule').value;
-
-  if (!name || !goal) {
-    document.getElementById('message').textContent =
-      'Please enter a Task Name and AI Prompt.';
-    return;
-  }
-
-  let finalGoal = goal;
-
-  if (location) {
-    finalGoal += "\\n\\nTarget Location: " + location;
-  }
-
-  if (maxResults) {
-    finalGoal += "\\nMaximum Results: " + maxResults;
-  }
-
-  document.getElementById('message').textContent =
-    'Creating task...';
-
-  try {
-
-    const response = await fetch('/api/tasks', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        name,
-        goal:finalGoal,
-        cronExpression,
-        metadata:{
-          targetLocation:location,
-          maximumResults:Number(maxResults || 10),
-          taskType:'real_estate'
-        }
-      })
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(data.error || 'Failed to create task');
-    }
-
-    await fetch('/api/tasks/' + data.id + '/run', {
-      method:'POST'
-    });
-
-    document.getElementById('message').textContent =
-      'Task created and started successfully.';
-
-    setTimeout(() => location.reload(), 1200);
-
-  } catch(error) {
-
-    document.getElementById('message').textContent =
-      'Error: ' + error.message;
-
-  }
-}
-
 async function runTask(id) {
-
-  try {
-
-    await fetch('/api/tasks/' + id + '/run', {
-      method:'POST'
-    });
-
-    location.reload();
-
-  } catch(error) {
-
-    alert(error.message);
-
-  }
+  try { await fetch('/api/tasks/' + id + '/run', { method:'POST' }); location.reload(); }
+  catch(e) { alert(e.message); }
 }
-
 </script>
-
-</body>
-</html>`;
+</body></html>`;
 }
 
 function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&', '<': '<', '>': '>', '"': '"', "'": '&#39;' }[c]));
 }
-
-
