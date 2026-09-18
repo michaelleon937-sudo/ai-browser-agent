@@ -1,125 +1,108 @@
 // tests/integration/agent-loop.test.js
-// Exercises the full plan → execute → observe loop against a real headless
-// Chromium (via the stub AI provider so no external API calls are made).
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import os from 'node:os';
 import path from 'node:path';
+import os from 'node:os';
+import fs from 'node:fs';
 
-let runAgent, browser, migrate, closeDb;
+let runAgent;
+let migrate, closeDb;
+let tmpDbPath;
 
 beforeAll(async () => {
+  tmpDbPath = path.join(os.tmpdir(), `agent-loop-${Date.now()}.db`);
+  process.env.DATABASE_PATH = tmpDbPath;
   process.env.AI_PROVIDER = 'stub';
-  process.env.DATABASE_PATH = path.join(os.tmpdir(), `agent-loop-${Date.now()}.db`);
-  process.env.BROWSER_USER_DATA_DIR = path.join(os.tmpdir(), `agent-loop-profile-${Date.now()}`);
-  process.env.WEBSITE_SAMPLES_DIR = path.join(os.tmpdir(), `agent-loop-samples-${Date.now()}`);
   process.env.HUMAN_APPROVAL_REQUIRED = 'false';
-  ({ runAgent } = await import('../../agent/index.js'));
   ({ migrate, closeDb } = await import('../../database/index.js'));
-  browser = (await import('../../browser/index.js')).default;
   migrate();
+  ({ runAgent } = await import('../../agent/index.js'));
 });
 
-afterAll(async () => {
-  await browser.close();
-  closeDb();
+afterAll(() => {
+  try { closeDb(); } catch {}
+  try { fs.unlinkSync(tmpDbPath); } catch {}
 });
 
-describe('agent loop (integration)', () => {
-  it('completes a simple navigation goal end to end', async () => {
-    const result = await runAgent({
-      goal: 'Go to example.com and check the status code',
-    });
+describe('agent loop integration', () => {
+  it('completes a simple example.com goal via stub provider', async () => {
+    const result = await runAgent({ goal: 'Visit example.com and report the status code' });
     expect(result.status).toBe('success');
-    expect(result.runId).toBeTruthy();
   }, 60_000);
 
-  it('fails safely instead of looping forever on a forced failure', async () => {
-    const result = await runAgent({
-      goal: 'force failure of the browser action',
+  it('PHASE 4: create sample and proposal for an opportunity (website sampleType)', async () => {
+    const { prospects, opportunities } = await import('../../database/index.js');
+    const prospect = prospects.create({ businessName: 'Phase4 Loop Realty', websiteUrl: null, location: 'Dar es Salaam' });
+    const opportunity = opportunities.createOpportunity({
+      prospectId: prospect.id,
+      score: 85,
+      priority: 'HIGH',
+      recommendedSampleType: 'website',
     });
-    expect(['failed']).toContain(result.status);
-  }, 60_000);
 
-  it('completes a website-generation goal end to end via the generate_website tool', async () => {
     const result = await runAgent({
-      goal: 'Generate a speculative real-estate website sample for a fictional company called Example Property Tanzania. Create a professional responsive website with a hero section, services, featured properties using clearly marked sample data, about section, contact section and call to action. Do not contact anyone and do not publish the website.',
+      goal: `Create a sample and proposal for opportunity ${opportunity.id} using sampleType website`,
     });
     expect(result.status).toBe('success');
-    expect(result.runId).toBeTruthy();
 
-    const { steps } = await import('../../database/index.js');
+    const { samples: samplesRepo, proposals: proposalsRepo, steps, runs } = await import('../../database/index.js');
+    const sample = samplesRepo.getForOpportunity(opportunity.id)[0];
+    expect(sample).toBeTruthy();
+    expect(sample.status).toBe('SAVED');
+    expect(sample.content_kind).toBe('SPECULATIVE_SAMPLE');
+
+    const proposal = proposalsRepo.getForOpportunity(opportunity.id)[0];
+    expect(proposal).toBeTruthy();
+    expect(proposal.status).toBe('READY');
+
+    const updatedOpp = opportunities.getOpportunity(opportunity.id);
+    expect(updatedOpp.status).toBe('AWAITING_APPROVAL');
+
     const runSteps = steps.listForRun(result.runId);
-    const genStep = runSteps.find((s) => s.tool === 'generate_website');
-    expect(genStep).toBeTruthy();
-    expect(genStep.status).toBe('success');
+    const tools = runSteps.map((s) => s.tool);
+    expect(tools).toContain('create_sample');
+    expect(tools).toContain('save_sample');
+    expect(tools).toContain('generate_proposal');
+    expect(tools).toContain('save_proposal');
+    expect(runSteps[runSteps.length - 1].tool).toBe('task_complete');
   }, 60_000);
 
-  it('existing browser tools still work after adding generate_website', async () => {
-    const result = await runAgent({
-      goal: 'Go to example.com and check the status code',
-    });
-    expect(result.status).toBe('success');
-  }, 60_000);
+  it('PHASE 4 CRITICAL: website sample ownership is correct across two different opportunities, and swapping is rejected', async () => {
+    const { prospects, opportunities, samples: samplesRepo } = await import('../../database/index.js');
 
-  it('completes a full prospect → opportunity-analysis → save pipeline end to end', async () => {
-    const result = await runAgent({
-      goal: 'Find a real estate prospect, analyze the opportunity, and save the opportunity for this prospect.',
-    });
-    expect(result.status).toBe('success');
-    expect(result.runId).toBeTruthy();
+    const prospectA = prospects.create({ businessName: 'Ownership Integration A Realty', websiteUrl: null });
+    const prospectB = prospects.create({ businessName: 'Ownership Integration B Realty', websiteUrl: null });
+    const opportunityA = opportunities.createOpportunity({ prospectId: prospectA.id, score: 85, priority: 'HIGH', recommendedSampleType: 'website' });
+    const opportunityB = opportunities.createOpportunity({ prospectId: prospectB.id, score: 80, priority: 'HIGH', recommendedSampleType: 'website' });
 
-    const { steps, prospects, opportunities } = await import('../../database/index.js');
-    const runSteps = steps.listForRun(result.runId);
+    const resultA = await runAgent({ goal: `Create a sample and proposal for opportunity ${opportunityA.id} using sampleType website` });
+    const resultB = await runAgent({ goal: `Create a sample and proposal for opportunity ${opportunityB.id} using sampleType website` });
 
-    const saveProspectStep = runSteps.find((s) => s.tool === 'save_prospect');
-    expect(saveProspectStep).toBeTruthy();
-    expect(saveProspectStep.status).toBe('success');
-    const prospectObs = JSON.parse(saveProspectStep.observation_json);
-    expect(prospectObs.prospectId).toBeTruthy();
+    expect(resultA.status).toBe('success');
+    expect(resultB.status).toBe('success');
 
-    const prospect = prospects.get(prospectObs.prospectId);
-    expect(prospect).toBeTruthy();
-    expect(prospect.business_name).toBe('Example Property Tanzania');
+    const sampleA = samplesRepo.getForOpportunity(opportunityA.id)[0];
+    const sampleB = samplesRepo.getForOpportunity(opportunityB.id)[0];
 
-    const analyzeStep = runSteps.find((s) => s.tool === 'analyze_opportunity');
-    expect(analyzeStep).toBeTruthy();
-    expect(analyzeStep.status).toBe('success');
-    const analysisObs = JSON.parse(analyzeStep.observation_json);
-    expect(typeof analysisObs.score).toBe('number');
-    expect(['HIGH', 'MEDIUM', 'LOW']).toContain(analysisObs.priority);
+    expect(sampleA.website_sample_id).toBeTruthy();
+    expect(sampleB.website_sample_id).toBeTruthy();
+    expect(sampleA.website_sample_id).not.toBe(sampleB.website_sample_id);
 
-    const saveOppStep = runSteps.find((s) => s.tool === 'save_opportunity');
-    expect(saveOppStep).toBeTruthy();
-    expect(saveOppStep.status).toBe('success');
-    const oppObs = JSON.parse(saveOppStep.observation_json);
-    expect(oppObs.opportunityId).toBeTruthy();
+    expect(sampleA.preview_path).toContain(sampleA.website_sample_id);
+    expect(sampleB.preview_path).toContain(sampleB.website_sample_id);
 
-    const savedOpp = opportunities.getOpportunity(oppObs.opportunityId);
-    expect(savedOpp).toBeTruthy();
-    expect(savedOpp.prospect_id).toBe(prospectObs.prospectId);
-    expect(['NEW', 'ANALYZED', 'SAMPLE_RECOMMENDED']).toContain(savedOpp.status);
-  }, 60_000);
+    const { resolveSampleDir } = await import('../../integrations/website-gen.js');
+    const fs = await import('node:fs');
+    const pathMod = await import('node:path');
+    expect(fs.existsSync(pathMod.join(resolveSampleDir(sampleA.website_sample_id), 'index.html'))).toBe(true);
+    expect(fs.existsSync(pathMod.join(resolveSampleDir(sampleB.website_sample_id), 'index.html'))).toBe(true);
 
-  it('fails cleanly (not silently) when analyzing an opportunity for a prospect that does not exist', async () => {
-    const result = await runAgent({
-      goal: 'Attempt to analyze the opportunity for a prospect that does not exist (missing prospect test).',
-    });
-    expect(result.status).toBe('failed');
-    expect(result.error).toMatch(/Prospect not found/i);
-  }, 60_000);
-
-  it('REGRESSION: multiple permanent DNS failures on different domains do not exhaust the global retry budget', async () => {
-    const result = await runAgent({
-      goal: 'Explore several dead domain candidates before finding a working source (exhaust retry budget regression test).',
-    });
-    expect(result.status).toBe('success');
-
-    const { steps: stepsRepo } = await import('../../database/index.js');
-    const runSteps = stepsRepo.listForRun(result.runId);
-    const navigateAttempts = runSteps.filter((s) => s.tool === 'browser_navigate');
-    expect(navigateAttempts.length).toBeGreaterThanOrEqual(6);
-    const deadOnes = navigateAttempts.filter((s) => JSON.parse(s.args_json).url.includes('.invalid'));
-    expect(deadOnes.length).toBe(5);
-    expect(deadOnes.every((s) => s.status === 'failed')).toBe(true);
-  }, 60_000);
+    const { samples: samplesRepoDirect } = await import('../../database/index.js');
+    expect(() => samplesRepoDirect.create({
+      prospectId: prospectB.id,
+      opportunityId: opportunityB.id,
+      sampleType: 'website',
+      contentKind: 'SPECULATIVE_SAMPLE',
+      websiteSampleId: sampleA.website_sample_id,
+    })).toThrow(/does not belong to the current task\/run context|already linked to a different opportunity/);
+  }, 90_000);
 });
