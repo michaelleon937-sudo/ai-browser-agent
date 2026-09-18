@@ -11,6 +11,8 @@ let tmpDbPath;
 beforeAll(async () => {
   tmpDbPath = path.join(os.tmpdir(), `agent-loop-${Date.now()}.db`);
   process.env.DATABASE_PATH = tmpDbPath;
+  // Website samples must be writable; default /data/website-samples is not on CI runners.
+  process.env.WEBSITE_SAMPLES_DIR = path.join(os.tmpdir(), `agent-loop-samples-${Date.now()}`);
   process.env.AI_PROVIDER = 'stub';
   process.env.HUMAN_APPROVAL_REQUIRED = 'false';
   ({ migrate, closeDb } = await import('../../database/index.js'));

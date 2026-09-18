@@ -53,6 +53,9 @@ export function stubProvider() {
 
 
       // ── Sample & Proposal Generation (Phase 4) smoke-test ───────────
+      // Only advance when the previous Phase 4 step actually succeeded.
+      // Advancing on mere presence of a failed step caused false task_complete
+      // with no sample/proposal rows (integration failure mode).
       const phase4Match = String(goal || '').match(/create a sample and proposal for opportunity (\S+)(?: using sampleType (\S+))?/i);
       if (phase4Match) {
         const opportunityId = phase4Match[1];
@@ -62,8 +65,26 @@ export function stubProvider() {
         const generateProposalStep = steps.find((s) => s.tool === 'generate_proposal');
         const saveProposalStep = steps.find((s) => s.tool === 'save_proposal');
 
+        const phase4Fail = (step, label) => {
+          if (step && step.status !== 'success') {
+            return {
+              action: {
+                tool: 'task_fail',
+                args: { reason: `${label} failed: ${step.errorMessage || 'unknown error'}` },
+                reasoning: 'phase 4 prerequisite failed; cannot report success without persisted sample/proposal',
+              },
+              done: true,
+            };
+          }
+          return null;
+        };
+
         if (!createSampleStep) {
           return call('create_sample', { opportunityId, sampleType: requestedSampleType }, 'create a speculative sample for this opportunity');
+        }
+        {
+          const fail = phase4Fail(createSampleStep, 'create_sample');
+          if (fail) return fail;
         }
         if (!saveSampleStep) {
           const obs = createSampleStep.observation || {};
@@ -76,9 +97,17 @@ export function stubProvider() {
             previewPath: obs.previewPath,
           }, 'save the created sample, using the exact output of create_sample');
         }
+        {
+          const fail = phase4Fail(saveSampleStep, 'save_sample');
+          if (fail) return fail;
+        }
         if (!generateProposalStep) {
           const sampleId = saveSampleStep.observation?.sampleId;
           return call('generate_proposal', { opportunityId, sampleId }, 'draft a proposal for this opportunity');
+        }
+        {
+          const fail = phase4Fail(generateProposalStep, 'generate_proposal');
+          if (fail) return fail;
         }
         if (!saveProposalStep) {
           const sampleId = saveSampleStep.observation?.sampleId;
@@ -93,6 +122,10 @@ export function stubProvider() {
             callToAction: obs.callToAction,
             assumptions: obs.assumptions,
           }, 'save the proposal');
+        }
+        {
+          const fail = phase4Fail(saveProposalStep, 'save_proposal');
+          if (fail) return fail;
         }
         return { action: { tool: 'task_complete', args: { result: 'Sample and proposal created; opportunity now awaiting approval.' }, reasoning: 'done' }, done: true };
       }
