@@ -3,7 +3,7 @@
 // Full implementation restored after accidental empty push.
 
 import browser from '../browser/index.js';
-import { tasks, runs, steps, errors as dbErrors, websiteSamples, prospects, opportunities } from '../database/index.js';
+import { tasks, runs, steps, errors as dbErrors, websiteSamples, prospects, opportunities, samples, proposals } from '../database/index.js';
 import { config, redact } from '../config/index.js';
 import { getProvider, isKnownTool, ACTION_TOOLS, isSensitive } from './ai/index.js';
 import { notify } from '../notifications/index.js';
@@ -11,6 +11,8 @@ import { enqueueApproval, awaitApproval } from './approval.js';
 import { generateWebsite } from '../integrations/website-gen.js';
 import { analyzeProspectPage } from '../integrations/prospecting.js';
 import { analyzeOpportunity } from '../integrations/opportunity-intelligence.js';
+import { createSample } from '../integrations/sample-generation.js';
+import { generateProposal } from '../integrations/proposal-generation.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -372,12 +374,83 @@ async function executeAction(action, context = {}) {
       }
       return { success: true, opportunityId: saved.id, status: saved.recommended_sample_type && saved.recommended_sample_type !== 'none' ? 'SAMPLE_RECOMMENDED' : saved.status };
     }
+    case 'create_sample': {
+      const opportunity = opportunities.getOpportunity(args.opportunityId);
+      if (!opportunity) throw new Error(`Opportunity not found: ${args.opportunityId}`);
+      const prospect = prospects.get(opportunity.prospect_id);
+      if (!prospect) throw new Error(`Prospect not found: ${opportunity.prospect_id}`);
+
+      const result = createSample({ prospect, opportunity, sampleType: args.sampleType, notes: args.notes });
+
+      if (result.sampleType === 'website') {
+        websiteSamples.create({
+          id: result.websiteSampleId,
+          taskId: context.taskId,
+          runId: context.runId,
+          prospectName: prospect.business_name,
+          status: 'SPECULATIVE_SAMPLE',
+          businessType: 'Real Estate',
+          location: prospect.location,
+          websiteGoal: 'Showcase properties and generate inquiries',
+          files: ['index.html', 'styles.css', 'script.js', 'metadata.json'],
+          previewPath: result.previewPath,
+        });
+      }
+      return result;
+    }
+    case 'save_sample': {
+      const opportunity = opportunities.getOpportunity(args.opportunityId);
+      if (!opportunity) throw new Error(`Opportunity not found: ${args.opportunityId}`);
+      const expectedContentKind = args.sampleType === 'website' ? 'SPECULATIVE_SAMPLE' : 'CONCEPT_BRIEF';
+      if (args.contentKind !== expectedContentKind) {
+        throw new Error(`Invalid contentKind "${args.contentKind}" for sampleType "${args.sampleType}" — expected "${expectedContentKind}"`);
+      }
+      const saved = samples.create({
+        prospectId: opportunity.prospect_id,
+        opportunityId: args.opportunityId,
+        taskId: context.taskId,
+        runId: context.runId,
+        sampleType: args.sampleType,
+        contentKind: args.contentKind,
+        websiteSampleId: args.websiteSampleId,
+        content: args.content,
+        previewPath: args.previewPath,
+      });
+      samples.markSaved(saved.id);
+      opportunities.updateOpportunity(args.opportunityId, { status: 'SAMPLE_CREATED' });
+      return { success: true, sampleId: saved.id, status: 'SAVED' };
+    }
+    case 'generate_proposal': {
+      const opportunity = opportunities.getOpportunity(args.opportunityId);
+      if (!opportunity) throw new Error(`Opportunity not found: ${args.opportunityId}`);
+      const prospect = prospects.get(opportunity.prospect_id);
+      if (!prospect) throw new Error(`Prospect not found: ${opportunity.prospect_id}`);
+      const sample = samples.get(args.sampleId);
+      if (!sample) throw new Error(`Sample not found: ${args.sampleId}`);
+      const result = generateProposal({ prospect, opportunity, sample });
+      return { opportunityId: args.opportunityId, sampleId: args.sampleId, ...result };
+    }
+    case 'save_proposal': {
+      const opportunity = opportunities.getOpportunity(args.opportunityId);
+      if (!opportunity) throw new Error(`Opportunity not found: ${args.opportunityId}`);
+      const saved = proposals.create({
+        prospectId: opportunity.prospect_id,
+        opportunityId: args.opportunityId,
+        sampleId: args.sampleId,
+        taskId: context.taskId,
+        runId: context.runId,
+        pitch: args.pitch,
+        serviceRecommendation: args.serviceRecommendation,
+        valueProposition: args.valueProposition,
+        suggestedPackage: args.suggestedPackage,
+        callToAction: args.callToAction,
+        assumptions: args.assumptions,
+      });
+      proposals.markReady(saved.id);
+      opportunities.updateOpportunity(args.opportunityId, { status: 'AWAITING_APPROVAL' });
+      return { success: true, proposalId: saved.id, status: 'AWAITING_APPROVAL' };
+    }
     default:
       throw new Error(`Tool not implemented in executor: ${tool}`);
   }
-}
-
-export async function runGoal(goal, opts = {}) {
-  const task = tasks.create({ name: opts.name || `ad-hoc-${Date.now()}`, goal, metadata: opts.metadata });
-  return runAgent({ taskId: task.id, goal, onEvent: opts.onEvent });
 }
