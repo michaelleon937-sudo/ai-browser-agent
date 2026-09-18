@@ -37,6 +37,10 @@ const KNOWN_TOOLS = new Set([
   'save_prospect',
   'analyze_opportunity',
   'save_opportunity',
+  'create_sample',
+  'save_sample',
+  'generate_proposal',
+  'save_proposal',
 ]);
 
 export function isKnownTool(name) {
@@ -392,6 +396,69 @@ export const ACTION_TOOLS = [
         confidence: { type: 'number' },
       },
       required: ['prospectId'],
+    },
+  },
+  {
+    type: 'function',
+    name: 'create_sample',
+    description: 'Local-only operation; may create local website artifact files, but performs no external communication. Produces a speculative sample for a saved opportunity. For sampleType "website", delegates to the existing generate_website tool (real static files are written locally). For every other sampleType, produces a structured text concept brief only — never a rendered image, video, or 3D asset. Never contacts anyone, never publishes anything, never fabricates testimonials/results/client relationships. Does not persist anything — call save_sample afterward with the exact output of this call.',
+    parameters: {
+      type: 'object',
+      properties: {
+        opportunityId: { type: 'string' },
+        sampleType: { type: 'string', enum: ['website', 'property-ad', 'social-media', 'promotional-video', '3d-visualization', 'brand-design', 'automation-demo'] },
+        notes: { type: 'string' },
+      },
+      required: ['opportunityId', 'sampleType'],
+    },
+  },
+  {
+    type: 'function',
+    name: 'save_sample',
+    description: 'Persists the exact output of the immediately preceding create_sample call for this opportunity. Pass websiteSampleId/previewPath/content verbatim from that create_sample result — do not invent or reuse a value from a different opportunity/sample; mismatched ownership is rejected. Does not contact anyone or publish anything. On success, the opportunity moves to SAMPLE_CREATED.',
+    parameters: {
+      type: 'object',
+      properties: {
+        opportunityId: { type: 'string' },
+        sampleType: { type: 'string' },
+        contentKind: { type: 'string', enum: ['SPECULATIVE_SAMPLE', 'CONCEPT_BRIEF'] },
+        content: { type: 'object' },
+        websiteSampleId: { type: 'string' },
+        previewPath: { type: 'string' },
+      },
+      required: ['opportunityId', 'sampleType', 'contentKind'],
+    },
+  },
+  {
+    type: 'function',
+    name: 'generate_proposal',
+    description: 'Deterministically drafts a proposal from a saved opportunity and sample — no AI call, no invented facts, no pricing. Preserves the confirmed/likely/possible evidence label from the opportunity verbatim. Does not persist anything — call save_proposal afterward.',
+    parameters: {
+      type: 'object',
+      properties: {
+        opportunityId: { type: 'string' },
+        sampleId: { type: 'string' },
+      },
+      required: ['opportunityId', 'sampleId'],
+    },
+  },
+  {
+    type: 'function',
+    name: 'save_proposal',
+    description: 'Persists a proposal draft (from generate_proposal). On success, proposal.status = READY and the opportunity moves to AWAITING_APPROVAL — this is a hard terminal boundary for Phase 4. Call task_complete immediately after this succeeds; no further browsing, contacting, submitting, or publishing is available in this phase.',
+    parameters: {
+      type: 'object',
+      properties: {
+        opportunityId: { type: 'string' },
+        sampleId: { type: 'string' },
+        pitch: { type: 'string' },
+        serviceRecommendation: { type: 'string' },
+        valueProposition: { type: 'string' },
+        suggestedPackage: { type: 'string' },
+        callToAction: { type: 'string' },
+        assumptions: { type: 'array', items: { type: 'string' } },
+      },
+      required: ['opportunityId', 'sampleId', 'pitch'],
     },
   },
 ];
