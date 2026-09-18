@@ -180,3 +180,63 @@ CREATE INDEX IF NOT EXISTS idx_opportunities_prospect ON opportunities (prospect
 CREATE INDEX IF NOT EXISTS idx_opportunities_status ON opportunities (status);
 CREATE INDEX IF NOT EXISTS idx_opportunities_score ON opportunities (score);
 CREATE INDEX IF NOT EXISTS idx_opportunities_priority ON opportunities (priority);
+
+-- samples: a generated sample (Phase 4 — Sample & Proposal Generation) for
+-- one opportunity. `status` is lifecycle ONLY (DRAFT|SAVED) — content
+-- classification lives in the separate `content_kind` column
+-- (SPECULATIVE_SAMPLE|CONCEPT_BRIEF), never mixed into `status`. For
+-- sample_type='website', website_sample_id must reference the exact
+-- website_samples row created by the same create_sample/generate_website
+-- call — ownership is enforced at the application layer in
+-- database/index.js (samples.create), not just by this FK.
+CREATE TABLE IF NOT EXISTS samples (
+  id                TEXT PRIMARY KEY,
+  prospect_id       TEXT NOT NULL,
+  opportunity_id    TEXT NOT NULL,
+  task_id           TEXT,
+  run_id            TEXT,
+  sample_type       TEXT NOT NULL,
+  status            TEXT NOT NULL DEFAULT 'DRAFT',   -- DRAFT | SAVED (lifecycle only)
+  content_kind      TEXT NOT NULL,                   -- SPECULATIVE_SAMPLE | CONCEPT_BRIEF (content classification only)
+  website_sample_id TEXT,
+  concept_content_json TEXT,
+  preview_path      TEXT,
+  created_at        TEXT NOT NULL,
+  updated_at        TEXT NOT NULL,
+  FOREIGN KEY (prospect_id) REFERENCES prospects(id),
+  FOREIGN KEY (opportunity_id) REFERENCES opportunities(id),
+  FOREIGN KEY (website_sample_id) REFERENCES website_samples(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_samples_opportunity ON samples (opportunity_id);
+CREATE INDEX IF NOT EXISTS idx_samples_prospect ON samples (prospect_id);
+CREATE INDEX IF NOT EXISTS idx_samples_status ON samples (status);
+CREATE INDEX IF NOT EXISTS idx_samples_content_kind ON samples (content_kind);
+
+-- proposals: a drafted proposal (Phase 4) for one opportunity + sample.
+-- `status` DRAFT|READY. Reaching READY (via save_proposal) is what moves
+-- the parent opportunity to AWAITING_APPROVAL — see database/index.js.
+CREATE TABLE IF NOT EXISTS proposals (
+  id                      TEXT PRIMARY KEY,
+  prospect_id             TEXT NOT NULL,
+  opportunity_id          TEXT NOT NULL,
+  sample_id               TEXT,
+  task_id                 TEXT,
+  run_id                  TEXT,
+  status                  TEXT NOT NULL DEFAULT 'DRAFT',   -- DRAFT | READY
+  pitch                   TEXT,
+  service_recommendation  TEXT,
+  value_proposition       TEXT,
+  suggested_package       TEXT,
+  call_to_action          TEXT,
+  assumptions_json        TEXT,
+  created_at              TEXT NOT NULL,
+  updated_at              TEXT NOT NULL,
+  FOREIGN KEY (prospect_id) REFERENCES prospects(id),
+  FOREIGN KEY (opportunity_id) REFERENCES opportunities(id),
+  FOREIGN KEY (sample_id) REFERENCES samples(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_proposals_opportunity ON proposals (opportunity_id);
+CREATE INDEX IF NOT EXISTS idx_proposals_prospect ON proposals (prospect_id);
+CREATE INDEX IF NOT EXISTS idx_proposals_status ON proposals (status);
