@@ -50,6 +50,53 @@ export function stubProvider() {
       }
 
 
+
+
+      // ── Sample & Proposal Generation (Phase 4) smoke-test ───────────
+      const phase4Match = String(goal || '').match(/create a sample and proposal for opportunity (\S+)(?: using sampleType (\S+))?/i);
+      if (phase4Match) {
+        const opportunityId = phase4Match[1];
+        const requestedSampleType = phase4Match[2] || 'website';
+        const createSampleStep = steps.find((s) => s.tool === 'create_sample');
+        const saveSampleStep = steps.find((s) => s.tool === 'save_sample');
+        const generateProposalStep = steps.find((s) => s.tool === 'generate_proposal');
+        const saveProposalStep = steps.find((s) => s.tool === 'save_proposal');
+
+        if (!createSampleStep) {
+          return call('create_sample', { opportunityId, sampleType: requestedSampleType }, 'create a speculative sample for this opportunity');
+        }
+        if (!saveSampleStep) {
+          const obs = createSampleStep.observation || {};
+          return call('save_sample', {
+            opportunityId,
+            sampleType: obs.sampleType,
+            contentKind: obs.contentKind,
+            content: obs.content,
+            websiteSampleId: obs.websiteSampleId,
+            previewPath: obs.previewPath,
+          }, 'save the created sample, using the exact output of create_sample');
+        }
+        if (!generateProposalStep) {
+          const sampleId = saveSampleStep.observation?.sampleId;
+          return call('generate_proposal', { opportunityId, sampleId }, 'draft a proposal for this opportunity');
+        }
+        if (!saveProposalStep) {
+          const sampleId = saveSampleStep.observation?.sampleId;
+          const obs = generateProposalStep.observation || {};
+          return call('save_proposal', {
+            opportunityId,
+            sampleId,
+            pitch: obs.pitch,
+            serviceRecommendation: obs.serviceRecommendation,
+            valueProposition: obs.valueProposition,
+            suggestedPackage: obs.suggestedPackage,
+            callToAction: obs.callToAction,
+            assumptions: obs.assumptions,
+          }, 'save the proposal');
+        }
+        return { action: { tool: 'task_complete', args: { result: 'Sample and proposal created; opportunity now awaiting approval.' }, reasoning: 'done' }, done: true };
+      }
+
       // ── Generic navigation-to-info goal ─────────────────────────
       if (/example\.com|status code|http status|headers/.test(g)) {
         if (!steps.some((s) => s.tool === 'browser_navigate')) {
