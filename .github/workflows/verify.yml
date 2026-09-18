@@ -1,0 +1,50 @@
+name: Verify
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+
+jobs:
+  test:
+    name: Unit + integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Record commit under test
+        run: |
+          echo "GITHUB_SHA=${GITHUB_SHA}"
+          echo "Commit message: $(git log -1 --pretty=%s)"
+          git rev-parse HEAD
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install system build deps (better-sqlite3 / Playwright)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential python3
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium (for integration tests)
+        run: npx playwright install --with-deps chromium
+
+      - name: Run unit tests (npm test)
+        run: npm test
+
+      - name: Run integration tests (npm run test:integration)
+        run: npm run test:integration
+
+      - name: Run full suite (npm run test:all)
+        run: npm run test:all
