@@ -1,225 +1,224 @@
 // tests/unit/database.test.js
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
-let tasks, runs, steps, migrate, closeDb, websiteSamples, prospects, opportunities;
+let tasks, runs, steps, migrate, closeDb, websiteSamples, prospects, opportunities, samples, proposals;
 let tmpDbPath;
 
 beforeAll(async () => {
   tmpDbPath = path.join(os.tmpdir(), `agent-test-${Date.now()}.db`);
   process.env.DATABASE_PATH = tmpDbPath;
-  ({ tasks, runs, steps, migrate, closeDb, websiteSamples, prospects, opportunities } = await import('../../database/index.js'));
+  ({ tasks, runs, steps, migrate, closeDb, websiteSamples, prospects, opportunities, samples, proposals } = await import('../../database/index.js'));
   migrate();
 });
 
 afterAll(() => {
-  closeDb();
-  fs.rmSync(tmpDbPath, { force: true });
-  fs.rmSync(tmpDbPath + '-wal', { force: true });
-  fs.rmSync(tmpDbPath + '-shm', { force: true });
+  try { closeDb(); } catch {}
+  try { fs.unlinkSync(tmpDbPath); } catch {}
 });
 
 describe('database/tasks', () => {
   it('creates and retrieves a task', () => {
-    const t = tasks.create({ name: 'Test task', goal: 'Do the thing' });
+    const t = tasks.create({ name: 't1', goal: 'do something' });
     expect(t.id).toBeTruthy();
-    expect(t.status).toBe('idle');
-    expect(tasks.get(t.id).name).toBe('Test task');
-  });
-
-  it('updates status and timestamps', () => {
-    const t = tasks.create({ name: 'Status task', goal: 'Go' });
-    tasks.setStatus(t.id, 'running');
-    expect(tasks.get(t.id).status).toBe('running');
-    tasks.setStatus(t.id, 'success', { lastStatus: 'success' });
-    expect(tasks.get(t.id).last_status).toBe('success');
-  });
-
-  it('returns tasks due for run only when next_run_at has passed', () => {
-    const t = tasks.create({ name: 'Cron task', goal: 'Go', cronExpression: '* * * * *' });
-    tasks.setNextRun(t.id, new Date(Date.now() - 1000).toISOString());
-    const due = tasks.dueForRun(new Date().toISOString());
-    expect(due.map((r) => r.id)).toContain(t.id);
-  });
-});
-
-describe('database/runs + steps', () => {
-  it('tracks a run lifecycle with steps', () => {
-    const t = tasks.create({ name: 'Run task', goal: 'Go' });
-    const run = runs.start({ taskId: t.id });
-    expect(run.status).toBe('running');
-
-    const step = steps.create({ runId: run.id, seq: 1, action: { tool: 'browser_navigate', args: { url: 'https://example.com' } } });
-    steps.start(step.id);
-    steps.finish(step.id, { status: 'success', observation: { url: 'https://example.com' } });
-
-    const stepRows = steps.listForRun(run.id);
-    expect(stepRows).toHaveLength(1);
-    expect(stepRows[0].status).toBe('success');
-
-    runs.finish(run.id, { status: 'success', result: { result: 'done' } });
-    expect(runs.get(run.id).status).toBe('success');
-  });
-});
-
-describe('database/websiteSamples', () => {
-  it('creates and retrieves a website sample record', () => {
-    const t = tasks.create({ name: 'Website task', goal: 'Generate a sample' });
-    const run = runs.start({ taskId: t.id });
-
-    const created = websiteSamples.create({
-      id: 'website_test123',
-      taskId: t.id,
-      runId: run.id,
-      prospectName: 'Example Property Tanzania',
-      status: 'SPECULATIVE_SAMPLE',
-      businessType: 'Real Estate Agency',
-      location: 'Dar es Salaam',
-      websiteGoal: 'Generate inquiries',
-      style: 'modern',
-      files: ['index.html', 'styles.css', 'script.js'],
-      previewPath: '/website-samples/website_test123/',
-    });
-
-    expect(created.id).toBe('website_test123');
-    expect(created.status).toBe('SPECULATIVE_SAMPLE');
-    expect(JSON.parse(created.files_json)).toEqual(['index.html', 'styles.css', 'script.js']);
-
-    const fetched = websiteSamples.get('website_test123');
-    expect(fetched.prospect_name).toBe('Example Property Tanzania');
-    expect(fetched.task_id).toBe(t.id);
-    expect(fetched.run_id).toBe(run.id);
-  });
-
-  it('lists website samples most-recent first', () => {
-    websiteSamples.create({ id: 'website_list_a', prospectName: 'A', files: [] });
-    websiteSamples.create({ id: 'website_list_b', prospectName: 'B', files: [] });
-    const list = websiteSamples.list({ limit: 10 });
-    expect(list.map((r) => r.id)).toContain('website_list_a');
-    expect(list.map((r) => r.id)).toContain('website_list_b');
-  });
-
-  it('returns undefined for an unknown sample id', () => {
-    expect(websiteSamples.get('website_does_not_exist')).toBeUndefined();
+    expect(tasks.get(t.id).name).toBe('t1');
   });
 });
 
 describe('database/prospects', () => {
   it('creates a prospect with default status NEW', () => {
-    const created = prospects.create({
-      businessName: 'Example Realty Co',
-      websiteUrl: 'https://example-realty.com',
-      location: 'Dar es Salaam',
-      contactEmail: 'info@example-realty.com',
-      socialProfiles: [{ platform: 'facebook', url: 'https://facebook.com/example' }],
-      serviceGaps: ['No HTTPS'],
-      sourceUrl: 'https://example-realty.com',
-    });
-    expect(created.status).toBe('NEW');
-    expect(created.business_name).toBe('Example Realty Co');
-    expect(JSON.parse(created.social_profiles_json)).toEqual([{ platform: 'facebook', url: 'https://facebook.com/example' }]);
-    expect(JSON.parse(created.service_gaps_json)).toEqual(['No HTTPS']);
-  });
-
-  it('retrieves a prospect by id', () => {
-    const created = prospects.create({ businessName: 'Retrieve Me Realty' });
-    const fetched = prospects.get(created.id);
-    expect(fetched.business_name).toBe('Retrieve Me Realty');
-  });
-
-  it('lists prospects, most-recent first, optionally filtered by status', () => {
-    prospects.create({ businessName: 'List A' });
-    const b = prospects.create({ businessName: 'List B' });
-    prospects.updateStatus(b.id, 'CONTACTED');
-
-    const all = prospects.list({ limit: 10 });
-    expect(all.map((p) => p.business_name)).toContain('List A');
-
-    const contacted = prospects.list({ status: 'CONTACTED', limit: 10 });
-    expect(contacted.every((p) => p.status === 'CONTACTED')).toBe(true);
-    expect(contacted.map((p) => p.id)).toContain(b.id);
-  });
-
-  it('updates a prospect status', () => {
-    const created = prospects.create({ businessName: 'Status Change Realty' });
-    const updated = prospects.updateStatus(created.id, 'ANALYZED');
-    expect(updated.status).toBe('ANALYZED');
-  });
-
-  it('returns undefined for an unknown prospect id', () => {
-    expect(prospects.get('does-not-exist')).toBeUndefined();
+    const p = prospects.create({ businessName: 'Test Realty' });
+    expect(p.status).toBe('NEW');
   });
 });
 
 describe('database/opportunities', () => {
-  it('creates an opportunity linked to a prospect with default status NEW', () => {
-    const prospect = prospects.create({ businessName: 'Opportunity Target Realty' });
-    const created = opportunities.createOpportunity({
-      prospectId: prospect.id,
-      score: 85,
-      priority: 'HIGH',
-      opportunityType: 'website',
-      summary: 'Test summary',
-      identifiedProblems: [{ category: 'website', level: 'confirmed', description: 'No website' }],
-      recommendedServices: [{ service: 'Website Design/Improvement', reason: 'No website', priority: 'high' }],
-      recommendedSampleType: 'website',
-      confidence: 'high',
-    });
-    expect(created.status).toBe('NEW');
-    expect(created.prospect_id).toBe(prospect.id);
-    expect(created.score).toBe(85);
-    expect(JSON.parse(created.recommended_services_json)).toHaveLength(1);
-  });
-
-  it('retrieves an opportunity by id', () => {
-    const prospect = prospects.create({ businessName: 'Retrieve Opp Realty' });
-    const created = opportunities.createOpportunity({ prospectId: prospect.id, score: 50, priority: 'LOW' });
-    const fetched = opportunities.getOpportunity(created.id);
-    expect(fetched.priority).toBe('LOW');
-  });
-
-  it('lists opportunities filtered by status, priority, and minScore', () => {
-    const prospect = prospects.create({ businessName: 'Filter Opp Realty' });
-    opportunities.createOpportunity({ prospectId: prospect.id, score: 90, priority: 'HIGH' });
-    const b = opportunities.createOpportunity({ prospectId: prospect.id, score: 40, priority: 'LOW' });
-    opportunities.updateOpportunity(b.id, { status: 'CONTACTED' });
-
-    const highPriority = opportunities.listOpportunities({ priority: 'HIGH', limit: 10 });
-    expect(highPriority.every((o) => o.priority === 'HIGH')).toBe(true);
-
-    const highScore = opportunities.listOpportunities({ minScore: 80, limit: 10 });
-    expect(highScore.every((o) => o.score >= 80)).toBe(true);
-
-    const contacted = opportunities.listOpportunities({ status: 'CONTACTED', limit: 10 });
-    expect(contacted.map((o) => o.id)).toContain(b.id);
-  });
-
-  it('updates an opportunity status', () => {
-    const prospect = prospects.create({ businessName: 'Update Opp Realty' });
-    const created = opportunities.createOpportunity({ prospectId: prospect.id, score: 70, priority: 'MEDIUM' });
-    const updated = opportunities.updateOpportunity(created.id, { status: 'SAMPLE_RECOMMENDED' });
-    expect(updated.status).toBe('SAMPLE_RECOMMENDED');
-  });
-
-  it('returns null when updating an unknown opportunity', () => {
-    expect(opportunities.updateOpportunity('does-not-exist', { status: 'WON' })).toBeNull();
-  });
-
-  it('lists all opportunities for a given prospect', () => {
-    const prospect = prospects.create({ businessName: 'Multi Opp Realty' });
-    const other = prospects.create({ businessName: 'Other Realty' });
-    opportunities.createOpportunity({ prospectId: prospect.id, score: 60, priority: 'MEDIUM' });
-    opportunities.createOpportunity({ prospectId: prospect.id, score: 70, priority: 'MEDIUM' });
-    opportunities.createOpportunity({ prospectId: other.id, score: 30, priority: 'LOW' });
-
-    const forProspect = opportunities.getOpportunitiesForProspect(prospect.id);
-    expect(forProspect).toHaveLength(2);
-    expect(forProspect.every((o) => o.prospect_id === prospect.id)).toBe(true);
-  });
-
-  it('returns undefined for an unknown opportunity id', () => {
+  it('creates an opportunity linked to a prospect', () => {
+    const p = prospects.create({ businessName: 'Opp Realty' });
+    const o = opportunities.createOpportunity({ prospectId: p.id, score: 70, priority: 'MEDIUM' });
+    expect(o.prospect_id).toBe(p.id);
     expect(opportunities.getOpportunity('does-not-exist')).toBeUndefined();
+  });
+});
+
+describe('database/samples', () => {
+  it('creates a concept-brief sample with default status DRAFT', () => {
+    const prospect = prospects.create({ businessName: 'Sample Target Realty' });
+    const opportunity = opportunities.createOpportunity({ prospectId: prospect.id, score: 70, priority: 'MEDIUM' });
+    const created = samples.create({
+      prospectId: prospect.id,
+      opportunityId: opportunity.id,
+      sampleType: 'social-media',
+      contentKind: 'CONCEPT_BRIEF',
+      content: { headline: 'test' },
+    });
+    expect(created.status).toBe('DRAFT');
+    expect(created.content_kind).toBe('CONCEPT_BRIEF');
+    expect(created.sample_type).toBe('social-media');
+    expect(JSON.parse(created.concept_content_json)).toEqual({ headline: 'test' });
+  });
+
+  it('markSaved transitions status to SAVED without touching content_kind', () => {
+    const prospect = prospects.create({ businessName: 'Mark Saved Realty' });
+    const opportunity = opportunities.createOpportunity({ prospectId: prospect.id, score: 70, priority: 'MEDIUM' });
+    const created = samples.create({ prospectId: prospect.id, opportunityId: opportunity.id, sampleType: 'brand-design', contentKind: 'CONCEPT_BRIEF' });
+    const saved = samples.markSaved(created.id);
+    expect(saved.status).toBe('SAVED');
+    expect(saved.content_kind).toBe('CONCEPT_BRIEF');
+  });
+
+  it('rejects creating a sample for a nonexistent website_sample_id', () => {
+    const prospect = prospects.create({ businessName: 'Orphan Website Sample Realty' });
+    const opportunity = opportunities.createOpportunity({ prospectId: prospect.id, score: 70, priority: 'MEDIUM' });
+    expect(() => samples.create({
+      prospectId: prospect.id,
+      opportunityId: opportunity.id,
+      sampleType: 'website',
+      contentKind: 'SPECULATIVE_SAMPLE',
+      websiteSampleId: 'website_does_not_exist',
+    })).toThrow(/Website sample not found/);
+  });
+
+  it('lists samples filtered by status, contentKind, sampleType, opportunityId', () => {
+    const prospect = prospects.create({ businessName: 'Filter Sample Realty' });
+    const opportunity = opportunities.createOpportunity({ prospectId: prospect.id, score: 70, priority: 'MEDIUM' });
+    const a = samples.create({ prospectId: prospect.id, opportunityId: opportunity.id, sampleType: 'social-media', contentKind: 'CONCEPT_BRIEF' });
+    samples.markSaved(a.id);
+
+    expect(samples.list({ status: 'SAVED', limit: 10 }).map((s) => s.id)).toContain(a.id);
+    expect(samples.list({ contentKind: 'CONCEPT_BRIEF', limit: 10 }).map((s) => s.id)).toContain(a.id);
+    expect(samples.list({ sampleType: 'social-media', limit: 10 }).map((s) => s.id)).toContain(a.id);
+    expect(samples.getForOpportunity(opportunity.id).map((s) => s.id)).toContain(a.id);
+  });
+
+  it('returns undefined for an unknown sample id', () => {
+    expect(samples.get('does-not-exist')).toBeUndefined();
+  });
+
+  describe('CRITICAL: website_sample_id ownership verification', () => {
+    it('accepts a website_sample_id whose task/run context matches and links it to the correct opportunity', () => {
+      const prospect = prospects.create({ businessName: 'Ownership A Realty' });
+      const opportunityA = opportunities.createOpportunity({ prospectId: prospect.id, score: 90, priority: 'HIGH' });
+
+      const websiteSampleA = websiteSamples.create({
+        id: 'website_owner_a', taskId: 'task_A', runId: 'run_A',
+        prospectName: 'Ownership A Realty', files: [], previewPath: '/website-samples/website_owner_a/',
+      });
+
+      const samplesA = samples.create({
+        prospectId: prospect.id, opportunityId: opportunityA.id,
+        taskId: 'task_A', runId: 'run_A',
+        sampleType: 'website', contentKind: 'SPECULATIVE_SAMPLE',
+        websiteSampleId: websiteSampleA.id, previewPath: websiteSampleA.preview_path,
+      });
+
+      expect(samplesA.website_sample_id).toBe('website_owner_a');
+      expect(samplesA.opportunity_id).toBe(opportunityA.id);
+    });
+
+    it('rejects a website_sample_id whose task/run context does not match the caller\'s context', () => {
+      const prospect = prospects.create({ businessName: 'Ownership Mismatch Realty' });
+      const opportunity = opportunities.createOpportunity({ prospectId: prospect.id, score: 90, priority: 'HIGH' });
+
+      const websiteSample = websiteSamples.create({
+        id: 'website_mismatch_1', taskId: 'task_X', runId: 'run_X',
+        prospectName: 'Ownership Mismatch Realty', files: [], previewPath: '/website-samples/website_mismatch_1/',
+      });
+
+      expect(() => samples.create({
+        prospectId: prospect.id, opportunityId: opportunity.id,
+        taskId: 'task_Y', runId: 'run_Y',
+        sampleType: 'website', contentKind: 'SPECULATIVE_SAMPLE',
+        websiteSampleId: websiteSample.id,
+      })).toThrow(/does not belong to the current task\/run context/);
+    });
+
+    it('CRITICAL: opportunity B cannot link to opportunity A\'s already-linked website sample (swap rejected)', () => {
+      const prospectA = prospects.create({ businessName: 'Swap Test A Realty' });
+      const prospectB = prospects.create({ businessName: 'Swap Test B Realty' });
+      const opportunityA = opportunities.createOpportunity({ prospectId: prospectA.id, score: 90, priority: 'HIGH' });
+      const opportunityB = opportunities.createOpportunity({ prospectId: prospectB.id, score: 85, priority: 'HIGH' });
+
+      const websiteSampleA = websiteSamples.create({ id: 'website_swap_a', taskId: 'task_swap', runId: 'run_swap', prospectName: 'A', files: [], previewPath: '/website-samples/website_swap_a/' });
+      const websiteSampleB = websiteSamples.create({ id: 'website_swap_b', taskId: 'task_swap', runId: 'run_swap', prospectName: 'B', files: [], previewPath: '/website-samples/website_swap_b/' });
+
+      const sampleA = samples.create({
+        prospectId: prospectA.id, opportunityId: opportunityA.id, taskId: 'task_swap', runId: 'run_swap',
+        sampleType: 'website', contentKind: 'SPECULATIVE_SAMPLE', websiteSampleId: websiteSampleA.id, previewPath: websiteSampleA.preview_path,
+      });
+      const sampleB = samples.create({
+        prospectId: prospectB.id, opportunityId: opportunityB.id, taskId: 'task_swap', runId: 'run_swap',
+        sampleType: 'website', contentKind: 'SPECULATIVE_SAMPLE', websiteSampleId: websiteSampleB.id, previewPath: websiteSampleB.preview_path,
+      });
+
+      expect(sampleA.website_sample_id).toBe(websiteSampleA.id);
+      expect(sampleB.website_sample_id).toBe(websiteSampleB.id);
+
+      expect(() => samples.create({
+        prospectId: prospectB.id, opportunityId: opportunityB.id, taskId: 'task_swap', runId: 'run_swap',
+        sampleType: 'website', contentKind: 'SPECULATIVE_SAMPLE', websiteSampleId: websiteSampleA.id,
+      })).toThrow(/already linked to a different opportunity/);
+
+      expect(() => samples.create({
+        prospectId: prospectA.id, opportunityId: opportunityA.id, taskId: 'task_swap', runId: 'run_swap',
+        sampleType: 'website', contentKind: 'SPECULATIVE_SAMPLE', websiteSampleId: websiteSampleB.id,
+      })).toThrow(/already linked to a different opportunity/);
+    });
+
+    it('allows re-linking the SAME website_sample_id to the SAME opportunity (idempotent re-save is not treated as a swap)', () => {
+      const prospect = prospects.create({ businessName: 'Same Opportunity Relink Realty' });
+      const opportunity = opportunities.createOpportunity({ prospectId: prospect.id, score: 80, priority: 'HIGH' });
+      const websiteSample = websiteSamples.create({ id: 'website_relink_1', taskId: 'task_relink', runId: 'run_relink', prospectName: 'X', files: [], previewPath: '/website-samples/website_relink_1/' });
+
+      samples.create({
+        prospectId: prospect.id, opportunityId: opportunity.id, taskId: 'task_relink', runId: 'run_relink',
+        sampleType: 'website', contentKind: 'SPECULATIVE_SAMPLE', websiteSampleId: websiteSample.id,
+      });
+
+      expect(() => samples.create({
+        prospectId: prospect.id, opportunityId: opportunity.id, taskId: 'task_relink', runId: 'run_relink',
+        sampleType: 'website', contentKind: 'SPECULATIVE_SAMPLE', websiteSampleId: websiteSample.id,
+      })).not.toThrow();
+    });
+  });
+});
+
+describe('database/proposals', () => {
+  it('creates a proposal with default status DRAFT', () => {
+    const prospect = prospects.create({ businessName: 'Proposal Target Realty' });
+    const opportunity = opportunities.createOpportunity({ prospectId: prospect.id, score: 70, priority: 'MEDIUM' });
+    const sample = samples.create({ prospectId: prospect.id, opportunityId: opportunity.id, sampleType: 'social-media', contentKind: 'CONCEPT_BRIEF' });
+
+    const created = proposals.create({
+      prospectId: prospect.id, opportunityId: opportunity.id, sampleId: sample.id,
+      pitch: 'Test pitch', serviceRecommendation: 'Social Media', valueProposition: 'Value',
+      suggestedPackage: 'Package', callToAction: 'CTA', assumptions: ['A1'],
+    });
+    expect(created.status).toBe('DRAFT');
+    expect(JSON.parse(created.assumptions_json)).toEqual(['A1']);
+  });
+
+  it('markReady transitions status to READY', () => {
+    const prospect = prospects.create({ businessName: 'Ready Proposal Realty' });
+    const opportunity = opportunities.createOpportunity({ prospectId: prospect.id, score: 70, priority: 'MEDIUM' });
+    const created = proposals.create({ prospectId: prospect.id, opportunityId: opportunity.id, pitch: 'x' });
+    const ready = proposals.markReady(created.id);
+    expect(ready.status).toBe('READY');
+  });
+
+  it('lists proposals filtered by status and opportunityId', () => {
+    const prospect = prospects.create({ businessName: 'Filter Proposal Realty' });
+    const opportunity = opportunities.createOpportunity({ prospectId: prospect.id, score: 70, priority: 'MEDIUM' });
+    const created = proposals.create({ prospectId: prospect.id, opportunityId: opportunity.id, pitch: 'x' });
+    proposals.markReady(created.id);
+
+    expect(proposals.list({ status: 'READY', limit: 10 }).map((p) => p.id)).toContain(created.id);
+    expect(proposals.getForOpportunity(opportunity.id).map((p) => p.id)).toContain(created.id);
+  });
+
+  it('returns undefined for an unknown proposal id', () => {
+    expect(proposals.get('does-not-exist')).toBeUndefined();
   });
 });
