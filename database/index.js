@@ -364,6 +364,126 @@ export const opportunities = {
 };
 
 
+// ── samples (Phase 4 — Sample & Proposal Generation) ─────────────────
+export const samples = {
+  // Website-sample ownership is enforced here, not just at the FK level:
+  // a website_samples row may only ever be linked from a `samples` row
+  // whose task_id/run_id match the row that actually created it, AND it
+  // may never be linked to more than one distinct opportunity. This is
+  // what makes "opportunity A links to opportunity B's website sample"
+  // structurally rejected rather than merely discouraged.
+  create({ id, prospectId, opportunityId, taskId, runId, sampleType, contentKind, websiteSampleId, content, previewPath }) {
+    if (websiteSampleId) {
+      const websiteSample = getDb().prepare('SELECT * FROM website_samples WHERE id = ?').get(websiteSampleId);
+      if (!websiteSample) {
+        throw new Error(`Website sample not found: ${websiteSampleId}`);
+      }
+      if ((websiteSample.task_id || null) !== (taskId || null) || (websiteSample.run_id || null) !== (runId || null)) {
+        throw new Error(`Website sample ${websiteSampleId} does not belong to the current task/run context`);
+      }
+      const existingLink = getDb().prepare('SELECT * FROM samples WHERE website_sample_id = ?').get(websiteSampleId);
+      if (existingLink && existingLink.opportunity_id !== opportunityId) {
+        throw new Error(`Website sample ${websiteSampleId} is already linked to a different opportunity`);
+      }
+    }
+
+    const genId = id || nanoid(12);
+    const now = new Date().toISOString();
+    getDb().prepare(`
+      INSERT INTO samples
+        (id, prospect_id, opportunity_id, task_id, run_id, sample_type, status, content_kind, website_sample_id, concept_content_json, preview_path, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      genId,
+      prospectId,
+      opportunityId,
+      taskId || null,
+      runId || null,
+      sampleType,
+      'DRAFT',
+      contentKind,
+      websiteSampleId || null,
+      content ? JSON.stringify(content) : null,
+      previewPath || null,
+      now,
+      now,
+    );
+    return samples.get(genId);
+  },
+  get(id) {
+    return getDb().prepare('SELECT * FROM samples WHERE id = ?').get(id);
+  },
+  list({ limit = 50, status, contentKind, sampleType, opportunityId } = {}) {
+    const clauses = [];
+    const params = [];
+    if (status) { clauses.push('status = ?'); params.push(status); }
+    if (contentKind) { clauses.push('content_kind = ?'); params.push(contentKind); }
+    if (sampleType) { clauses.push('sample_type = ?'); params.push(sampleType); }
+    if (opportunityId) { clauses.push('opportunity_id = ?'); params.push(opportunityId); }
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+    params.push(limit);
+    return getDb().prepare(`SELECT * FROM samples ${where} ORDER BY created_at DESC LIMIT ?`).all(...params);
+  },
+  getForOpportunity(opportunityId, { limit = 20 } = {}) {
+    return getDb().prepare('SELECT * FROM samples WHERE opportunity_id = ? ORDER BY created_at DESC LIMIT ?').all(opportunityId, limit);
+  },
+  markSaved(id) {
+    getDb().prepare("UPDATE samples SET status = 'SAVED', updated_at = ? WHERE id = ?").run(new Date().toISOString(), id);
+    return samples.get(id);
+  },
+};
+
+
+// ── proposals (Phase 4 — Sample & Proposal Generation) ───────────────
+export const proposals = {
+  create({ id, prospectId, opportunityId, sampleId, taskId, runId, pitch, serviceRecommendation, valueProposition, suggestedPackage, callToAction, assumptions }) {
+    const genId = id || nanoid(12);
+    const now = new Date().toISOString();
+    getDb().prepare(`
+      INSERT INTO proposals
+        (id, prospect_id, opportunity_id, sample_id, task_id, run_id, status, pitch, service_recommendation, value_proposition, suggested_package, call_to_action, assumptions_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      genId,
+      prospectId,
+      opportunityId,
+      sampleId || null,
+      taskId || null,
+      runId || null,
+      'DRAFT',
+      pitch || null,
+      serviceRecommendation || null,
+      valueProposition || null,
+      suggestedPackage || null,
+      callToAction || null,
+      JSON.stringify(assumptions || []),
+      now,
+      now,
+    );
+    return proposals.get(genId);
+  },
+  get(id) {
+    return getDb().prepare('SELECT * FROM proposals WHERE id = ?').get(id);
+  },
+  list({ limit = 50, status, opportunityId } = {}) {
+    const clauses = [];
+    const params = [];
+    if (status) { clauses.push('status = ?'); params.push(status); }
+    if (opportunityId) { clauses.push('opportunity_id = ?'); params.push(opportunityId); }
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+    params.push(limit);
+    return getDb().prepare(`SELECT * FROM proposals ${where} ORDER BY created_at DESC LIMIT ?`).all(...params);
+  },
+  getForOpportunity(opportunityId, { limit = 20 } = {}) {
+    return getDb().prepare('SELECT * FROM proposals WHERE opportunity_id = ? ORDER BY created_at DESC LIMIT ?').all(opportunityId, limit);
+  },
+  markReady(id) {
+    getDb().prepare("UPDATE proposals SET status = 'READY', updated_at = ? WHERE id = ?").run(new Date().toISOString(), id);
+    return proposals.get(id);
+  },
+};
+
+
 // ── notifications log (sent notifications, for audit / dashboard) ───
 export const notifications = {
   record({ level, subject, body, channel, ok, errorMessage }) {
