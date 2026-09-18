@@ -76,12 +76,32 @@ export function recordDecision(id, decision, decidedBy = 'user') {
 }
 
 
+function ensureApprovalsTable() {
+  getDb().prepare(`
+    CREATE TABLE IF NOT EXISTS pending_approvals (
+      id TEXT PRIMARY KEY,
+      run_id TEXT,
+      tool TEXT NOT NULL,
+      args_json TEXT,
+      reasoning TEXT,
+      goal TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      decision TEXT,
+      decided_by TEXT,
+      decided_at TEXT,
+      requested_at TEXT NOT NULL
+    );
+  `).run();
+}
+
 export function listPending() {
+  ensureApprovalsTable();
   return getDb().prepare("SELECT * FROM pending_approvals WHERE status = 'pending' ORDER BY requested_at ASC").all();
 }
 
 
 export function listAll({ limit = 50 } = {}) {
+  ensureApprovalsTable();
   return getDb().prepare("SELECT * FROM pending_approvals ORDER BY requested_at DESC LIMIT ?").all(limit);
 }
 
