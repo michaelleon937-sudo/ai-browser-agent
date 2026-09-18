@@ -23,10 +23,13 @@ jobs:
           echo "Commit message: $(git log -1 --pretty=%s)"
           git rev-parse HEAD
 
-      - name: Setup Node.js 24
+      # Node 24 currently crashes better-sqlite3 on worker teardown
+      # (Assertion failed: (env) != nullptr in Statement::~Statement).
+      # Engines field allows >=20; pin 20 for stable native addon lifecycle.
+      - name: Setup Node.js 20
         uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version: "20"
           cache: npm
 
       - name: Install system build deps (better-sqlite3 / Playwright)
