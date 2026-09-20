@@ -98,21 +98,25 @@ export function cloudflareProvider({ config }) {
               done: true,
             };
           }
-          // gpt-oss / CF sometimes leak a full tool call into content as
-          // {"tool":"browser_navigate","args":{...}} or {"name":"...","arguments":{...}}.
+          // gpt-oss / CF sometimes leak a full tool call into content as:
+          //   {"tool":"browser_navigate","args":{...}}
+          //   {"name":"...","arguments":{...}}
+          //   {"id":"browser_type","params":{...}}   ← production gpt-oss shape
           // Only accept when the tool name is one of the registered tools.
-          if (direct && (direct.tool || direct.name)) {
-            const toolName = direct.tool || direct.name;
+          if (direct && (direct.tool || direct.name || direct.id)) {
+            const toolName = direct.tool || direct.name || direct.id;
             const known = Array.isArray(availableTools) && availableTools.some((t) => t.name === toolName);
             if (known) {
-              let args = direct.args ?? direct.arguments ?? null;
+              let args = direct.args ?? direct.arguments ?? direct.params ?? null;
               if (typeof args === 'string') args = safeJson(args);
               if (!args || typeof args !== 'object' || Array.isArray(args)) {
                 args = { ...direct };
                 delete args.tool;
                 delete args.name;
+                delete args.id;
                 delete args.arguments;
                 delete args.args;
+                delete args.params;
                 delete args.reasoning;
               }
               return {
@@ -268,6 +272,8 @@ function extractJsonAction(content) {
         const slice = text.slice(start, i + 1);
         try {
           const obj = JSON.parse(slice);
+          // Canonical form already has .tool — callers treat this as an action.
+          // id/params is handled in the validated content-JSON path (known tools only).
           if (obj && obj.tool) return obj;
         } catch {}
         return null;
