@@ -45,4 +45,21 @@ describe('browser primitives (integration)', () => {
     await browser.navigate('https://example.com');
     await expect(browser.waitForText('Example Domain', { timeoutMs: 5000 })).resolves.toEqual({ ok: true });
   }, 15_000);
+
+  it('fail-fast on missing data-agent-ref before click (no long timeout)', async () => {
+    await browser.navigate('https://example.com');
+    // No snapshot taken — refs from a previous page must not be reused.
+    const started = Date.now();
+    await expect(browser.click('e0')).rejects.toThrow(/Stale or missing ref/);
+    expect(Date.now() - started).toBeLessThan(5000);
+  }, 15_000);
+
+  it('snapshot assigns usable refs that click can resolve', async () => {
+    await browser.navigate('https://example.com');
+    const snap = await browser.snapshot({});
+    expect(snap.elements.length).toBeGreaterThan(0);
+    const ref = snap.elements[0].ref;
+    // Should not throw (link may navigate away; we only care that the ref resolves).
+    await expect(browser.click(ref)).resolves.toBeTruthy();
+  }, 30_000);
 });
