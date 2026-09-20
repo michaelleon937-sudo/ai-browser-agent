@@ -214,4 +214,71 @@ describe('production gpt-oss response shape (regression)', () => {
     expect(action.tool).toBe('browser_navigate');
     expect(action.args.url).toBe('https://example.com/listings');
   });
+
+  // Production: gpt-oss returns tool intent as JSON in message.content:
+  // {"id":"browser_type","params":{"target":"...","text":"..."}}
+  it('content {"id":"browser_type","params":{...}} maps to browser_type', async () => {
+    mockJson({
+      success: true,
+      result: {
+        choices: [{
+          message: {
+            role: 'assistant',
+            content: JSON.stringify({
+              id: 'browser_type',
+              params: {
+                target: 'input[name="q"]',
+                text: 'real estate agencies Austin TX',
+              },
+            }),
+            tool_calls: [],
+          },
+          finish_reason: 'stop',
+        }],
+      },
+    });
+    const provider = cloudflareProvider({ config });
+    const { action, done } = await provider.nextAction({
+      goal: 'Search for real estate',
+      history: { steps: [] },
+      observation: {},
+      availableTools: ACTION_TOOLS,
+    });
+    expect(action.tool).toBe('browser_type');
+    expect(action.args.target).toBe('input[name="q"]');
+    expect(action.args.text).toContain('real estate');
+    expect(done).toBe(false);
+  });
+
+  it('content {"id":"browser_click","params":{...}} maps to browser_click', async () => {
+    mockCloudflareResponse(JSON.stringify({
+      id: 'browser_click',
+      params: { target: 'e3', description: 'Search button' },
+    }));
+    const provider = cloudflareProvider({ config });
+    const { action } = await provider.nextAction({
+      goal: 'click search', history: { steps: [] }, observation: {}, availableTools: ACTION_TOOLS,
+    });
+    expect(action.tool).toBe('browser_click');
+    expect(action.args.target).toBe('e3');
+  });
+
+  it('content {"id":"<unknown>","params":{...}} is not actionable', async () => {
+    mockCloudflareResponse(JSON.stringify({
+      id: 'not_a_real_tool',
+      params: { foo: 'bar' },
+    }));
+    const provider = cloudflareProvider({ config });
+    await expect(provider.nextAction({
+      goal: 'x', history: { steps: [] }, observation: {}, availableTools: ACTION_TOOLS,
+    })).rejects.toThrow(/no actionable response/);
+  });
+
+  it('malformed JSON content is not actionable', async () => {
+    mockCloudflareResponse('{id:"browser_type",params:{target:"q"'); // truncated / invalid
+    const provider = cloudflareProvider({ config });
+    await expect(provider.nextAction({
+      goal: 'x', history: { steps: [] }, observation: {}, availableTools: ACTION_TOOLS,
+    })).rejects.toThrow(/no actionable response/);
+  });
 });
