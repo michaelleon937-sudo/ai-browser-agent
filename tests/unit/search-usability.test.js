@@ -99,7 +99,7 @@ describe('annotateSearchUsability + recovery guard', () => {
     expect(obs.note).toMatch(/Do NOT click CAPTCHA/i);
   });
 
-  it('C: does not allow re-navigate to the same blocked search host', () => {
+  it('C: does not allow re-navigate to the same blocked search host (soft-reject while budget remains)', () => {
     const state = {
       blockedSearchHosts: new Set(['duckduckgo.com']),
       steps: [{
@@ -114,9 +114,11 @@ describe('annotateSearchUsability + recovery guard', () => {
       args: { url: 'https://duckduckgo.com/?q=real+estate+redesign' },
     });
     expect(guard).not.toBeNull();
-    expect(guard.action.tool).toBe('task_fail');
-    expect(guard.done).toBe(true);
-    expect(guard.action.args.reason).toMatch(/duckduckgo\.com/i);
+    // Soft-reject: do not burn the run; allow remaining engines (e.g. google) within budget.
+    expect(guard.softReject).toBe(true);
+    expect(guard.action).toBeUndefined();
+    expect(guard.reason).toMatch(/duckduckgo\.com/i);
+    expect(guard.reason).toMatch(/different public search engine/i);
   });
 
   it('D: search-engine fallback has a finite bound', () => {
