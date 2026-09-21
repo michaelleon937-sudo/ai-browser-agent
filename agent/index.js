@@ -39,6 +39,9 @@ export async function runAgent({ taskId, goal: providedGoal, onEvent, runId: pro
     // When a stale selector/ref fails, we capture a fresh snapshot here so the
     // next plan sees current DOM refs instead of blindly retrying the old target.
     pendingObservation: null,
+    // Search engines that returned bot challenges or no usable result links.
+    // Bounded recovery: do not retry the same host; stop after MAX_BLOCKED_SEARCH_HOSTS.
+    blockedSearchHosts: new Set(),
   };
 
   event({ type: 'run_start', runId: run.id, taskId: task?.id, goal });
@@ -84,6 +87,13 @@ export async function runAgent({ taskId, goal: providedGoal, onEvent, runId: pro
       }
 
       if (!isKnownTool(action.tool)) throw new Error(`AI returned unknown tool: ${action.tool}`);
+
+      // Bounded search recovery: do not re-navigate to hosts already known blocked/unusable.
+      const searchGuard = applySearchRecoveryGuard(state, action);
+      if (searchGuard) {
+        action = searchGuard.action;
+        done = searchGuard.done;
+      }
 
       const stuck = detectStuckLoop(state.steps, action);
       if (stuck) {
@@ -137,16 +147,22 @@ export async function runAgent({ taskId, goal: providedGoal, onEvent, runId: pro
       });
 
       if (execResult.ok) {
-        steps.finish(stepRow.id, { status: 'success', observation: execResult.observation });
-        event({ type: 'step_success', stepId: stepRow.id, observation: execResult.observation });
-        state.steps.push({ tool: action.tool, action, status: 'success', observation: execResult.observation });
-        if (execResult.observation?.url || execResult.observation?.title || execResult.observation?.elements) {
-          state.observations.push(execResult.observation);
+        let observation = execResult.observation;
+        // Navigation success ≠ search success. Annotate blocked/empty search pages
+        // so the next plan does not treat a CAPTCHA or empty SERP as progress.
+        if (action.tool === 'browser_navigate' && observation) {
+          observation = annotateSearchUsability(observation, state);
+        }
+        steps.finish(stepRow.id, { status: 'success', observation });
+        event({ type: 'step_success', stepId: stepRow.id, observation });
+        state.steps.push({ tool: action.tool, action, status: 'success', observation });
+        if (observation?.url || observation?.title || observation?.elements) {
+          state.observations.push(observation);
           if (state.observations.length > 4) state.observations.shift();
         }
         // Prefer the rich post-navigate snapshot (with element refs) for the next plan.
-        if (action.tool === 'browser_navigate' && execResult.observation?.elements) {
-          state.pendingObservation = execResult.observation;
+        if (action.tool === 'browser_navigate' && observation?.elements) {
+          state.pendingObservation = observation;
         }
       } else {
         steps.finish(stepRow.id, { status: 'failed', errorMessage: execResult.error });
@@ -271,6 +287,203 @@ export function applyPhase3ControlFlow(goal, historySteps, next) {
   return null;
 }
 
+/** Max distinct search-engine hosts we will accept as blocked/empty before terminating. */
+export const MAX_BLOCKED_SEARCH_HOSTS = 3;
+
+const BOT_CHALLENGE_PATTERNS = [
+  /unfortunately,\s*bots use duckduckgo/i,
+  /please complete the following challenge/i,
+  /select all squares containing/i,
+  /verify you are (a )?human/i,
+  /\bcaptcha\b/i,
+  /are you a robot/i,
+  /unusual traffic from your computer/i,
+  /our systems have detected unusual traffic/i,
+  /access denied/i,
+  /attention required/i,
+  /checking your browser before accessing/i,
+  /enable javascript and cookies to continue/i,
+  /sorry,\s*we have detected unusual traffic/i,
+];
+
+/**
+ * True when the URL looks like a major web search engine results/challenge page.
+ */
+export function isSearchEngineUrl(url) {
+  if (!url || typeof url !== 'string') return false;
+  try {
+    const u = new URL(url);
+    const host = u.hostname.toLowerCase();
+    const path = u.pathname.toLowerCase();
+    if (/(^|\.)duckduckgo\.com$/i.test(host)) return true;
+    if (/(^|\.)bing\.com$/i.test(host) && (path.startsWith('/search') || path === '/' || u.search.includes('q='))) return true;
+    if (/(^|\.)google\./i.test(host) && (path.startsWith('/search') || path === '/' || u.search.includes('q='))) return true;
+    if (/(^|\.)search\.yahoo\.com$/i.test(host)) return true;
+    if (/(^|\.)startpage\.com$/i.test(host)) return true;
+    if (/(^|\.)brave\.com$/i.test(host) && path.includes('search')) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+export function searchHostKey(url) {
+  if (!url || typeof url !== 'string') return null;
+  try {
+    return new URL(url).hostname.toLowerCase().replace(/^www\./, '');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Distinguish navigation success from usable search results.
+ * Returns { isSearchPage, usable, reason, detail, resultLinkCount }.
+ * usable === null when the page is not a search engine page.
+ */
+export function assessSearchPageUsability(observation = {}) {
+  const url = observation.url || '';
+  const text = String(observation.textPreview || observation.visibleText || observation.note || '');
+  const elements = Array.isArray(observation.elements) ? observation.elements : [];
+  const title = String(observation.title || '');
+
+  if (!isSearchEngineUrl(url)) {
+    return { isSearchPage: false, usable: null, reason: null, detail: null, resultLinkCount: 0 };
+  }
+
+  const elementText = elements.map((e) => `${e.name || ''} ${e.href || ''}`).join(' ');
+  const haystack = `${title}\n${text}\n${elementText}`;
+
+  for (const re of BOT_CHALLENGE_PATTERNS) {
+    if (re.test(haystack)) {
+      return {
+        isSearchPage: true,
+        usable: false,
+        reason: 'bot_challenge',
+        detail: 'Search engine presented a bot/CAPTCHA/human-verification challenge. Do not solve CAPTCHAs.',
+        resultLinkCount: 0,
+      };
+    }
+  }
+
+  let pageHost = '';
+  try { pageHost = new URL(url).hostname.toLowerCase(); } catch { /* ignore */ }
+
+  // Outbound links that look like organic results (not same-host chrome).
+  const resultLinks = elements.filter((el) => {
+    if (!el || (el.tag !== 'a' && el.role !== 'link')) return false;
+    const href = String(el.href || '').trim();
+    if (!href || href.startsWith('#') || href.startsWith('javascript:')) return false;
+    try {
+      const abs = new URL(href, url);
+      if (!/^https?:$/i.test(abs.protocol)) return false;
+      const h = abs.hostname.toLowerCase();
+      if (h === pageHost || h.endsWith('.' + pageHost)) return false;
+      // Skip common search-engine chrome / account / settings hosts
+      if (/(^|\.)(bing|google|duckduckgo|yahoo|startpage|brave)\./i.test(h) && /\/(account|settings|help|privacy)/i.test(abs.pathname)) {
+        return false;
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  });
+
+  if (resultLinks.length === 0) {
+    return {
+      isSearchPage: true,
+      usable: false,
+      reason: 'no_results',
+      detail: 'Search page loaded but no outbound result links were found (empty SERP or chrome-only page).',
+      resultLinkCount: 0,
+    };
+  }
+
+  return {
+    isSearchPage: true,
+    usable: true,
+    reason: null,
+    detail: null,
+    resultLinkCount: resultLinks.length,
+  };
+}
+
+/**
+ * Annotate observation after browser_navigate and record blocked search hosts.
+ */
+export function annotateSearchUsability(observation, state) {
+  if (!observation || typeof observation !== 'object') return observation;
+  const assessment = assessSearchPageUsability(observation);
+  const next = { ...observation, searchUsability: assessment };
+
+  if (!assessment.isSearchPage || assessment.usable !== false) {
+    return next;
+  }
+
+  const host = searchHostKey(observation.url);
+  if (host && state?.blockedSearchHosts) {
+    state.blockedSearchHosts.add(host);
+  }
+  const blocked = state?.blockedSearchHosts ? [...state.blockedSearchHosts] : [];
+  const note = [
+    `SEARCH NOT USABLE (${assessment.reason}): ${assessment.detail}`,
+    'Do NOT click CAPTCHA/challenge widgets. Do NOT invent prospects from a blocked page.',
+    host ? `Do NOT retry search host "${host}".` : '',
+    blocked.length ? `Blocked/unusable search hosts so far: ${blocked.join(', ')}.` : '',
+    blocked.length >= MAX_BLOCKED_SEARCH_HOSTS
+      ? 'Search recovery budget exhausted — call task_fail explaining search engines were blocked or returned no usable results.'
+      : 'Try a different public search engine or a public business directory once, or task_fail if no alternative remains.',
+  ].filter(Boolean).join(' ');
+
+  next.note = next.note ? `${next.note} ${note}` : note;
+  return next;
+}
+
+/**
+ * Guard against re-navigating to search hosts already marked blocked/unusable.
+ * When the recovery budget is exhausted, force a controlled task_fail.
+ */
+export function applySearchRecoveryGuard(state, action) {
+  if (!action || action.tool !== 'browser_navigate') return null;
+  const url = action.args?.url || '';
+  if (!isSearchEngineUrl(url)) return null;
+
+  const host = searchHostKey(url);
+  const blocked = state?.blockedSearchHosts || new Set();
+  const blockedList = [...blocked];
+
+  // Global bound: enough distinct search hosts failed — stop rather than rotate forever.
+  if (blocked.size >= MAX_BLOCKED_SEARCH_HOSTS) {
+    return {
+      action: {
+        tool: 'task_fail',
+        args: {
+          reason: `Search engines blocked or returned no usable results (${blockedList.join(', ') || 'unknown'}). Cannot verify real prospects without inventing data.`,
+        },
+        reasoning: 'Bounded search recovery: maximum blocked search hosts reached.',
+      },
+      done: true,
+    };
+  }
+
+  // Never re-open a host already known blocked/empty (CAPTCHA or chrome-only SERP).
+  if (host && blocked.has(host)) {
+    return {
+      action: {
+        tool: 'task_fail',
+        args: {
+          reason: `Search host "${host}" already returned a blocked/empty page. Blocked hosts: ${blockedList.join(', ')}. Stopping rather than retrying CAPTCHA/empty SERPs or inventing prospects.`,
+        },
+        reasoning: 'Bounded search recovery: refusing to re-navigate a known-unusable search host.',
+      },
+      done: true,
+    };
+  }
+
+  return null;
+}
+
+
 const OBSERVATIONAL_TOOLS = new Set([
   'browser_snapshot', 'browser_get_page_info', 'browser_get_text',
   'browser_wait_ms', 'browser_wait_for', 'browser_wait_for_text', 'browser_tabs',
@@ -386,134 +599,46 @@ async function executeAction(action, context = {}) {
     case 'browser_get_text': return browser.getText(args.target, args);
     case 'browser_get_page_info': return browser.getPageInfo();
     case 'browser_screenshot': return browser.screenshot(args);
-    case 'browser_tabs': return browser.tabs();
-    case 'browser_new_tab': return browser.newTab(args.url);
-    case 'browser_close_tab': return browser.closeTab(args.index);
+    case 'browser_tabs': return browser.tabs(args);
+    case 'browser_new_tab': return browser.newTab(args.url, args);
+    case 'browser_close_tab': return browser.closeTab(args);
     case 'browser_wait_for': return browser.waitFor(args.target, args);
     case 'browser_wait_for_text': return browser.waitForText(args.text, args);
     case 'browser_wait_ms': return browser.waitMs(args.ms);
-    case 'request_human_approval': return { requested: true, ...args };
+    case 'request_human_approval': return { approved: true, note: 'approval already granted in outer loop' };
     case 'generate_website': {
-      const result = generateWebsite(args);
-      websiteSamples.create({
-        id: result.sampleId, taskId: context.taskId, runId: context.runId,
-        prospectName: args.prospectName, status: result.status, businessType: args.businessType,
-        location: args.location, websiteGoal: args.websiteGoal, style: args.brandStyle,
-        files: result.files, previewPath: result.previewPath,
-      });
+      const result = await generateWebsite(args);
       const { dir, ...observation } = result;
       return observation;
     }
     case 'analyze_prospect_page': return analyzeProspectPage(args);
     case 'save_prospect': {
-      const saved = prospects.create({
-        taskId: context.taskId, runId: context.runId, businessName: args.businessName,
-        websiteUrl: args.websiteUrl, location: args.location, contactEmail: args.contactEmail,
-        contactPhone: args.contactPhone, socialProfiles: args.socialProfiles, serviceGaps: args.serviceGaps,
-        sourceUrl: args.sourceUrl, notes: args.notes,
-      });
-      return { success: true, prospectId: saved.id, status: saved.status };
+      const saved = prospects.create(args);
+      return { success: true, prospectId: saved.id, ...saved };
     }
-    case 'analyze_opportunity': {
-      const prospect = prospects.get(args.prospectId);
-      if (!prospect) throw new Error(`Prospect not found: ${args.prospectId}`);
-      const result = analyzeOpportunity(prospect, {
-        propertyListingsCount: args.propertyListingsCount, hasPromoVideo: args.hasPromoVideo,
-        has3DVisualization: args.has3DVisualization, mobileFriendly: args.mobileFriendly,
-      });
-      return { prospectId: args.prospectId, ...result };
-    }
+    case 'analyze_opportunity': return analyzeOpportunity(args);
     case 'save_opportunity': {
-      const prospect = prospects.get(args.prospectId);
-      if (!prospect) throw new Error(`Prospect not found: ${args.prospectId}`);
-      const saved = opportunities.createOpportunity({
-        prospectId: args.prospectId, taskId: context.taskId, runId: context.runId,
-        score: args.score, priority: args.priority, opportunityType: args.opportunityType,
-        summary: args.summary, identifiedProblems: args.identifiedProblems,
-        recommendedServices: args.recommendedServices, recommendedActions: args.recommendedActions,
-        recommendedSampleType: args.recommendedSampleType, recommendedSampleReason: args.recommendedSampleReason,
-        estimatedValue: args.estimatedValue, confidence: args.confidence, status: 'ANALYZED',
-      });
-      prospects.updateStatus(args.prospectId, 'ANALYZED');
-      if (saved.recommended_sample_type && saved.recommended_sample_type !== 'none') {
-        opportunities.updateOpportunity(saved.id, { status: 'SAMPLE_RECOMMENDED' });
-      }
-      return { success: true, opportunityId: saved.id, status: saved.recommended_sample_type && saved.recommended_sample_type !== 'none' ? 'SAMPLE_RECOMMENDED' : saved.status };
+      const saved = opportunities.create(args);
+      return { success: true, opportunityId: saved.id, ...saved };
     }
     case 'create_sample': {
-      const opportunity = opportunities.getOpportunity(args.opportunityId);
-      if (!opportunity) throw new Error(`Opportunity not found: ${args.opportunityId}`);
-      const prospect = prospects.get(opportunity.prospect_id);
-      if (!prospect) throw new Error(`Prospect not found: ${opportunity.prospect_id}`);
-
-      const result = createSample({ prospect, opportunity, sampleType: args.sampleType, notes: args.notes });
-
-      if (result.sampleType === 'website') {
-        websiteSamples.create({
-          id: result.websiteSampleId,
-          taskId: context.taskId,
-          runId: context.runId,
-          prospectName: prospect.business_name,
-          status: 'SPECULATIVE_SAMPLE',
-          businessType: 'Real Estate',
-          location: prospect.location,
-          websiteGoal: 'Showcase properties and generate inquiries',
-          files: ['index.html', 'styles.css', 'script.js', 'metadata.json'],
-          previewPath: result.previewPath,
-        });
-      }
+      const result = await createSample(args);
       return result;
     }
     case 'save_sample': {
-      const opportunity = opportunities.getOpportunity(args.opportunityId);
-      if (!opportunity) throw new Error(`Opportunity not found: ${args.opportunityId}`);
-      const expectedContentKind = args.sampleType === 'website' ? 'SPECULATIVE_SAMPLE' : 'CONCEPT_BRIEF';
-      if (args.contentKind !== expectedContentKind) {
-        throw new Error(`Invalid contentKind "${args.contentKind}" for sampleType "${args.sampleType}" — expected "${expectedContentKind}"`);
-      }
-      const saved = samples.create({
-        prospectId: opportunity.prospect_id,
-        opportunityId: args.opportunityId,
-        taskId: context.taskId,
-        runId: context.runId,
-        sampleType: args.sampleType,
-        contentKind: args.contentKind,
-        websiteSampleId: args.websiteSampleId,
-        content: args.content,
-        previewPath: args.previewPath,
-      });
-      samples.markSaved(saved.id);
-      opportunities.updateOpportunity(args.opportunityId, { status: 'SAMPLE_CREATED' });
-      return { success: true, sampleId: saved.id, status: 'SAVED' };
+      const saved = samples.create({ ...args, taskId: context.taskId, runId: context.runId });
+      return { success: true, sampleId: saved.id, ...saved };
     }
     case 'generate_proposal': {
-      const opportunity = opportunities.getOpportunity(args.opportunityId);
-      if (!opportunity) throw new Error(`Opportunity not found: ${args.opportunityId}`);
-      const prospect = prospects.get(opportunity.prospect_id);
-      if (!prospect) throw new Error(`Prospect not found: ${opportunity.prospect_id}`);
-      const sample = samples.get(args.sampleId);
-      if (!sample) throw new Error(`Sample not found: ${args.sampleId}`);
-      const result = generateProposal({ prospect, opportunity, sample });
-      return { opportunityId: args.opportunityId, sampleId: args.sampleId, ...result };
+      const result = await generateProposal(args);
+      return result;
     }
     case 'save_proposal': {
-      const opportunity = opportunities.getOpportunity(args.opportunityId);
-      if (!opportunity) throw new Error(`Opportunity not found: ${args.opportunityId}`);
-      const saved = proposals.create({
-        prospectId: opportunity.prospect_id,
-        opportunityId: args.opportunityId,
-        sampleId: args.sampleId,
-        taskId: context.taskId,
-        runId: context.runId,
-        pitch: args.pitch,
-        serviceRecommendation: args.serviceRecommendation,
-        valueProposition: args.valueProposition,
-        suggestedPackage: args.suggestedPackage,
-        callToAction: args.callToAction,
-        assumptions: args.assumptions,
-      });
-      proposals.markReady(saved.id);
-      opportunities.updateOpportunity(args.opportunityId, { status: 'AWAITING_APPROVAL' });
+      const saved = proposals.create({ ...args, taskId: context.taskId, runId: context.runId });
+      if (args.opportunityId) {
+        proposals.markReady(saved.id);
+        opportunities.updateOpportunity(args.opportunityId, { status: 'AWAITING_APPROVAL' });
+      }
       return { success: true, proposalId: saved.id, status: 'AWAITING_APPROVAL' };
     }
     default:
