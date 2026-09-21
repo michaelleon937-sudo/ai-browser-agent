@@ -240,3 +240,60 @@ CREATE TABLE IF NOT EXISTS proposals (
 CREATE INDEX IF NOT EXISTS idx_proposals_opportunity ON proposals (opportunity_id);
 CREATE INDEX IF NOT EXISTS idx_proposals_prospect ON proposals (prospect_id);
 CREATE INDEX IF NOT EXISTS idx_proposals_status ON proposals (status);
+
+-- Phase 5A — Outreach preparation foundation (no sending)
+CREATE TABLE IF NOT EXISTS outreach_messages (
+  id                TEXT PRIMARY KEY,
+  prospect_id       TEXT NOT NULL,
+  opportunity_id    TEXT NOT NULL,
+  proposal_id       TEXT NOT NULL,
+  sample_id         TEXT,
+  task_id           TEXT,
+  run_id            TEXT,
+  channel           TEXT NOT NULL,
+  recipient         TEXT NOT NULL,
+  subject           TEXT NOT NULL,
+  body              TEXT NOT NULL,
+  content_hash      TEXT NOT NULL,
+  status            TEXT NOT NULL DEFAULT 'DRAFT',
+  created_at        TEXT NOT NULL,
+  updated_at        TEXT NOT NULL,
+  FOREIGN KEY (prospect_id) REFERENCES prospects(id),
+  FOREIGN KEY (opportunity_id) REFERENCES opportunities(id),
+  FOREIGN KEY (proposal_id) REFERENCES proposals(id),
+  FOREIGN KEY (sample_id) REFERENCES samples(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_outreach_messages_prospect ON outreach_messages (prospect_id);
+CREATE INDEX IF NOT EXISTS idx_outreach_messages_opportunity ON outreach_messages (opportunity_id);
+CREATE INDEX IF NOT EXISTS idx_outreach_messages_status ON outreach_messages (status);
+CREATE INDEX IF NOT EXISTS idx_outreach_messages_created ON outreach_messages (created_at);
+
+CREATE TABLE IF NOT EXISTS outreach_approvals (
+  id                    TEXT PRIMARY KEY,
+  outreach_message_id   TEXT NOT NULL,
+  decision              TEXT,
+  content_hash          TEXT NOT NULL,
+  decided_at            TEXT,
+  decided_by            TEXT,
+  created_at            TEXT NOT NULL,
+  FOREIGN KEY (outreach_message_id) REFERENCES outreach_messages(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_outreach_approvals_message ON outreach_approvals (outreach_message_id);
+
+CREATE TABLE IF NOT EXISTS outreach_attempts (
+  id                    TEXT PRIMARY KEY,
+  outreach_message_id   TEXT NOT NULL,
+  idempotency_key       TEXT NOT NULL UNIQUE,
+  status                TEXT NOT NULL DEFAULT 'PENDING',
+  provider_message_id   TEXT,
+  started_at            TEXT,
+  finished_at           TEXT,
+  error_message         TEXT,
+  created_at            TEXT NOT NULL,
+  FOREIGN KEY (outreach_message_id) REFERENCES outreach_messages(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_outreach_attempts_message ON outreach_attempts (outreach_message_id);
+CREATE INDEX IF NOT EXISTS idx_outreach_attempts_status ON outreach_attempts (status);
