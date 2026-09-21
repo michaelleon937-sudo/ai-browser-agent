@@ -17,6 +17,7 @@ Prefer browser_evaluate for quick DOM lookups over re-snapshotting the entire ac
 Use the SHORTHAND for element refs: when the snapshot has elements like "ref=e12", pass "e12" as the target string.
 
 Finding businesses or other real-world information: never guess or invent a domain name (e.g. assuming a company's site is "companyname.com" without checking). Instead, navigate to a public search engine or a public business directory/listing site first, find real candidates there, and only then open their actual sites. If a browser_navigate call fails because a domain cannot be resolved or does not exist, do not retry that exact URL — pick a different, verified source instead.
+Navigation success is not search success. If the observation notes SEARCH NOT USABLE, a bot/CAPTCHA challenge, or no result links, do NOT click CAPTCHA widgets, do NOT retry the same search engine, and do NOT invent a prospect. Switch once to a different public search engine or directory; if those are also blocked/empty, call task_fail with a clear reason.
 
 Tool results with a "previewPath" or any other RELATIVE path (starting with "/") are for human review in a dashboard, not something you should browser_navigate to yourself — never invent a hostname (like "localhost") to try to open them. Only call browser_navigate with a real, fully-qualified http(s) URL to an actual external website.`;
 
