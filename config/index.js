@@ -68,7 +68,7 @@ export const config = {
     viewportWidth: num(process.env.BROWSER_VIEWPORT_WIDTH, 1366),
     viewportHeight: num(process.env.BROWSER_VIEWPORT_HEIGHT, 900),
     launchTimeoutMs: num(process.env.BROWSER_LAUNCH_TIMEOUT_MS, 30_000),
-    navigationTimeoutMs: num(process.env.BROWSER_NAVIGATION_TIMEOUT_MS, 15_000),
+    navigationTimeoutMs: num(process.env.BROWSER_NAVIGATION_TIMEOUT_MS, 30_000),
     actionTimeoutMs: num(process.env.BROWSER_ACTION_TIMEOUT_MS, 15_000),
   },
 
@@ -79,6 +79,8 @@ export const config = {
 
 
   storage: {
+    // Generated, non-source artifacts (website samples, future generated
+    // assets) live under DATA_DIR, never inside the source tree.
     websiteSamplesDir: process.env.WEBSITE_SAMPLES_DIR || path.join(DATA_DIR, 'website-samples'),
   },
 
@@ -89,8 +91,9 @@ export const config = {
   },
 
 
+  // Legitimate web search (Tavily). Optional — web_search tool errors clearly when unset.
   search: {
-    provider: (process.env.SEARCH_PROVIDER || 'none').toLowerCase(),
+    provider: (process.env.SEARCH_PROVIDER || 'none').toLowerCase(), // none | tavily
     tavily: {
       apiKey: process.env.TAVILY_API_KEY || '',
     },
@@ -146,6 +149,7 @@ export function validate() {
 }
 
 
+// Removes obvious secret-shaped values from an object before logging/notifying.
 const SECRET_KEY_PATTERN = /token|key|password|pass|secret|cookie|authorization/i;
 export function redact(obj) {
   if (obj === null || typeof obj !== 'object') return obj;
