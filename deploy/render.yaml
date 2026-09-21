@@ -38,3 +38,7 @@ services:
         sync: false
       - key: DASHBOARD_PASS
         sync: false
+      - key: SEARCH_PROVIDER
+        value: tavily
+      - key: TAVILY_API_KEY
+        sync: false
