@@ -1,1 +1,2 @@
-// RESTORED_FROM_LOCAL_DASHBOARD_SEE_NEXT_COMMIT
+// monitoring/dashboard.js
+// Minimal Express dashboard + JSON API.
