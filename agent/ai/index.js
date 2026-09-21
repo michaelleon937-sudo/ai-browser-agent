@@ -32,6 +32,7 @@ const KNOWN_TOOLS = new Set([
   'request_human_approval',
   'task_complete',
   'task_fail',
+  'web_search',
   'generate_website',
   'analyze_prospect_page',
   'save_prospect',
@@ -300,6 +301,19 @@ export const ACTION_TOOLS = [
         reason: { type: 'string' },
       },
       required: ['reason'],
+    },
+  },
+  {
+    type: 'function',
+    name: 'web_search',
+    description: 'Search the public web via the configured legitimate search API (Tavily). Returns real result titles, URLs, and snippets. Use this for discovery/prospecting instead of navigating to Google/Bing/DuckDuckGo search pages. Then browser_navigate to a real candidate URL from the results. Never invent domains or prospects.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Search query string.' },
+        maxResults: { type: 'number', description: 'Optional max results (1-10, default 5).' },
+      },
+      required: ['query'],
     },
   },
   {
