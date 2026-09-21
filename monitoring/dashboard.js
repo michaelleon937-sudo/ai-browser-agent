@@ -1,2 +1,1 @@
-// monitoring/dashboard.js
-// Minimal Express dashboard + JSON API.
+// PLACEHOLDER - will replace
