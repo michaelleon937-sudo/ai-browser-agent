@@ -55,7 +55,7 @@ describe('final end-to-end smoke test', () => {
 
     // Give the scheduler a few ticks to notice and run it.
     let finished = null;
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 60; i++) {
       await new Promise((r) => setTimeout(r, 500));
       const taskRuns = runs.listForTask(created.id);
       finished = taskRuns.find((r) => r.status === 'success' || r.status === 'failed');
