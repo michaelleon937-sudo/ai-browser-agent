@@ -22,6 +22,18 @@ describe('integrations/proposal-generation — generateProposal', () => {
     expect(result.status).toBe('DRAFT');
   });
 
+  it('handles the production string-array opportunity shape without undefined fields', () => {
+    const opportunity = {
+      identified_problems_json: JSON.stringify(['Website presence was not confirmed.']),
+      recommended_services_json: JSON.stringify([
+        { service: 'Website Design/Improvement', reason: 'No website was confirmed.' },
+      ]),
+    };
+    const result = generateProposal({ prospect, opportunity, sample: websiteSample });
+    expect(result.pitch).toContain('Website presence was not confirmed.');
+    expect(result.pitch).not.toContain('undefined');
+  });
+
   it('preserves the "confirmed" evidence label verbatim in the pitch', () => {
     const result = generateProposal({ prospect, opportunity: opportunityWith('confirmed', 'No website exists.'), sample: websiteSample });
     expect(result.pitch).toContain('confirmed');
