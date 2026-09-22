@@ -86,6 +86,14 @@ export function cloudflareProvider({ config }) {
         };
       }
 
+      const textCall = extractTextToolCall(content, availableTools);
+      if (textCall) {
+        return {
+          action: textCall,
+          done: textCall.tool === 'task_complete' || textCall.tool === 'task_fail',
+        };
+      }
+
       if (content && content.trim().startsWith('{')) {
         try {
           const direct = JSON.parse(content);
@@ -286,6 +294,20 @@ function extractJsonAction(content) {
 
 function nonEmptyToolCalls(v) {
   return Array.isArray(v) && v.length > 0;
+}
+
+/** Accept a conservative textual function-call form emitted by some gpt-oss responses. */
+function extractTextToolCall(content, availableTools) {
+  if (!content || !Array.isArray(availableTools)) return null;
+  const text = String(content).trim();
+  const match = text.match(/^([A-Za-z_][A-Za-z0-9_-]*)\s*\(\s*(\{[\s\S]*\})\s*\)$/);
+  if (!match) return null;
+  const toolName = match[1];
+  if (!availableTools.some((t) => t.name === toolName)) return null;
+  let args;
+  try { args = JSON.parse(match[2]); } catch { return null; }
+  if (!args || typeof args !== 'object' || Array.isArray(args)) return null;
+  return { tool: toolName, args, reasoning: '' };
 }
 
 /** Prefer browser_navigate when content is a bare http(s) URL tool-args object. */
