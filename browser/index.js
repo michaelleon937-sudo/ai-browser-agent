@@ -220,7 +220,7 @@ const api = {
       // Evaluate only in the browser page context. Running the source through
       // Node's Function constructor first breaks browser globals such as
       // document and window.
-      const pageExpression = /^return\\b/.test(source)
+      const pageExpression = /^return\b/.test(source)
         ? `() => { ${source} }`
         : source;
 
