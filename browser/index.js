@@ -214,9 +214,17 @@ const api = {
 
   async evaluate(fnString) {
     return withPage(async (page) => {
-      // eslint-disable-next-line no-new-func
-      const fn = new Function(`return (${fnString})`);
-      return page.evaluate(fn());
+      const source = String(fnString || '').trim();
+      if (!source) throw new Error('browser_evaluate requires a non-empty string `fn`');
+
+      // Evaluate only in the browser page context. Running the source through
+      // Node's Function constructor first breaks browser globals such as
+      // document and window.
+      const pageExpression = /^return\\b/.test(source)
+        ? `() => { ${source} }`
+        : source;
+
+      return page.evaluate(pageExpression);
     });
   },
 
