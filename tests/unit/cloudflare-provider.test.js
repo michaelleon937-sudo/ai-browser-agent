@@ -143,6 +143,28 @@ describe('production gpt-oss response shape (regression)', () => {
   beforeEach(() => { fetchMock.mockReset(); });
   const config = { ai: { cloudflare: { accountId: 'acc', apiToken: 'token', model: '@cf/openai/gpt-oss-20b' } } };
 
+  it('textual function-call content maps to browser_navigate', async () => {
+    mockCloudflareResponse('browser_navigate({"url":"https://www.pil.co.tz/about","waitUntil":"networkidle"})');
+    const provider = cloudflareProvider({ config });
+    const { action, done } = await provider.nextAction({
+      goal: 'Analyze PIL',
+      history: { steps: [] },
+      observation: {},
+      availableTools: ACTION_TOOLS,
+    });
+    expect(action.tool).toBe('browser_navigate');
+    expect(action.args).toEqual({ url: 'https://www.pil.co.tz/about', waitUntil: 'networkidle' });
+    expect(done).toBe(false);
+  });
+
+  it('textual unknown function call is not actionable', async () => {
+    mockCloudflareResponse('unknown_tool({"url":"https://example.com"})');
+    const provider = cloudflareProvider({ config });
+    await expect(provider.nextAction({
+      goal: 'x', history: { steps: [] }, observation: {}, availableTools: ACTION_TOOLS,
+    })).rejects.toThrow(/no actionable response/);
+  });
+
   it('object result, no result.response, empty tool_calls, url content -> browser_navigate', async () => {
     mockJson({
       success: true,
