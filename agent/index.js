@@ -272,7 +272,7 @@ export function applyPhase3ControlFlow(goal, historySteps, next) {
           null;
 
         if (!generateProposalStep) {
-          if (tool === 'generate_proposal' || tool === 'task_fail') return null;
+          if (tool !== 'task_complete') return null;
           if (!opportunityId || !sampleId) {
             return {
               action: {
@@ -294,7 +294,7 @@ export function applyPhase3ControlFlow(goal, historySteps, next) {
         }
 
         if (!saveProposal) {
-          if (tool === 'save_proposal' || tool === 'task_fail') return null;
+          if (tool !== 'task_complete') return null;
           const obs = generateProposalStep.observation || {};
           const proposalArgs = {
             opportunityId: obs.opportunityId || opportunityId,
@@ -329,7 +329,7 @@ export function applyPhase3ControlFlow(goal, historySteps, next) {
         return null;
       }
 
-      if (tool === 'create_sample' || tool === 'save_sample' || tool === 'task_fail') return null;
+      if (tool !== 'task_complete') return null;
       if (!opportunityId) {
         return {
           action: {
@@ -387,6 +387,7 @@ export function applyPhase3ControlFlow(goal, historySteps, next) {
         },
         reasoning: 'Phase 3 control: after analyze_opportunity, save_opportunity is required next.',
       },
+      done: false,
     };
   }
   return null;
