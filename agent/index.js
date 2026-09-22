@@ -249,19 +249,114 @@ export function findLastSuccessfulStep(historySteps, tool) {
 export function applyPhase3ControlFlow(goal, historySteps, next) {
   if (!goalRequiresProspectAndOpportunity(goal)) return null;
   if (!next || !next.action || !next.action.tool) return null;
+
   const saveProspect = findLastSuccessfulStep(historySteps, 'save_prospect');
   const saveOpportunity = findLastSuccessfulStep(historySteps, 'save_opportunity');
   const analyzeOpportunityStep = findLastSuccessfulStep(historySteps, 'analyze_opportunity');
+  const saveSample = findLastSuccessfulStep(historySteps, 'save_sample');
+  const generateProposalStep = findLastSuccessfulStep(historySteps, 'generate_proposal');
+  const saveProposal = findLastSuccessfulStep(historySteps, 'save_proposal');
   const tool = next.action.tool;
+
   if (saveOpportunity) {
-    // Phase 4 goals must continue through sample/proposal; do not force task_complete yet.
-    if (goalRequiresPhase4SampleAndProposal(goal)) return null;
+    if (goalRequiresPhase4SampleAndProposal(goal)) {
+      const opportunityId =
+        saveOpportunity.observation?.opportunityId ||
+        saveOpportunity.action?.args?.opportunityId ||
+        null;
+
+      if (saveSample) {
+        const sampleId =
+          saveSample.observation?.sampleId ||
+          saveSample.action?.args?.sampleId ||
+          null;
+
+        if (!generateProposalStep) {
+          if (tool === 'generate_proposal' || tool === 'task_fail') return null;
+          if (!opportunityId || !sampleId) {
+            return {
+              action: {
+                tool: 'task_fail',
+                args: { reason: 'save_sample succeeded but opportunityId or sampleId is missing; cannot generate proposal.' },
+                reasoning: 'Phase 4 control: missing identifiers after save_sample.',
+              },
+              done: true,
+            };
+          }
+          return {
+            action: {
+              tool: 'generate_proposal',
+              args: { opportunityId, sampleId },
+              reasoning: 'Phase 4 control: after save_sample, generate_proposal is required next.',
+            },
+            done: false,
+          };
+        }
+
+        if (!saveProposal) {
+          if (tool === 'save_proposal' || tool === 'task_fail') return null;
+          const obs = generateProposalStep.observation || {};
+          const proposalArgs = {
+            opportunityId: obs.opportunityId || opportunityId,
+            sampleId: obs.sampleId || sampleId,
+            pitch: obs.pitch,
+            serviceRecommendation: obs.serviceRecommendation,
+            valueProposition: obs.valueProposition,
+            suggestedPackage: obs.suggestedPackage,
+            callToAction: obs.callToAction,
+            assumptions: obs.assumptions,
+          };
+          if (!proposalArgs.opportunityId || !proposalArgs.sampleId) {
+            return {
+              action: {
+                tool: 'task_fail',
+                args: { reason: 'generate_proposal succeeded but opportunityId or sampleId is missing; cannot save proposal.' },
+                reasoning: 'Phase 4 control: missing identifiers after generate_proposal.',
+              },
+              done: true,
+            };
+          }
+          return {
+            action: {
+              tool: 'save_proposal',
+              args: proposalArgs,
+              reasoning: 'Phase 4 control: after generate_proposal, save_proposal is required next.',
+            },
+            done: false,
+          };
+        }
+
+        return null;
+      }
+
+      if (tool === 'create_sample' || tool === 'save_sample' || tool === 'task_fail') return null;
+      if (!opportunityId) {
+        return {
+          action: {
+            tool: 'task_fail',
+            args: { reason: 'save_opportunity succeeded but no opportunityId was returned; cannot continue Phase 4 sample/proposal flow.' },
+            reasoning: 'Phase 4 control: missing opportunityId after save_opportunity.',
+          },
+          done: true,
+        };
+      }
+      return {
+        action: {
+          tool: 'create_sample',
+          args: { opportunityId },
+          reasoning: 'Phase 4 control: after save_opportunity, create_sample is required next.',
+        },
+        done: false,
+      };
+    }
+
     if (tool === 'task_complete' || tool === 'task_fail') return null;
     return {
       action: { tool: 'task_complete', args: { result: 'Prospect and opportunity saved successfully.' }, reasoning: 'Phase 3 control: required prospect + opportunity work is complete.' },
       done: true,
     };
   }
+
   if (saveProspect) {
     const prospectId = saveProspect.observation?.prospectId || saveProspect.action?.args?.prospectId || null;
     if (!analyzeOpportunityStep) {
@@ -292,7 +387,6 @@ export function applyPhase3ControlFlow(goal, historySteps, next) {
         },
         reasoning: 'Phase 3 control: after analyze_opportunity, save_opportunity is required next.',
       },
-      done: false,
     };
   }
   return null;
