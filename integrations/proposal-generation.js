@@ -69,14 +69,18 @@ export function generateProposal({ prospect, opportunity, sample } = {}) {
 
   const businessName = p.businessName || '[Business name not available]';
   const topProblem = o.identifiedProblems[0] || null;
+  const topProblemDescription = typeof topProblem === 'string' ? topProblem : topProblem?.description;
+  const topProblemLevel = typeof topProblem === 'string' ? null : topProblem?.level;
   // Per spec §7: recommended service MUST come from recommendedServices[0].
   const topService = o.recommendedServices[0] || null;
 
   // The evidence level (confirmed/likely/possible) is interpolated verbatim
   // wherever it appears — this is what prevents "possible" from silently
   // becoming a flat, assertive claim.
-  const pitch = topProblem
-    ? `We noticed a ${topProblem.level} opportunity for ${businessName}: ${topProblem.description}`
+  const pitch = topProblemDescription
+    ? topProblemLevel
+      ? 'We noticed a ' + topProblemLevel + ' opportunity for ' + businessName + ': ' + topProblemDescription
+      : 'We noticed an opportunity for ' + businessName + ': ' + topProblemDescription
     : `We'd like to share some ideas that could help ${businessName} — no specific gap was confirmed from available public information.`;
 
   const serviceRecommendation = topService ? topService.service : '[No specific service recommendation available]';
