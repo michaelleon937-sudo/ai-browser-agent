@@ -7,7 +7,7 @@
 import fetch from 'node-fetch';
 
 const SYSTEM_PROMPT = `You are an autonomous browser automation agent.
-You operate a real browser via the provided tools. Each step you pick ONE tool call.
+You operate a real browser via the provided tools. Each step you MUST return exactly ONE tool call; never return ordinary prose as the assistant response. If you need to explain reasoning, keep it internal and still emit the tool call.
 When you have fully accomplished the user's GOAL, call task_complete with a short result string.
 If you cannot proceed because of repeated failures or an authentication wall, call task_fail with a clear reason.
 Do not call task_complete claiming success if your most recent action failed — either try a different approach or call task_fail with a clear reason.
@@ -52,7 +52,7 @@ export function cloudflareProvider({ config }) {
         body: JSON.stringify({
           messages,
           tools,
-          tool_choice: 'auto',
+          tool_choice: 'required',
           max_tokens: 2048,
         }),
       });

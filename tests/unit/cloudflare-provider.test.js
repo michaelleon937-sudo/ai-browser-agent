@@ -143,6 +143,23 @@ describe('production gpt-oss response shape (regression)', () => {
   beforeEach(() => { fetchMock.mockReset(); });
   const config = { ai: { cloudflare: { accountId: 'acc', apiToken: 'token', model: '@cf/openai/gpt-oss-20b' } } };
 
+  it('requires a tool call on every Cloudflare agent turn', async () => {
+    mockCloudflareResponse('Opportunity Analysis – Property International Ltd (PIL)');
+    const config = { ai: { cloudflare: { accountId: 'acc', apiToken: 'token', model: '@cf/openai/gpt-oss-20b' } } };
+    const provider = cloudflareProvider({ config });
+
+    await expect(provider.nextAction({
+      goal: 'Analyze PIL',
+      history: { steps: [] },
+      observation: {},
+      availableTools: ACTION_TOOLS,
+    })).rejects.toThrow(/no actionable response/);
+
+    const request = fetchMock.mock.calls[0][1];
+    const payload = JSON.parse(request.body);
+    expect(payload.tool_choice).toBe('required');
+  });
+
   it('textual function-call content maps to browser_navigate', async () => {
     mockCloudflareResponse('browser_navigate({"url":"https://www.pil.co.tz/about","waitUntil":"networkidle"})');
     const provider = cloudflareProvider({ config });
