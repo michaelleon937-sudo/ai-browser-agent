@@ -220,11 +220,19 @@ const api = {
       // Evaluate only in the browser page context. Running the source through
       // Node's Function constructor first breaks browser globals such as
       // document and window.
-      const pageExpression = /^return\b/.test(source)
-        ? `() => { ${source} }`
-        : source;
+      const isReturnBody = /^return\b/.test(source);
 
-      return page.evaluate(pageExpression);
+      return page.evaluate(
+        ({ source: pageSource, returnBody }) => {
+          // Execute the supplied source inside the browser page context so
+          // browser globals such as document and window are available.
+          const fn = returnBody
+            ? new Function(pageSource)
+            : new Function(`return (${pageSource})`);
+          return fn();
+        },
+        { source, returnBody: isReturnBody }
+      );
     });
   },
 
