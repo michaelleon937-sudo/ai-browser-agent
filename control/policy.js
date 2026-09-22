@@ -76,7 +76,7 @@ const BLOCKED_HOST_HINTS = [
   'paypal.com',
   'squareup.com',
   'adyen.com',
-]);
+];
 
 export function isForbiddenTool(name) {
   return FORBIDDEN_TOOLS.includes(String(name || ''));
