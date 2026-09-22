@@ -281,4 +281,20 @@ describe('production gpt-oss response shape (regression)', () => {
       goal: 'x', history: { steps: [] }, observation: {}, availableTools: ACTION_TOOLS,
     })).rejects.toThrow(/no actionable response/);
   });
+  it('empty required string argument is not actionable', async () => {
+    mockCloudflareResponse(JSON.stringify({ target: '' }));
+    const provider = cloudflareProvider({ config });
+    await expect(provider.nextAction({
+      goal: 'x', history: { steps: [] }, observation: {}, availableTools: ACTION_TOOLS,
+    })).rejects.toThrow(/no actionable response/);
+  });
+
+  it('whitespace-only required string argument is not actionable', async () => {
+    mockCloudflareResponse(JSON.stringify({ target: '   ' }));
+    const provider = cloudflareProvider({ config });
+    await expect(provider.nextAction({
+      goal: 'x', history: { steps: [] }, observation: {}, availableTools: ACTION_TOOLS,
+    })).rejects.toThrow(/no actionable response/);
+  });
+
 });

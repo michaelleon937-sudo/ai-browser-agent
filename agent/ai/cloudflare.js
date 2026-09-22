@@ -311,7 +311,15 @@ function matchUniqueTool(obj, availableTools) {
     const requiredKeys = Array.isArray(tool?.parameters?.required) ? tool.parameters.required : [];
     const allKeysKnownToTool = keys.every((k) => propKeys.includes(k));
     const allRequiredKeysPresent = requiredKeys.every((k) => keys.includes(k));
-    return allKeysKnownToTool && allRequiredKeysPresent;
+    if (!allKeysKnownToTool || !allRequiredKeysPresent) return false;
+
+    // Reject empty/whitespace required string args (e.g. {"target":""}).
+    // Matching them would produce invalid browser actions and burn step budget.
+    for (const k of requiredKeys) {
+      const v = obj[k];
+      if (typeof v === 'string' && v.trim() === '') return false;
+    }
+    return true;
   });
 
   return candidates.length === 1 ? candidates[0] : null;
