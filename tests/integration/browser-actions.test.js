@@ -28,6 +28,15 @@ describe('browser primitives (integration)', () => {
     expect(Array.isArray(snap.elements)).toBe(true);
   }, 30_000);
 
+  it('evaluates browser expressions in the page context', async () => {
+    await browser.navigate('https://example.com');
+    const expressionResult = await browser.evaluate('document.body.innerText');
+    expect(expressionResult.toLowerCase()).toContain('example domain');
+
+    const functionBodyResult = await browser.evaluate('return document.body.innerText;');
+    expect(functionBodyResult.toLowerCase()).toContain('example domain');
+  }, 30_000);
+
   it('reads visible text from the page', async () => {
     await browser.navigate('https://example.com');
     const info = await browser.getPageInfo();
@@ -48,7 +57,7 @@ describe('browser primitives (integration)', () => {
 
   it('fail-fast on missing data-agent-ref before click (no long timeout)', async () => {
     await browser.navigate('https://example.com');
-    // No snapshot taken — refs from a previous page must not be reused.
+    // No snapshot taken â refs from a previous page must not be reused.
     const started = Date.now();
     await expect(browser.click('e0')).rejects.toThrow(/Stale or missing ref/);
     expect(Date.now() - started).toBeLessThan(5000);
