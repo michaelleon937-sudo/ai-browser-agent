@@ -30,6 +30,10 @@ export function stopScheduler() {
   timer = null;
 }
 
+export function isSchedulerRunning() {
+  return Boolean(timer);
+}
+
 
 async function tick() {
   if (ticking) return; // avoid overlapping ticks if a run is slow to enqueue
@@ -51,8 +55,6 @@ async function tick() {
 
 
 async function runDueTask(task) {
-  // Compute the next run time up-front so a slow/failed run doesn't cause
-  // the scheduler to re-fire it immediately in a tight loop.
   const next = computeNextRun(task.cron_expression, task.timezone);
   tasks.setNextRun(task.id, next);
 
@@ -64,7 +66,6 @@ async function runDueTask(task) {
 
 
   console.log(`[scheduler] running due task: ${task.name} (${task.id})`);
-  // Fire and forget — runAgent manages its own run row + status transitions.
   runAgent({ taskId: task.id }).catch((err) => {
     console.error(`[scheduler] runAgent crashed for ${task.id}:`, err);
   });
@@ -86,7 +87,6 @@ export function computeNextRun(cronExpression, timezone) {
 }
 
 
-// Called when a task's cron_expression is created/updated via the dashboard API.
 export function scheduleTask(taskId, cronExpression, timezone) {
   const next = computeNextRun(cronExpression, timezone);
   tasks.update(taskId, { cronExpression, timezone, nextRunAt: next });

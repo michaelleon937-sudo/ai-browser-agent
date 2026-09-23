@@ -22,6 +22,7 @@ import { runAgent } from '../agent/index.js';
 import { scheduleTask, unscheduleTask } from '../scheduler/index.js';
 import { listPending, listAll as listApprovals, recordDecision } from '../agent/approval.js';
 import { config } from '../config/index.js';
+import { createControlRouter } from '../control/index.js';
 import { isValidSampleId, resolveSampleDir } from '../integrations/website-gen.js';
 
 
@@ -33,6 +34,9 @@ export async function startDashboard() {
   const app = express();
   app.use(express.json());
 
+
+  // Control API: bearer CONTROL_TOKEN, deny-by-default, mounted BEFORE dashboard basic auth
+  app.use('/api/control/v1', createControlRouter());
 
   if (config.dashboard.user && config.dashboard.pass) {
     app.use(basicAuth({
@@ -53,6 +57,12 @@ export async function startDashboard() {
 
   app.get('/api/tasks', (req, res) => {
     res.json(tasks.list());
+  });
+
+  app.get('/api/tasks/:id', (req, res) => {
+    const task = tasks.get(req.params.id);
+    if (!task) return res.status(404).json({ error: 'not found' });
+    res.json(task);
   });
 
 
@@ -94,6 +104,12 @@ export async function startDashboard() {
 
   app.get('/api/runs', (req, res) => {
     res.json(runs.listRecent({ limit: Number(req.query.limit) || 50 }));
+  });
+
+  app.get('/api/runs/:id', (req, res) => {
+    const run = runs.get(req.params.id);
+    if (!run) return res.status(404).json({ error: 'not found' });
+    res.json(run);
   });
 
 

@@ -35,6 +35,25 @@ export const config = {
     pass: process.env.DASHBOARD_PASS || '',
   },
 
+  control: {
+    token: process.env.CONTROL_TOKEN || '',
+    maxRepairAttempts: num(process.env.MAX_REPAIR_ATTEMPTS, 3),
+    github: {
+      token: process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '',
+      owner: process.env.GITHUB_OWNER || 'michaelleon937-sudo',
+      repo: process.env.GITHUB_REPO || 'ai-browser-agent',
+      defaultBranch: process.env.GITHUB_DEFAULT_BRANCH || 'master',
+    },
+    render: {
+      apiKey: process.env.RENDER_API_KEY || '',
+      stagingServiceId: process.env.RENDER_STAGING_SERVICE_ID || '',
+      productionServiceId: process.env.RENDER_PRODUCTION_SERVICE_ID || '',
+    },
+    browserAllowlist: (process.env.CONTROL_BROWSER_ALLOWLIST || 'example.com,github.com,wikipedia.org,tavily.com')
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
+  },
 
   agent: {
     maxSteps: num(process.env.AGENT_MAX_STEPS, 40),

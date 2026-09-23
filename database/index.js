@@ -669,4 +669,148 @@ export const notifications = {
   listRecent({ limit = 50 } = {}) {
     return getDb().prepare('SELECT * FROM notifications_log ORDER BY created_at DESC LIMIT ?').all(limit);
   },
+  listForRun({ runId, limit = 50 } = {}) {
+    if (!runId) return [];
+    const like = `%${runId}%`;
+    return getDb().prepare(
+      'SELECT * FROM notifications_log WHERE body LIKE ? OR subject LIKE ? ORDER BY created_at DESC LIMIT ?',
+    ).all(like, like, limit);
+  },
+};
+
+export const operatorAuditLog = {
+  append({ operatorId, action, toolName, requestId, idempotencyKey, target, status, details }) {
+    const id = nanoid(14);
+    const now = new Date().toISOString();
+    getDb().prepare(`
+      INSERT INTO operator_audit_log
+        (id, operator_id, action, tool_name, request_id, idempotency_key, target, status, details, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      operatorId || 'unknown',
+      action,
+      toolName || null,
+      requestId || null,
+      idempotencyKey || null,
+      target || null,
+      status,
+      details != null ? JSON.stringify(details) : null,
+      now,
+    );
+    return operatorAuditLog.get(id);
+  },
+  get(id) {
+    return getDb().prepare('SELECT * FROM operator_audit_log WHERE id = ?').get(id);
+  },
+  listRecent({ limit = 50, toolName } = {}) {
+    if (toolName) {
+      return getDb().prepare(
+        'SELECT * FROM operator_audit_log WHERE tool_name = ? ORDER BY created_at DESC LIMIT ?',
+      ).all(toolName, limit);
+    }
+    return getDb().prepare('SELECT * FROM operator_audit_log ORDER BY created_at DESC LIMIT ?').all(limit);
+  },
+};
+
+export const controlIdempotency = {
+  create({ idempotencyKey, operatorId, toolName, requestHash, status, result }) {
+    const id = nanoid(14);
+    const now = new Date().toISOString();
+    getDb().prepare(`
+      INSERT INTO control_idempotency
+        (id, idempotency_key, operator_id, tool_name, request_hash, status, result, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      idempotencyKey,
+      operatorId,
+      toolName,
+      requestHash,
+      status,
+      result != null ? JSON.stringify(result) : null,
+      now,
+      now,
+    );
+    return controlIdempotency.getByKey(idempotencyKey);
+  },
+  getByKey(key) {
+    return getDb().prepare('SELECT * FROM control_idempotency WHERE idempotency_key = ?').get(key);
+  },
+  update(key, { status, result }) {
+    const current = controlIdempotency.getByKey(key);
+    if (!current) return null;
+    getDb().prepare(`
+      UPDATE control_idempotency SET status = ?, result = ?, updated_at = ? WHERE idempotency_key = ?
+    `).run(
+      status !== undefined ? status : current.status,
+      result !== undefined ? JSON.stringify(result) : current.result,
+      new Date().toISOString(),
+      key,
+    );
+    return controlIdempotency.getByKey(key);
+  },
+};
+
+export const repairSessions = {
+  create({ taskId, initialRunId, currentRunId, maxAttempts, state, failureReason, diagnosis, branchName }) {
+    const id = nanoid(14);
+    const now = new Date().toISOString();
+    getDb().prepare(`
+      INSERT INTO repair_sessions
+        (id, task_id, initial_run_id, current_run_id, attempt_count, max_attempts, state, failure_reason, diagnosis, branch_name, created_at, updated_at)
+      VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      taskId || null,
+      initialRunId || null,
+      currentRunId || null,
+      maxAttempts || 3,
+      state || 'STARTED',
+      failureReason || null,
+      diagnosis || null,
+      branchName || null,
+      now,
+      now,
+    );
+    return repairSessions.get(id);
+  },
+  get(id) {
+    return getDb().prepare('SELECT * FROM repair_sessions WHERE id = ?').get(id);
+  },
+  getActiveForTask(taskId) {
+    return getDb().prepare(
+      `SELECT * FROM repair_sessions WHERE task_id = ? AND state NOT IN ('VERIFIED','STOPPED') ORDER BY created_at DESC LIMIT 1`,
+    ).get(taskId) || null;
+  },
+  update(id, fields = {}) {
+    const current = repairSessions.get(id);
+    if (!current) return null;
+    const map = {
+      state: 'state',
+      attemptCount: 'attempt_count',
+      attempt_count: 'attempt_count',
+      currentRunId: 'current_run_id',
+      current_run_id: 'current_run_id',
+      failureReason: 'failure_reason',
+      failure_reason: 'failure_reason',
+      diagnosis: 'diagnosis',
+      branchName: 'branch_name',
+      branch_name: 'branch_name',
+    };
+    const sets = [];
+    const vals = [];
+    for (const [k, v] of Object.entries(fields)) {
+      const col = map[k];
+      if (!col) continue;
+      sets.push(`${col} = ?`);
+      vals.push(v);
+    }
+    if (!sets.length) return current;
+    sets.push('updated_at = ?');
+    vals.push(new Date().toISOString());
+    vals.push(id);
+    getDb().prepare(`UPDATE repair_sessions SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+    return repairSessions.get(id);
+  },
 };
