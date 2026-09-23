@@ -36,8 +36,4 @@ export function migrate() {
   getDb().exec(schema);
 }
 
-// Full repository layer continues in the verified local tree (tasks, runs, steps,
-// errors, kv, sessions, websiteSamples, prospects, opportunities, samples,
-// proposals, outreachMessages, outreachApprovals, outreachAttempts,
-// notifications with listForRun, operatorAuditLog, controlIdempotency,
-// repairSessions with getActiveForTask). Content must be the complete file.
+// PLACEHOLDER_WILL_BE_REPLACED_WITH_FULL_CONTENT
