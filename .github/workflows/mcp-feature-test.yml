@@ -22,11 +22,10 @@ jobs:
           ref: feature/grok-mcp-control
           fetch-depth: 0
 
-      - name: Setup Node.js 20
+      - name: Setup Node.js 24 for lockfile generation
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
-          cache: npm
+          node-version: "24"
 
       - name: Generate package-lock from package.json only
         run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
@@ -65,7 +64,6 @@ jobs:
           for key in sorted(set(before_pkgs) & set(after_pkgs)):
               if before_pkgs[key] == after_pkgs[key]:
                   continue
-
               if key == "":
                   before_deps = before_pkgs[key].get("dependencies", {})
                   after_deps = after_pkgs[key].get("dependencies", {})
@@ -83,6 +81,8 @@ jobs:
               print("Unrelated existing lockfile entries changed:")
               for item in changed_existing:
                   print(item)
+              print("=== package-lock diff ===")
+              subprocess.run(["git", "diff", "--", "package-lock.json"], check=False)
               sys.exit(1)
 
           removed = sorted(set(before_pkgs) - set(after_pkgs))
@@ -125,6 +125,12 @@ jobs:
           git add package-lock.json
           git commit -m "chore(mcp): sync package-lock dependencies"
           git push origin HEAD:feature/grok-mcp-control
+
+      - name: Setup Node.js 20 for project tests
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
 
       - name: Clean install from committed lockfile
         run: npm ci
