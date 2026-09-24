@@ -19,6 +19,7 @@ import { renderTools } from './tools/render.js';
 import { repairTools } from './repair.js';
 import { outreachTools } from './tools/outreach.js';
 import { crmTools } from './tools/crm.js';
+import { billingTools } from './tools/billing.js';
 
 const TOOLS = {
   ...agentTools,
@@ -28,6 +29,7 @@ const TOOLS = {
   ...repairTools,
   ...outreachTools,
   ...crmTools,
+  ...billingTools,
 };
 
 async function runTool(toolName, args, ctx) {
