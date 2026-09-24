@@ -57,6 +57,18 @@ export const ALLOWED_TOOLS = Object.freeze([
   'crm.get_conversation',
   'crm.list_messages',
   'crm.ingest_message',
+  'crm.mark_customer',
+  'crm.qualify_prospect',
+  'crm.refresh_conversation',
+  'crm.link_prospect_to_client',
+  'crm.get_next_action',
+  'crm.update_client_memory',
+  'crm.get_client_memory',
+  'crm.list_conversations',
+  'crm.get_contact',
+  'crm.list_contacts',
+  'crm.get_company',
+  'crm.list_companies',
 ]);
 
 export const MUTATING_TOOLS = new Set([
@@ -75,6 +87,11 @@ export const MUTATING_TOOLS = new Set([
   'outreach.deny',
   'outreach.send_approved',
   'crm.ingest_message',
+  'crm.refresh_conversation',
+  'crm.mark_customer',
+  'crm.qualify_prospect',
+  'crm.link_prospect_to_client',
+  'crm.update_client_memory',
 ]);
 
 export const TOOLS_REQUIRING_APPROVAL = new Set([
@@ -97,23 +114,22 @@ const BLOCKED_HOST_HINTS = [
 ];
 
 export function isForbiddenTool(name) {
-  return FORBIDDEN_TOOLS.includes(String(name || ''));
+  return FORBIDDEN_TOOLS.includes(name);
 }
 
 export function isAllowedTool(name) {
-  return ALLOWED_TOOLS.includes(String(name || ''));
+  return ALLOWED_TOOLS.includes(name);
 }
 
 export function isMutatingTool(name) {
-  return MUTATING_TOOLS.has(String(name || ''));
+  return MUTATING_TOOLS.has(name);
 }
 
-export function requiresApproval(name) {
-  return TOOLS_REQUIRING_APPROVAL.has(String(name || ''));
+export function toolRequiresApproval(name) {
+  return TOOLS_REQUIRING_APPROVAL.has(name);
 }
 
-export function evaluatePolicy({ toolName, args = {} } = {}) {
-  const name = String(toolName || '');
+export function evaluatePolicy(name, args = {}) {
   if (!name) {
     return { allow: false, status: 400, reason: 'tool name required' };
   }
