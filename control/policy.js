@@ -45,6 +45,12 @@ export const ALLOWED_TOOLS = Object.freeze([
   'repair.start',
   'repair.get',
   'repair.advance',
+  'outreach.list',
+  'outreach.get',
+  'outreach.list_pending',
+  'outreach.approve',
+  'outreach.deny',
+  'outreach.send_approved',
 ]);
 
 export const MUTATING_TOOLS = new Set([
@@ -59,6 +65,9 @@ export const MUTATING_TOOLS = new Set([
   'render.deploy',
   'repair.start',
   'repair.advance',
+  'outreach.approve',
+  'outreach.deny',
+  'outreach.send_approved',
 ]);
 
 export const TOOLS_REQUIRING_APPROVAL = new Set([
@@ -66,6 +75,8 @@ export const TOOLS_REQUIRING_APPROVAL = new Set([
   'browser.type',
   'github.modify_file',
   'render.deploy',
+  'outreach.approve',
+  'outreach.send_approved',
 ]);
 
 const BLOCKED_HOST_HINTS = [
