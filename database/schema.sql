@@ -458,3 +458,40 @@ CREATE TABLE IF NOT EXISTS conversation_insights (
   updated_at            TEXT NOT NULL,
   FOREIGN KEY (conversation_id) REFERENCES conversations(id)
 );
+
+
+-- Phase 7 — Billing, Payments & Project Execution
+
+CREATE TABLE IF NOT EXISTS invoices (
+  id TEXT PRIMARY KEY, invoice_number TEXT NOT NULL UNIQUE, client_id TEXT, company_id TEXT, contact_id TEXT,
+  prospect_id TEXT, opportunity_id TEXT, proposal_id TEXT, task_id TEXT, run_id TEXT,
+  currency TEXT NOT NULL DEFAULT 'USD', subtotal REAL NOT NULL DEFAULT 0, tax REAL NOT NULL DEFAULT 0,
+  total REAL NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'DRAFT', issue_date TEXT, due_date TEXT,
+  description TEXT, line_items_json TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_invoices_status ON invoices (status);
+CREATE TABLE IF NOT EXISTS invoice_sequences (year INTEGER PRIMARY KEY, last_seq INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS payments (
+  id TEXT PRIMARY KEY, invoice_id TEXT NOT NULL, client_id TEXT, company_id TEXT, provider TEXT NOT NULL,
+  provider_payment_id TEXT, provider_transaction_id TEXT, amount REAL NOT NULL, currency TEXT NOT NULL DEFAULT 'USD',
+  status TEXT NOT NULL DEFAULT 'CREATED', payment_method TEXT, idempotency_key TEXT, verified_at TEXT,
+  metadata_json TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_idempotency ON payments (idempotency_key) WHERE idempotency_key IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_provider_txn ON payments (provider, provider_transaction_id) WHERE provider_transaction_id IS NOT NULL;
+CREATE TABLE IF NOT EXISTS payment_webhook_events (
+  id TEXT PRIMARY KEY, provider TEXT NOT NULL, event_id TEXT NOT NULL, event_type TEXT, payment_id TEXT,
+  payload_hash TEXT, processed INTEGER NOT NULL DEFAULT 0, processed_at TEXT, created_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_webhook_provider_event ON payment_webhook_events (provider, event_id);
+CREATE TABLE IF NOT EXISTS projects (
+  id TEXT PRIMARY KEY, client_id TEXT, company_id TEXT, contact_id TEXT, prospect_id TEXT, opportunity_id TEXT,
+  proposal_id TEXT, invoice_id TEXT, payment_id TEXT, status TEXT NOT NULL DEFAULT 'NOT_STARTED',
+  project_type TEXT, scope TEXT, deliverables_json TEXT, deadline TEXT, assigned_task TEXT,
+  created_at TEXT NOT NULL, updated_at TEXT NOT NULL, completed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_projects_status ON projects (status);
+CREATE TABLE IF NOT EXISTS billing_records (
+  id TEXT PRIMARY KEY, invoice_id TEXT, payment_id TEXT, company_id TEXT, record_type TEXT NOT NULL,
+  amount REAL NOT NULL DEFAULT 0, currency TEXT NOT NULL DEFAULT 'USD', description TEXT, created_at TEXT NOT NULL
+);
