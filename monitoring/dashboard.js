@@ -17,7 +17,7 @@ import express from 'express';
 import basicAuth from 'express-basic-auth';
 import fs from 'node:fs';
 import path from 'node:path';
-import { tasks, runs, steps, errors as dbErrors, notifications, websiteSamples, prospects, opportunities, samples, proposals, outreachMessages, outreachApprovals, outreachAttempts, companies, contacts, conversations, inboundMessages } from '../database/index.js';
+import { tasks, runs, steps, errors as dbErrors, notifications, websiteSamples, prospects, opportunities, samples, proposals, outreachMessages, outreachApprovals, outreachAttempts, companies, contacts, conversations, inboundMessages, clientMemory, conversationInsights } from '../database/index.js';
 import { approveOutreachMessage, denyOutreachMessage, sendApprovedOutreach } from '../integrations/outreach-delivery.js';
 import { runAgent } from '../agent/index.js';
 import { scheduleTask, unscheduleTask } from '../scheduler/index.js';
@@ -329,6 +329,22 @@ export async function startDashboard() {
     if (!row) return res.status(404).json({ error: 'not found' });
     res.json({ conversation: row, messages: inboundMessages.list({ conversationId: row.id, limit: Number(req.query.limit) || 50 }) });
   });
+  
+  app.get('/api/crm/memory', (req, res) => {
+    res.json(clientMemory.list({
+      limit: Number(req.query.limit) || 50,
+      companyId: req.query.companyId,
+      contactId: req.query.contactId,
+      prospectId: req.query.prospectId,
+      key: req.query.key,
+    }));
+  });
+  app.get('/api/crm/conversations/:id/insight', (req, res) => {
+    const row = conversationInsights.get(req.params.id);
+    if (!row) return res.status(404).json({ error: 'not found' });
+    res.json(row);
+  });
+
   app.get('/api/crm/messages', (req, res) => {
     res.json(inboundMessages.list({ limit: Number(req.query.limit) || 50, conversationId: req.query.conversationId, contactId: req.query.contactId, prospectId: req.query.prospectId, classification: req.query.classification }));
   });
