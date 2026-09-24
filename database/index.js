@@ -311,11 +311,16 @@ const PROSPECT_STATUS_TRANSITIONS = {
   SAMPLE_CREATED: new Set(['SAMPLE_CREATED', 'PROPOSAL_READY', 'AWAITING_APPROVAL']),
   PROPOSAL_READY: new Set(['PROPOSAL_READY', 'AWAITING_APPROVAL', 'CONTACTED']),
   AWAITING_APPROVAL: new Set(['AWAITING_APPROVAL', 'CONTACTED', 'LOST']),
-  CONTACTED: new Set(['CONTACTED', 'REPLIED', 'FOLLOW_UP', 'WON', 'LOST']),
-  REPLIED: new Set(['REPLIED', 'FOLLOW_UP', 'WON', 'LOST']),
-  FOLLOW_UP: new Set(['FOLLOW_UP', 'REPLIED', 'WON', 'LOST']),
-  WON: new Set(['WON']),
-  LOST: new Set(['LOST']),
+  CONTACTED: new Set(['CONTACTED', 'REPLIED', 'FOLLOW_UP', 'QUALIFIED', 'WON', 'LOST']),
+  REPLIED: new Set(['REPLIED', 'FOLLOW_UP', 'QUALIFIED', 'WON', 'LOST']),
+  FOLLOW_UP: new Set(['FOLLOW_UP', 'REPLIED', 'QUALIFIED', 'WON', 'LOST']),
+  QUALIFIED: new Set(['QUALIFIED', 'CONTACTED', 'FOLLOW_UP', 'WON', 'CUSTOMER', 'LOST']),
+  WON: new Set(['WON', 'CUSTOMER', 'ACTIVE_CLIENT']),
+  CUSTOMER: new Set(['CUSTOMER', 'ACTIVE_CLIENT', 'COMPLETED', 'ARCHIVED']),
+  ACTIVE_CLIENT: new Set(['ACTIVE_CLIENT', 'COMPLETED', 'ARCHIVED']),
+  COMPLETED: new Set(['COMPLETED', 'ARCHIVED', 'ACTIVE_CLIENT']),
+  ARCHIVED: new Set(['ARCHIVED']),
+  LOST: new Set(['LOST', 'ARCHIVED']),
 };
 
 export function assertProspectStatusTransition(from, to) {
@@ -327,6 +332,12 @@ export function assertProspectStatusTransition(from, to) {
 }
 
 /** CONTACTED requires a confirmed external send — never a draft alone. */
+export function assertCanMarkCustomer({ explicitAction } = {}) {
+  if (!explicitAction) {
+    throw new Error('CUSTOMER/WON requires an explicit business action; positive message alone is not sufficient');
+  }
+}
+
 export function assertCanMarkContacted({ hasConfirmedSend } = {}) {
   if (!hasConfirmedSend) {
     throw new Error('CONTACTED requires a confirmed successful external send; outreach draft alone is not sufficient');
@@ -979,3 +990,52 @@ function extractDomain(urlOrHost) {
     return String(urlOrHost).replace(/^www\./, '').toLowerCase() || null;
   }
 }
+
+
+export const MEMORY_CONFIDENCE = Object.freeze({ CONFIRMED_BY_CLIENT: 'CONFIRMED_BY_CLIENT', CONFIRMED_BY_SYSTEM: 'CONFIRMED_BY_SYSTEM', INFERRED: 'INFERRED', UNKNOWN: 'UNKNOWN' });
+export const clientMemory = {
+  create({ id, companyId, contactId, prospectId, key, value, confidence, source, sourceMessageId, notes, expiresAt } = {}) {
+    if (!key) throw new Error('memory key is required');
+    if (value === undefined || value === null) throw new Error('memory value is required');
+    const genId = id || nanoid(12); const now = new Date().toISOString();
+    const conf = confidence && MEMORY_CONFIDENCE[confidence] ? confidence : 'INFERRED';
+    getDb().prepare(`INSERT INTO client_memory (id, company_id, contact_id, prospect_id, key, value, confidence, source, source_message_id, notes, created_at, updated_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(genId, companyId||null, contactId||null, prospectId||null, key, String(value), conf, source||'system', sourceMessageId||null, notes||null, now, now, expiresAt||null);
+    return clientMemory.get(genId);
+  },
+  get(id) { return getDb().prepare('SELECT * FROM client_memory WHERE id = ?').get(id); },
+  list({ companyId, contactId, prospectId, key, limit = 100 } = {}) {
+    const clauses = []; const params = [];
+    if (companyId) { clauses.push('company_id = ?'); params.push(companyId); }
+    if (contactId) { clauses.push('contact_id = ?'); params.push(contactId); }
+    if (prospectId) { clauses.push('prospect_id = ?'); params.push(prospectId); }
+    if (key) { clauses.push('key = ?'); params.push(key); }
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''; params.push(limit);
+    return getDb().prepare(`SELECT * FROM client_memory ${where} ORDER BY updated_at DESC LIMIT ?`).all(...params);
+  },
+  findCurrent(scope, key) {
+    const rows = clientMemory.list({ ...scope, key, limit: 20 });
+    const rank = { CONFIRMED_BY_CLIENT: 3, CONFIRMED_BY_SYSTEM: 2, INFERRED: 1, UNKNOWN: 0 };
+    rows.sort((a, b) => (rank[b.confidence]||0) - (rank[a.confidence]||0));
+    return rows[0] || null;
+  },
+  upsertFact({ companyId, contactId, prospectId, key, value, confidence, source, sourceMessageId, notes } = {}) {
+    const current = clientMemory.findCurrent({ companyId, contactId, prospectId }, key);
+    const conf = confidence && MEMORY_CONFIDENCE[confidence] ? confidence : 'INFERRED';
+    if (current && current.value === String(value) && current.confidence === conf) return { entry: current, changed: false };
+    if (current && current.confidence === 'CONFIRMED_BY_CLIENT' && conf === 'INFERRED') return { entry: current, changed: false, blocked: true };
+    const entry = clientMemory.create({ companyId: companyId || current?.company_id, contactId: contactId || current?.contact_id, prospectId: prospectId || current?.prospect_id, key, value, confidence: conf, source, sourceMessageId, notes: notes || (current ? `supersedes ${current.id}` : null) });
+    return { entry, changed: true, previous: current || null };
+  },
+};
+export const conversationInsights = {
+  get(conversationId) { return getDb().prepare('SELECT * FROM conversation_insights WHERE conversation_id = ?').get(conversationId); },
+  upsert(conversationId, fields = {}) {
+    const current = conversationInsights.get(conversationId); const now = new Date().toISOString();
+    if (!current) {
+      getDb().prepare(`INSERT INTO conversation_insights (conversation_id, message_count, latest_message_id, current_intent, current_classification, summary, facts_json, requested_service, requested_deliverables, deadline, budget, unresolved_questions_json, next_action, next_action_reason, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(conversationId, fields.messageCount??0, fields.latestMessageId||null, fields.currentIntent||null, fields.currentClassification||null, fields.summary||null, fields.facts?JSON.stringify(fields.facts):null, fields.requestedService||null, fields.requestedDeliverables||null, fields.deadline||null, fields.budget||null, fields.unresolvedQuestions?JSON.stringify(fields.unresolvedQuestions):null, fields.nextAction||null, fields.nextActionReason||null, now);
+    } else {
+      getDb().prepare(`UPDATE conversation_insights SET message_count=?, latest_message_id=?, current_intent=?, current_classification=?, summary=?, facts_json=?, requested_service=?, requested_deliverables=?, deadline=?, budget=?, unresolved_questions_json=?, next_action=?, next_action_reason=?, updated_at=? WHERE conversation_id=?`).run(fields.messageCount??current.message_count, fields.latestMessageId!==undefined?fields.latestMessageId:current.latest_message_id, fields.currentIntent!==undefined?fields.currentIntent:current.current_intent, fields.currentClassification!==undefined?fields.currentClassification:current.current_classification, fields.summary!==undefined?fields.summary:current.summary, fields.facts!==undefined?JSON.stringify(fields.facts):current.facts_json, fields.requestedService!==undefined?fields.requestedService:current.requested_service, fields.requestedDeliverables!==undefined?fields.requestedDeliverables:current.requested_deliverables, fields.deadline!==undefined?fields.deadline:current.deadline, fields.budget!==undefined?fields.budget:current.budget, fields.unresolvedQuestions!==undefined?JSON.stringify(fields.unresolvedQuestions):current.unresolved_questions_json, fields.nextAction!==undefined?fields.nextAction:current.next_action, fields.nextActionReason!==undefined?fields.nextActionReason:current.next_action_reason, now, conversationId);
+    }
+    return conversationInsights.get(conversationId);
+  },
+};
