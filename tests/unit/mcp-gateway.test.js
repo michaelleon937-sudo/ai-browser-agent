@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
+import http from 'node:http';
 
 const invokeControlTool = vi.fn(async ({ toolName, args, idempotencyKey, source }) => ({
   ok: true,
@@ -235,13 +236,21 @@ describe('Remote MCP Gateway', () => {
     const { port } = server.address();
 
     try {
-      const response = await fetch(`http://127.0.0.1:${port}/mcp`, {
-        headers: {
-          Host: 'evil.example',
-          Authorization: 'Bearer mcp-test-token',
-        },
+      const response = await new Promise((resolve, reject) => {
+        const request = http.request({
+          hostname: '127.0.0.1',
+          port,
+          path: '/mcp',
+          method: 'GET',
+          headers: {
+            Host: 'evil.example',
+            Authorization: 'Bearer mcp-test-token',
+          },
+        }, resolve);
+        request.on('error', reject);
+        request.end();
       });
-      expect(response.status).toBe(403);
+      expect(response.statusCode).toBe(403);
     } finally {
       await new Promise((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
     }

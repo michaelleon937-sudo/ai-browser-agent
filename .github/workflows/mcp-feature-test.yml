@@ -126,6 +126,9 @@ jobs:
           git commit -m "chore(mcp): sync package-lock dependencies"
           git push origin HEAD:feature/grok-mcp-control
 
+      - name: Prepare writable test data directory
+        run: sudo mkdir -p /data && sudo chmod 777 /data
+
       - name: Setup Node.js 20 for project tests
         uses: actions/setup-node@v4
         with:
