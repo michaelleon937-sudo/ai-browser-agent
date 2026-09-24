@@ -17,7 +17,7 @@ import express from 'express';
 import basicAuth from 'express-basic-auth';
 import fs from 'node:fs';
 import path from 'node:path';
-import { tasks, runs, steps, errors as dbErrors, notifications, websiteSamples, prospects, opportunities, samples, proposals, outreachMessages, outreachApprovals, outreachAttempts } from '../database/index.js';
+import { tasks, runs, steps, errors as dbErrors, notifications, websiteSamples, prospects, opportunities, samples, proposals, outreachMessages, outreachApprovals, outreachAttempts, companies, contacts, conversations, inboundMessages, clientMemory, conversationInsights, invoices, payments, projects } from '../database/index.js';
 import { approveOutreachMessage, denyOutreachMessage, sendApprovedOutreach } from '../integrations/outreach-delivery.js';
 import { runAgent } from '../agent/index.js';
 import { scheduleTask, unscheduleTask } from '../scheduler/index.js';
@@ -304,6 +304,82 @@ export async function startDashboard() {
     if (!outreachMessages.get(req.params.id)) return res.status(404).json({ error: 'not found' });
     res.json(outreachAttempts.listForMessage(req.params.id, { limit: Number(req.query.limit) || 20 }));
   });
+
+  app.get('/api/crm/companies', (req, res) => {
+    res.json(companies.list({ limit: Number(req.query.limit) || 50 }));
+  });
+  app.get('/api/crm/companies/:id', (req, res) => {
+    const row = companies.get(req.params.id);
+    if (!row) return res.status(404).json({ error: 'not found' });
+    res.json(row);
+  });
+  app.get('/api/crm/contacts', (req, res) => {
+    res.json(contacts.list({ limit: Number(req.query.limit) || 50, companyId: req.query.companyId, prospectId: req.query.prospectId }));
+  });
+  app.get('/api/crm/contacts/:id', (req, res) => {
+    const row = contacts.get(req.params.id);
+    if (!row) return res.status(404).json({ error: 'not found' });
+    res.json(row);
+  });
+  app.get('/api/crm/conversations', (req, res) => {
+    res.json(conversations.list({ limit: Number(req.query.limit) || 50, status: req.query.status, contactId: req.query.contactId, companyId: req.query.companyId, prospectId: req.query.prospectId }));
+  });
+  app.get('/api/crm/conversations/:id', (req, res) => {
+    const row = conversations.get(req.params.id);
+    if (!row) return res.status(404).json({ error: 'not found' });
+    res.json({ conversation: row, messages: inboundMessages.list({ conversationId: row.id, limit: Number(req.query.limit) || 50 }) });
+  });
+  
+  
+  app.get('/api/crm/invoices', (req, res) => {
+    res.json(invoices.list({ limit: Number(req.query.limit) || 50, status: req.query.status, companyId: req.query.companyId }));
+  });
+  app.get('/api/crm/invoices/:id', (req, res) => {
+    const row = invoices.get(req.params.id);
+    if (!row) return res.status(404).json({ error: 'not found' });
+    res.json(row);
+  });
+  app.get('/api/crm/payments', (req, res) => {
+    res.json(payments.list({ limit: Number(req.query.limit) || 50, status: req.query.status, invoiceId: req.query.invoiceId }));
+  });
+  app.get('/api/crm/payments/:id', (req, res) => {
+    const row = payments.get(req.params.id);
+    if (!row) return res.status(404).json({ error: 'not found' });
+    res.json(row);
+  });
+  app.get('/api/crm/projects', (req, res) => {
+    res.json(projects.list({ limit: Number(req.query.limit) || 50, status: req.query.status, companyId: req.query.companyId }));
+  });
+  app.get('/api/crm/projects/:id', (req, res) => {
+    const row = projects.get(req.params.id);
+    if (!row) return res.status(404).json({ error: 'not found' });
+    res.json(row);
+  });
+
+  app.get('/api/crm/memory', (req, res) => {
+    res.json(clientMemory.list({
+      limit: Number(req.query.limit) || 50,
+      companyId: req.query.companyId,
+      contactId: req.query.contactId,
+      prospectId: req.query.prospectId,
+      key: req.query.key,
+    }));
+  });
+  app.get('/api/crm/conversations/:id/insight', (req, res) => {
+    const row = conversationInsights.get(req.params.id);
+    if (!row) return res.status(404).json({ error: 'not found' });
+    res.json(row);
+  });
+
+  app.get('/api/crm/messages', (req, res) => {
+    res.json(inboundMessages.list({ limit: Number(req.query.limit) || 50, conversationId: req.query.conversationId, contactId: req.query.contactId, prospectId: req.query.prospectId, classification: req.query.classification }));
+  });
+  app.get('/api/crm/messages/:id', (req, res) => {
+    const row = inboundMessages.get(req.params.id);
+    if (!row) return res.status(404).json({ error: 'not found' });
+    res.json(row);
+  });
+
 
 
   const PREVIEW_FILES = {

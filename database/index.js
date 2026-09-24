@@ -311,11 +311,16 @@ const PROSPECT_STATUS_TRANSITIONS = {
   SAMPLE_CREATED: new Set(['SAMPLE_CREATED', 'PROPOSAL_READY', 'AWAITING_APPROVAL']),
   PROPOSAL_READY: new Set(['PROPOSAL_READY', 'AWAITING_APPROVAL', 'CONTACTED']),
   AWAITING_APPROVAL: new Set(['AWAITING_APPROVAL', 'CONTACTED', 'LOST']),
-  CONTACTED: new Set(['CONTACTED', 'REPLIED', 'FOLLOW_UP', 'WON', 'LOST']),
-  REPLIED: new Set(['REPLIED', 'FOLLOW_UP', 'WON', 'LOST']),
-  FOLLOW_UP: new Set(['FOLLOW_UP', 'REPLIED', 'WON', 'LOST']),
-  WON: new Set(['WON']),
-  LOST: new Set(['LOST']),
+  CONTACTED: new Set(['CONTACTED', 'REPLIED', 'FOLLOW_UP', 'QUALIFIED', 'WON', 'LOST']),
+  REPLIED: new Set(['REPLIED', 'FOLLOW_UP', 'QUALIFIED', 'WON', 'LOST']),
+  FOLLOW_UP: new Set(['FOLLOW_UP', 'REPLIED', 'QUALIFIED', 'WON', 'LOST']),
+  QUALIFIED: new Set(['QUALIFIED', 'CONTACTED', 'FOLLOW_UP', 'WON', 'CUSTOMER', 'LOST']),
+  WON: new Set(['WON', 'CUSTOMER', 'ACTIVE_CLIENT']),
+  CUSTOMER: new Set(['CUSTOMER', 'ACTIVE_CLIENT', 'COMPLETED', 'ARCHIVED']),
+  ACTIVE_CLIENT: new Set(['ACTIVE_CLIENT', 'COMPLETED', 'ARCHIVED']),
+  COMPLETED: new Set(['COMPLETED', 'ARCHIVED', 'ACTIVE_CLIENT']),
+  ARCHIVED: new Set(['ARCHIVED']),
+  LOST: new Set(['LOST', 'ARCHIVED']),
 };
 
 export function assertProspectStatusTransition(from, to) {
@@ -327,6 +332,12 @@ export function assertProspectStatusTransition(from, to) {
 }
 
 /** CONTACTED requires a confirmed external send — never a draft alone. */
+export function assertCanMarkCustomer({ explicitAction } = {}) {
+  if (!explicitAction) {
+    throw new Error('CUSTOMER/WON requires an explicit business action; positive message alone is not sufficient');
+  }
+}
+
 export function assertCanMarkContacted({ hasConfirmedSend } = {}) {
   if (!hasConfirmedSend) {
     throw new Error('CONTACTED requires a confirmed successful external send; outreach draft alone is not sufficient');
@@ -842,4 +853,256 @@ outreachAttempts.update = function update(id, { status, providerMessageId, start
     id,
   );
   return outreachAttempts.get(id);
+};
+
+
+// ── Phase 6 CRM — companies, contacts, conversations, inbound messages ──
+
+export const companies = {
+  create({ id, name, website, domain, industry, location, notes, metadata } = {}) {
+    if (!name) throw new Error('company name is required');
+    const genId = id || nanoid(12);
+    const now = new Date().toISOString();
+    const resolvedDomain = domain || (website ? extractDomain(website) : null);
+    getDb().prepare(`
+      INSERT INTO companies
+        (id, name, website, domain, industry, location, notes, metadata_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(genId, name, website || null, resolvedDomain, industry || null, location || null, notes || null, metadata ? JSON.stringify(metadata) : null, now, now);
+    return companies.get(genId);
+  },
+  get(id) { return getDb().prepare('SELECT * FROM companies WHERE id = ?').get(id); },
+  findByDomain(domain) {
+    if (!domain) return null;
+    return getDb().prepare('SELECT * FROM companies WHERE lower(domain) = lower(?) LIMIT 1').get(domain);
+  },
+  findByName(name) {
+    if (!name) return null;
+    return getDb().prepare('SELECT * FROM companies WHERE lower(name) = lower(?) LIMIT 1').get(name);
+  },
+  list({ limit = 50 } = {}) { return getDb().prepare('SELECT * FROM companies ORDER BY created_at DESC LIMIT ?').all(limit); },
+  update(id, fields = {}) {
+    const current = companies.get(id);
+    if (!current) return null;
+    const now = new Date().toISOString();
+    getDb().prepare(`UPDATE companies SET name = ?, website = ?, domain = ?, industry = ?, location = ?, notes = ?, metadata_json = ?, updated_at = ? WHERE id = ?`).run(fields.name ?? current.name, fields.website !== undefined ? fields.website : current.website, fields.domain !== undefined ? fields.domain : current.domain, fields.industry !== undefined ? fields.industry : current.industry, fields.location !== undefined ? fields.location : current.location, fields.notes !== undefined ? fields.notes : current.notes, fields.metadata !== undefined ? JSON.stringify(fields.metadata) : current.metadata_json, now, id);
+    return companies.get(id);
+  },
+};
+
+export const contacts = {
+  create({ id, companyId, prospectId, name, email, phone, role, externalId, metadata } = {}) {
+    const genId = id || nanoid(12);
+    const now = new Date().toISOString();
+    getDb().prepare(`INSERT INTO contacts (id, company_id, prospect_id, name, email, phone, role, external_id, metadata_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(genId, companyId || null, prospectId || null, name || null, email ? String(email).toLowerCase().trim() : null, phone || null, role || null, externalId || null, metadata ? JSON.stringify(metadata) : null, now, now);
+    return contacts.get(genId);
+  },
+  get(id) { return getDb().prepare('SELECT * FROM contacts WHERE id = ?').get(id); },
+  findByEmail(email) {
+    if (!email) return null;
+    return getDb().prepare('SELECT * FROM contacts WHERE lower(email) = lower(?) LIMIT 1').get(String(email).trim());
+  },
+  findByExternalId(externalId) {
+    if (!externalId) return null;
+    return getDb().prepare('SELECT * FROM contacts WHERE external_id = ? LIMIT 1').get(externalId);
+  },
+  list({ limit = 50, companyId, prospectId } = {}) {
+    const clauses = []; const params = [];
+    if (companyId) { clauses.push('company_id = ?'); params.push(companyId); }
+    if (prospectId) { clauses.push('prospect_id = ?'); params.push(prospectId); }
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+    params.push(limit);
+    return getDb().prepare(`SELECT * FROM contacts ${where} ORDER BY created_at DESC LIMIT ?`).all(...params);
+  },
+  update(id, fields = {}) {
+    const current = contacts.get(id);
+    if (!current) return null;
+    const now = new Date().toISOString();
+    getDb().prepare(`UPDATE contacts SET company_id = ?, prospect_id = ?, name = ?, email = ?, phone = ?, role = ?, external_id = ?, metadata_json = ?, updated_at = ? WHERE id = ?`).run(fields.companyId !== undefined ? fields.companyId : current.company_id, fields.prospectId !== undefined ? fields.prospectId : current.prospect_id, fields.name !== undefined ? fields.name : current.name, fields.email !== undefined ? (fields.email ? String(fields.email).toLowerCase().trim() : null) : current.email, fields.phone !== undefined ? fields.phone : current.phone, fields.role !== undefined ? fields.role : current.role, fields.externalId !== undefined ? fields.externalId : current.external_id, fields.metadata !== undefined ? JSON.stringify(fields.metadata) : current.metadata_json, now, id);
+    return contacts.get(id);
+  },
+};
+
+export const conversations = {
+  create({ id, companyId, contactId, prospectId, channel, externalThreadId, status, subject, summary } = {}) {
+    if (!channel) throw new Error('conversation channel is required');
+    const genId = id || nanoid(12);
+    const now = new Date().toISOString();
+    getDb().prepare(`INSERT INTO conversations (id, company_id, contact_id, prospect_id, channel, external_thread_id, status, subject, summary, last_message_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(genId, companyId || null, contactId || null, prospectId || null, channel, externalThreadId || null, status || 'OPEN', subject || null, summary || null, null, now, now);
+    return conversations.get(genId);
+  },
+  get(id) { return getDb().prepare('SELECT * FROM conversations WHERE id = ?').get(id); },
+  findByExternalThread(channel, externalThreadId) {
+    if (!channel || !externalThreadId) return null;
+    return getDb().prepare('SELECT * FROM conversations WHERE channel = ? AND external_thread_id = ? LIMIT 1').get(channel, externalThreadId);
+  },
+  list({ limit = 50, status, contactId, companyId, prospectId } = {}) {
+    const clauses = []; const params = [];
+    if (status) { clauses.push('status = ?'); params.push(status); }
+    if (contactId) { clauses.push('contact_id = ?'); params.push(contactId); }
+    if (companyId) { clauses.push('company_id = ?'); params.push(companyId); }
+    if (prospectId) { clauses.push('prospect_id = ?'); params.push(prospectId); }
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+    params.push(limit);
+    return getDb().prepare(`SELECT * FROM conversations ${where} ORDER BY COALESCE(last_message_at, created_at) DESC LIMIT ?`).all(...params);
+  },
+  update(id, fields = {}) {
+    const current = conversations.get(id);
+    if (!current) return null;
+    const now = new Date().toISOString();
+    getDb().prepare(`UPDATE conversations SET company_id = ?, contact_id = ?, prospect_id = ?, status = ?, subject = ?, summary = ?, last_message_at = ?, updated_at = ? WHERE id = ?`).run(fields.companyId !== undefined ? fields.companyId : current.company_id, fields.contactId !== undefined ? fields.contactId : current.contact_id, fields.prospectId !== undefined ? fields.prospectId : current.prospect_id, fields.status !== undefined ? fields.status : current.status, fields.subject !== undefined ? fields.subject : current.subject, fields.summary !== undefined ? fields.summary : current.summary, fields.lastMessageAt !== undefined ? fields.lastMessageAt : current.last_message_at, now, id);
+    return conversations.get(id);
+  },
+};
+
+export const inboundMessages = {
+  create({ id, conversationId, companyId, contactId, prospectId, provider, externalMessageId, direction, sender, recipient, subject, body, receivedAt, intent, classification, extractedData, rawMetadata } = {}) {
+    if (!conversationId) throw new Error('conversationId is required');
+    if (!provider) throw new Error('provider is required');
+    const genId = id || nanoid(14);
+    const now = new Date().toISOString();
+    getDb().prepare(`INSERT INTO inbound_messages (id, conversation_id, company_id, contact_id, prospect_id, provider, external_message_id, direction, sender, recipient, subject, body, received_at, intent, classification, extracted_data_json, raw_metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(genId, conversationId, companyId || null, contactId || null, prospectId || null, provider, externalMessageId || null, direction || 'inbound', sender || null, recipient || null, subject || null, body || null, receivedAt || now, intent || null, classification || null, extractedData ? JSON.stringify(extractedData) : null, rawMetadata ? JSON.stringify(rawMetadata) : null, now);
+    return inboundMessages.get(genId);
+  },
+  get(id) { return getDb().prepare('SELECT * FROM inbound_messages WHERE id = ?').get(id); },
+  findByProviderExternalId(provider, externalMessageId) {
+    if (!provider || !externalMessageId) return null;
+    return getDb().prepare('SELECT * FROM inbound_messages WHERE provider = ? AND external_message_id = ? LIMIT 1').get(provider, externalMessageId);
+  },
+  list({ limit = 50, conversationId, contactId, prospectId, classification } = {}) {
+    const clauses = []; const params = [];
+    if (conversationId) { clauses.push('conversation_id = ?'); params.push(conversationId); }
+    if (contactId) { clauses.push('contact_id = ?'); params.push(contactId); }
+    if (prospectId) { clauses.push('prospect_id = ?'); params.push(prospectId); }
+    if (classification) { clauses.push('classification = ?'); params.push(classification); }
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+    params.push(limit);
+    return getDb().prepare(`SELECT * FROM inbound_messages ${where} ORDER BY received_at DESC LIMIT ?`).all(...params);
+  },
+};
+
+function extractDomain(urlOrHost) {
+  if (!urlOrHost) return null;
+  try {
+    const withProto = String(urlOrHost).includes('://') ? urlOrHost : `https://${urlOrHost}`;
+    return new URL(withProto).hostname.replace(/^www\./, '').toLowerCase();
+  } catch {
+    return String(urlOrHost).replace(/^www\./, '').toLowerCase() || null;
+  }
+}
+
+
+export const MEMORY_CONFIDENCE = Object.freeze({ CONFIRMED_BY_CLIENT: 'CONFIRMED_BY_CLIENT', CONFIRMED_BY_SYSTEM: 'CONFIRMED_BY_SYSTEM', INFERRED: 'INFERRED', UNKNOWN: 'UNKNOWN' });
+export const clientMemory = {
+  create({ id, companyId, contactId, prospectId, key, value, confidence, source, sourceMessageId, notes, expiresAt } = {}) {
+    if (!key) throw new Error('memory key is required');
+    if (value === undefined || value === null) throw new Error('memory value is required');
+    const genId = id || nanoid(12); const now = new Date().toISOString();
+    const conf = confidence && MEMORY_CONFIDENCE[confidence] ? confidence : 'INFERRED';
+    getDb().prepare(`INSERT INTO client_memory (id, company_id, contact_id, prospect_id, key, value, confidence, source, source_message_id, notes, created_at, updated_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(genId, companyId||null, contactId||null, prospectId||null, key, String(value), conf, source||'system', sourceMessageId||null, notes||null, now, now, expiresAt||null);
+    return clientMemory.get(genId);
+  },
+  get(id) { return getDb().prepare('SELECT * FROM client_memory WHERE id = ?').get(id); },
+  list({ companyId, contactId, prospectId, key, limit = 100 } = {}) {
+    const clauses = []; const params = [];
+    if (companyId) { clauses.push('company_id = ?'); params.push(companyId); }
+    if (contactId) { clauses.push('contact_id = ?'); params.push(contactId); }
+    if (prospectId) { clauses.push('prospect_id = ?'); params.push(prospectId); }
+    if (key) { clauses.push('key = ?'); params.push(key); }
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''; params.push(limit);
+    return getDb().prepare(`SELECT * FROM client_memory ${where} ORDER BY updated_at DESC LIMIT ?`).all(...params);
+  },
+  findCurrent(scope, key) {
+    const rows = clientMemory.list({ ...scope, key, limit: 20 });
+    const rank = { CONFIRMED_BY_CLIENT: 3, CONFIRMED_BY_SYSTEM: 2, INFERRED: 1, UNKNOWN: 0 };
+    rows.sort((a, b) => (rank[b.confidence]||0) - (rank[a.confidence]||0));
+    return rows[0] || null;
+  },
+  upsertFact({ companyId, contactId, prospectId, key, value, confidence, source, sourceMessageId, notes } = {}) {
+    const current = clientMemory.findCurrent({ companyId, contactId, prospectId }, key);
+    const conf = confidence && MEMORY_CONFIDENCE[confidence] ? confidence : 'INFERRED';
+    if (current && current.value === String(value) && current.confidence === conf) return { entry: current, changed: false };
+    if (current && current.confidence === 'CONFIRMED_BY_CLIENT' && conf === 'INFERRED') return { entry: current, changed: false, blocked: true };
+    const entry = clientMemory.create({ companyId: companyId || current?.company_id, contactId: contactId || current?.contact_id, prospectId: prospectId || current?.prospect_id, key, value, confidence: conf, source, sourceMessageId, notes: notes || (current ? `supersedes ${current.id}` : null) });
+    return { entry, changed: true, previous: current || null };
+  },
+};
+export const conversationInsights = {
+  get(conversationId) { return getDb().prepare('SELECT * FROM conversation_insights WHERE conversation_id = ?').get(conversationId); },
+  upsert(conversationId, fields = {}) {
+    const current = conversationInsights.get(conversationId); const now = new Date().toISOString();
+    if (!current) {
+      getDb().prepare(`INSERT INTO conversation_insights (conversation_id, message_count, latest_message_id, current_intent, current_classification, summary, facts_json, requested_service, requested_deliverables, deadline, budget, unresolved_questions_json, next_action, next_action_reason, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(conversationId, fields.messageCount??0, fields.latestMessageId||null, fields.currentIntent||null, fields.currentClassification||null, fields.summary||null, fields.facts?JSON.stringify(fields.facts):null, fields.requestedService||null, fields.requestedDeliverables||null, fields.deadline||null, fields.budget||null, fields.unresolvedQuestions?JSON.stringify(fields.unresolvedQuestions):null, fields.nextAction||null, fields.nextActionReason||null, now);
+    } else {
+      getDb().prepare(`UPDATE conversation_insights SET message_count=?, latest_message_id=?, current_intent=?, current_classification=?, summary=?, facts_json=?, requested_service=?, requested_deliverables=?, deadline=?, budget=?, unresolved_questions_json=?, next_action=?, next_action_reason=?, updated_at=? WHERE conversation_id=?`).run(fields.messageCount??current.message_count, fields.latestMessageId!==undefined?fields.latestMessageId:current.latest_message_id, fields.currentIntent!==undefined?fields.currentIntent:current.current_intent, fields.currentClassification!==undefined?fields.currentClassification:current.current_classification, fields.summary!==undefined?fields.summary:current.summary, fields.facts!==undefined?JSON.stringify(fields.facts):current.facts_json, fields.requestedService!==undefined?fields.requestedService:current.requested_service, fields.requestedDeliverables!==undefined?fields.requestedDeliverables:current.requested_deliverables, fields.deadline!==undefined?fields.deadline:current.deadline, fields.budget!==undefined?fields.budget:current.budget, fields.unresolvedQuestions!==undefined?JSON.stringify(fields.unresolvedQuestions):current.unresolved_questions_json, fields.nextAction!==undefined?fields.nextAction:current.next_action, fields.nextActionReason!==undefined?fields.nextActionReason:current.next_action_reason, now, conversationId);
+    }
+    return conversationInsights.get(conversationId);
+  },
+};
+
+
+// Phase 7 — Invoices, Payments, Projects, Billing
+export const INVOICE_STATUSES = Object.freeze(['DRAFT','PENDING_APPROVAL','APPROVED','SENT','PARTIALLY_PAID','PAID','OVERDUE','CANCELLED','VOID']);
+const INVOICE_TRANSITIONS = { DRAFT:new Set(['DRAFT','PENDING_APPROVAL','APPROVED','CANCELLED','VOID']), PENDING_APPROVAL:new Set(['PENDING_APPROVAL','APPROVED','CANCELLED','VOID']), APPROVED:new Set(['APPROVED','SENT','CANCELLED','VOID']), SENT:new Set(['SENT','PARTIALLY_PAID','PAID','OVERDUE','CANCELLED']), PARTIALLY_PAID:new Set(['PARTIALLY_PAID','PAID','OVERDUE','CANCELLED']), PAID:new Set(['PAID']), OVERDUE:new Set(['OVERDUE','PARTIALLY_PAID','PAID','CANCELLED']), CANCELLED:new Set(['CANCELLED']), VOID:new Set(['VOID']) };
+export function assertInvoiceStatusTransition(from,to){ if(from===to)return; const a=INVOICE_TRANSITIONS[from]; if(!a||!a.has(to)) throw new Error(`Invalid invoice status transition: ${from} → ${to}`); }
+export const PAYMENT_STATUSES = Object.freeze(['CREATED','PENDING','PROCESSING','SUCCEEDED','FAILED','CANCELLED','REFUNDED','UNKNOWN']);
+const PAYMENT_TRANSITIONS = { CREATED:new Set(['CREATED','PENDING','PROCESSING','FAILED','CANCELLED','UNKNOWN']), PENDING:new Set(['PENDING','PROCESSING','SUCCEEDED','FAILED','CANCELLED','UNKNOWN']), PROCESSING:new Set(['PROCESSING','SUCCEEDED','FAILED','CANCELLED','UNKNOWN']), SUCCEEDED:new Set(['SUCCEEDED','REFUNDED']), FAILED:new Set(['FAILED','PENDING','CANCELLED']), CANCELLED:new Set(['CANCELLED']), REFUNDED:new Set(['REFUNDED']), UNKNOWN:new Set(['UNKNOWN','PENDING','PROCESSING','SUCCEEDED','FAILED','CANCELLED']) };
+export function assertPaymentStatusTransition(from,to){ if(from===to)return; const a=PAYMENT_TRANSITIONS[from]; if(!a||!a.has(to)) throw new Error(`Invalid payment status transition: ${from} → ${to}`); }
+export const PROJECT_STATUSES = Object.freeze(['NOT_STARTED','READY_TO_START','IN_PROGRESS','IN_REVIEW','REVISION_REQUESTED','APPROVED','DELIVERED','COMPLETED','CANCELLED']);
+const PROJECT_TRANSITIONS = { NOT_STARTED:new Set(['NOT_STARTED','READY_TO_START','CANCELLED']), READY_TO_START:new Set(['READY_TO_START','IN_PROGRESS','CANCELLED']), IN_PROGRESS:new Set(['IN_PROGRESS','IN_REVIEW','CANCELLED']), IN_REVIEW:new Set(['IN_REVIEW','REVISION_REQUESTED','APPROVED','CANCELLED']), REVISION_REQUESTED:new Set(['REVISION_REQUESTED','IN_PROGRESS','CANCELLED']), APPROVED:new Set(['APPROVED','DELIVERED','CANCELLED']), DELIVERED:new Set(['DELIVERED','COMPLETED','CANCELLED']), COMPLETED:new Set(['COMPLETED']), CANCELLED:new Set(['CANCELLED']) };
+export function assertProjectStatusTransition(from,to){ if(from===to)return; const a=PROJECT_TRANSITIONS[from]; if(!a||!a.has(to)) throw new Error(`Invalid project status transition: ${from} → ${to}`); }
+function nextInvoiceNumber(){ const year=new Date().getFullYear(); const db=getDb(); const row=db.prepare('SELECT last_seq FROM invoice_sequences WHERE year = ?').get(year); let seq=1; if(!row) db.prepare('INSERT INTO invoice_sequences (year, last_seq) VALUES (?, ?)').run(year,1); else { seq=row.last_seq+1; db.prepare('UPDATE invoice_sequences SET last_seq = ? WHERE year = ?').run(seq,year);} return `INV-${year}-${String(seq).padStart(6,'0')}`; }
+export const invoices = {
+  create({ id, clientId, companyId, contactId, prospectId, opportunityId, proposalId, taskId, runId, currency, subtotal, tax, total, status, issueDate, dueDate, description, lineItems, invoiceNumber } = {}) {
+    const genId=id||nanoid(12); const now=new Date().toISOString(); const number=invoiceNumber||nextInvoiceNumber(); const st=status||'DRAFT'; if(!INVOICE_STATUSES.includes(st)) throw new Error(`Invalid invoice status: ${st}`);
+    getDb().prepare(`INSERT INTO invoices (id, invoice_number, client_id, company_id, contact_id, prospect_id, opportunity_id, proposal_id, task_id, run_id, currency, subtotal, tax, total, status, issue_date, due_date, description, line_items_json, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(genId,number,clientId||null,companyId||null,contactId||null,prospectId||null,opportunityId||null,proposalId||null,taskId||null,runId||null,currency||'USD',Number(subtotal)||0,Number(tax)||0,total!==undefined?Number(total):(Number(subtotal)||0)+(Number(tax)||0),st,issueDate||null,dueDate||null,description||null,lineItems?JSON.stringify(lineItems):null,now,now); return invoices.get(genId);
+  },
+  get(id){ return getDb().prepare('SELECT * FROM invoices WHERE id = ?').get(id); },
+  getByNumber(n){ return getDb().prepare('SELECT * FROM invoices WHERE invoice_number = ?').get(n); },
+  list({ limit=50, status, companyId, prospectId, opportunityId }={}){ const c=[],p=[]; if(status){c.push('status = ?');p.push(status);} if(companyId){c.push('company_id = ?');p.push(companyId);} if(prospectId){c.push('prospect_id = ?');p.push(prospectId);} if(opportunityId){c.push('opportunity_id = ?');p.push(opportunityId);} const w=c.length?`WHERE ${c.join(' AND ')}`:''; p.push(limit); return getDb().prepare(`SELECT * FROM invoices ${w} ORDER BY created_at DESC LIMIT ?`).all(...p); },
+  updateStatus(id,status){ const cur=invoices.get(id); if(!cur) throw new Error(`Invoice not found: ${id}`); assertInvoiceStatusTransition(cur.status,status); getDb().prepare('UPDATE invoices SET status = ?, updated_at = ? WHERE id = ?').run(status,new Date().toISOString(),id); return invoices.get(id); },
+};
+export const payments = {
+  create({ id, invoiceId, clientId, companyId, provider, providerPaymentId, providerTransactionId, amount, currency, status, paymentMethod, idempotencyKey, metadata } = {}) {
+    if(!invoiceId) throw new Error('invoiceId is required'); if(!provider) throw new Error('provider is required'); if(amount===undefined||amount===null) throw new Error('amount is required');
+    if(idempotencyKey){ const e=payments.getByIdempotencyKey(idempotencyKey); if(e) return e; }
+    if(providerTransactionId){ const e=payments.getByProviderTxn(provider,providerTransactionId); if(e) return e; }
+    const genId=id||nanoid(12); const now=new Date().toISOString(); const st=status||'CREATED'; if(!PAYMENT_STATUSES.includes(st)) throw new Error(`Invalid payment status: ${st}`);
+    getDb().prepare(`INSERT INTO payments (id, invoice_id, client_id, company_id, provider, provider_payment_id, provider_transaction_id, amount, currency, status, payment_method, idempotency_key, verified_at, metadata_json, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(genId,invoiceId,clientId||null,companyId||null,provider,providerPaymentId||null,providerTransactionId||null,Number(amount),currency||'USD',st,paymentMethod||null,idempotencyKey||null,null,metadata?JSON.stringify(metadata):null,now,now); return payments.get(genId);
+  },
+  get(id){ return getDb().prepare('SELECT * FROM payments WHERE id = ?').get(id); },
+  getByIdempotencyKey(k){ return getDb().prepare('SELECT * FROM payments WHERE idempotency_key = ?').get(k); },
+  getByProviderTxn(provider,txnId){ return getDb().prepare('SELECT * FROM payments WHERE provider = ? AND provider_transaction_id = ?').get(provider,txnId); },
+  list({ limit=50, status, invoiceId, provider }={}){ const c=[],p=[]; if(status){c.push('status = ?');p.push(status);} if(invoiceId){c.push('invoice_id = ?');p.push(invoiceId);} if(provider){c.push('provider = ?');p.push(provider);} const w=c.length?`WHERE ${c.join(' AND ')}`:''; p.push(limit); return getDb().prepare(`SELECT * FROM payments ${w} ORDER BY created_at DESC LIMIT ?`).all(...p); },
+  updateStatus(id,status,{ verifiedAt, providerTransactionId, providerPaymentId }={}){ const cur=payments.get(id); if(!cur) throw new Error(`Payment not found: ${id}`); assertPaymentStatusTransition(cur.status,status); getDb().prepare(`UPDATE payments SET status = ?, verified_at = ?, provider_transaction_id = COALESCE(?, provider_transaction_id), provider_payment_id = COALESCE(?, provider_payment_id), updated_at = ? WHERE id = ?`).run(status,verifiedAt!==undefined?verifiedAt:cur.verified_at,providerTransactionId||null,providerPaymentId||null,new Date().toISOString(),id); return payments.get(id); },
+};
+export const paymentWebhookEvents = {
+  create({ id, provider, eventId, eventType, paymentId, payloadHash } = {}) {
+    if(!provider||!eventId) throw new Error('provider and eventId required');
+    const existing=paymentWebhookEvents.getByProviderEvent(provider,eventId); if(existing) return { event: existing, duplicate: true };
+    const genId=id||nanoid(12); const now=new Date().toISOString();
+    getDb().prepare(`INSERT INTO payment_webhook_events (id, provider, event_id, event_type, payment_id, payload_hash, processed, processed_at, created_at) VALUES (?,?,?,?,?,?,0,NULL,?)`).run(genId,provider,eventId,eventType||null,paymentId||null,payloadHash||null,now);
+    return { event: paymentWebhookEvents.get(genId), duplicate: false };
+  },
+  get(id){ return getDb().prepare('SELECT * FROM payment_webhook_events WHERE id = ?').get(id); },
+  getByProviderEvent(provider,eventId){ return getDb().prepare('SELECT * FROM payment_webhook_events WHERE provider = ? AND event_id = ?').get(provider,eventId); },
+  markProcessed(id){ getDb().prepare('UPDATE payment_webhook_events SET processed = 1, processed_at = ? WHERE id = ?').run(new Date().toISOString(),id); return paymentWebhookEvents.get(id); },
+};
+export const projects = {
+  create({ id, clientId, companyId, contactId, prospectId, opportunityId, proposalId, invoiceId, paymentId, status, projectType, scope, deliverables, deadline, assignedTask } = {}) {
+    const genId=id||nanoid(12); const now=new Date().toISOString(); const st=status||'NOT_STARTED'; if(!PROJECT_STATUSES.includes(st)) throw new Error(`Invalid project status: ${st}`);
+    getDb().prepare(`INSERT INTO projects (id, client_id, company_id, contact_id, prospect_id, opportunity_id, proposal_id, invoice_id, payment_id, status, project_type, scope, deliverables_json, deadline, assigned_task, created_at, updated_at, completed_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)`).run(genId,clientId||null,companyId||null,contactId||null,prospectId||null,opportunityId||null,proposalId||null,invoiceId||null,paymentId||null,st,projectType||null,scope||null,deliverables?JSON.stringify(deliverables):null,deadline||null,assignedTask||null,now,now); return projects.get(genId);
+  },
+  get(id){ return getDb().prepare('SELECT * FROM projects WHERE id = ?').get(id); },
+  list({ limit=50, status, companyId, invoiceId }={}){ const c=[],p=[]; if(status){c.push('status = ?');p.push(status);} if(companyId){c.push('company_id = ?');p.push(companyId);} if(invoiceId){c.push('invoice_id = ?');p.push(invoiceId);} const w=c.length?`WHERE ${c.join(' AND ')}`:''; p.push(limit); return getDb().prepare(`SELECT * FROM projects ${w} ORDER BY created_at DESC LIMIT ?`).all(...p); },
+  updateStatus(id,status){ const cur=projects.get(id); if(!cur) throw new Error(`Project not found: ${id}`); assertProjectStatusTransition(cur.status,status); const completedAt=status==='COMPLETED'?new Date().toISOString():cur.completed_at; getDb().prepare('UPDATE projects SET status = ?, completed_at = ?, updated_at = ? WHERE id = ?').run(status,completedAt,new Date().toISOString(),id); return projects.get(id); },
+};
+export const billingRecords = {
+  create({ id, invoiceId, paymentId, companyId, recordType, amount, currency, description } = {}) {
+    if(!recordType) throw new Error('recordType is required');
+    const genId=id||nanoid(12); const now=new Date().toISOString();
+    getDb().prepare(`INSERT INTO billing_records (id, invoice_id, payment_id, company_id, record_type, amount, currency, description, created_at) VALUES (?,?,?,?,?,?,?,?,?)`).run(genId,invoiceId||null,paymentId||null,companyId||null,recordType,Number(amount)||0,currency||'USD',description||null,now); return billingRecords.get(genId);
+  },
+  get(id){ return getDb().prepare('SELECT * FROM billing_records WHERE id = ?').get(id); },
+  list({ limit=50, invoiceId, companyId }={}){ const c=[],p=[]; if(invoiceId){c.push('invoice_id = ?');p.push(invoiceId);} if(companyId){c.push('company_id = ?');p.push(companyId);} const w=c.length?`WHERE ${c.join(' AND ')}`:''; p.push(limit); return getDb().prepare(`SELECT * FROM billing_records ${w} ORDER BY created_at DESC LIMIT ?`).all(...p); },
 };
