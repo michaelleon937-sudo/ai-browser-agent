@@ -69,6 +69,7 @@ export const ALLOWED_TOOLS = Object.freeze([
   'crm.refresh_conversation',
   'crm.qualify_prospect',
   'crm.mark_customer',
+  'crm.draft_reply',
 ]);
 
 export const MUTATING_TOOLS = new Set([
@@ -92,6 +93,7 @@ export const MUTATING_TOOLS = new Set([
   'crm.refresh_conversation',
   'crm.qualify_prospect',
   'crm.mark_customer',
+  'crm.draft_reply',
 ]);
 
 export const TOOLS_REQUIRING_APPROVAL = new Set([
