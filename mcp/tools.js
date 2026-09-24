@@ -500,6 +500,14 @@ export const MCP_TOOL_DEFINITIONS = [
     description: 'Explicit business action to mark CUSTOMER or WON. Requires explicitAction=true. Never auto from message sentiment.',
     inputSchema: objectSchema({ prospectId: stringProperty('Prospect ID.'), id: stringProperty('Alias.'), explicitAction: booleanProperty('Must be true.'), status: stringProperty('CUSTOMER or WON.') }, ['explicitAction']),
   },
+
+  {
+    mcpName: 'crm_draft_reply',
+    controlName: 'crm.draft_reply',
+    title: 'Draft Client Reply',
+    description: 'Create an INTERNAL human-editable reply draft. Never sends. Never invents pricing or payments.',
+    inputSchema: objectSchema({ conversationId: stringProperty('Conversation ID.'), id: stringProperty('Alias.'), tone: stringProperty('Optional tone.') }),
+  },
 ];
 
 export default MCP_TOOL_DEFINITIONS;
