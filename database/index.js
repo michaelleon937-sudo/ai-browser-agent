@@ -843,3 +843,139 @@ outreachAttempts.update = function update(id, { status, providerMessageId, start
   );
   return outreachAttempts.get(id);
 };
+
+
+// ── Phase 6 CRM — companies, contacts, conversations, inbound messages ──
+
+export const companies = {
+  create({ id, name, website, domain, industry, location, notes, metadata } = {}) {
+    if (!name) throw new Error('company name is required');
+    const genId = id || nanoid(12);
+    const now = new Date().toISOString();
+    const resolvedDomain = domain || (website ? extractDomain(website) : null);
+    getDb().prepare(`
+      INSERT INTO companies
+        (id, name, website, domain, industry, location, notes, metadata_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(genId, name, website || null, resolvedDomain, industry || null, location || null, notes || null, metadata ? JSON.stringify(metadata) : null, now, now);
+    return companies.get(genId);
+  },
+  get(id) { return getDb().prepare('SELECT * FROM companies WHERE id = ?').get(id); },
+  findByDomain(domain) {
+    if (!domain) return null;
+    return getDb().prepare('SELECT * FROM companies WHERE lower(domain) = lower(?) LIMIT 1').get(domain);
+  },
+  findByName(name) {
+    if (!name) return null;
+    return getDb().prepare('SELECT * FROM companies WHERE lower(name) = lower(?) LIMIT 1').get(name);
+  },
+  list({ limit = 50 } = {}) { return getDb().prepare('SELECT * FROM companies ORDER BY created_at DESC LIMIT ?').all(limit); },
+  update(id, fields = {}) {
+    const current = companies.get(id);
+    if (!current) return null;
+    const now = new Date().toISOString();
+    getDb().prepare(`UPDATE companies SET name = ?, website = ?, domain = ?, industry = ?, location = ?, notes = ?, metadata_json = ?, updated_at = ? WHERE id = ?`).run(fields.name ?? current.name, fields.website !== undefined ? fields.website : current.website, fields.domain !== undefined ? fields.domain : current.domain, fields.industry !== undefined ? fields.industry : current.industry, fields.location !== undefined ? fields.location : current.location, fields.notes !== undefined ? fields.notes : current.notes, fields.metadata !== undefined ? JSON.stringify(fields.metadata) : current.metadata_json, now, id);
+    return companies.get(id);
+  },
+};
+
+export const contacts = {
+  create({ id, companyId, prospectId, name, email, phone, role, externalId, metadata } = {}) {
+    const genId = id || nanoid(12);
+    const now = new Date().toISOString();
+    getDb().prepare(`INSERT INTO contacts (id, company_id, prospect_id, name, email, phone, role, external_id, metadata_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(genId, companyId || null, prospectId || null, name || null, email ? String(email).toLowerCase().trim() : null, phone || null, role || null, externalId || null, metadata ? JSON.stringify(metadata) : null, now, now);
+    return contacts.get(genId);
+  },
+  get(id) { return getDb().prepare('SELECT * FROM contacts WHERE id = ?').get(id); },
+  findByEmail(email) {
+    if (!email) return null;
+    return getDb().prepare('SELECT * FROM contacts WHERE lower(email) = lower(?) LIMIT 1').get(String(email).trim());
+  },
+  findByExternalId(externalId) {
+    if (!externalId) return null;
+    return getDb().prepare('SELECT * FROM contacts WHERE external_id = ? LIMIT 1').get(externalId);
+  },
+  list({ limit = 50, companyId, prospectId } = {}) {
+    const clauses = []; const params = [];
+    if (companyId) { clauses.push('company_id = ?'); params.push(companyId); }
+    if (prospectId) { clauses.push('prospect_id = ?'); params.push(prospectId); }
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+    params.push(limit);
+    return getDb().prepare(`SELECT * FROM contacts ${where} ORDER BY created_at DESC LIMIT ?`).all(...params);
+  },
+  update(id, fields = {}) {
+    const current = contacts.get(id);
+    if (!current) return null;
+    const now = new Date().toISOString();
+    getDb().prepare(`UPDATE contacts SET company_id = ?, prospect_id = ?, name = ?, email = ?, phone = ?, role = ?, external_id = ?, metadata_json = ?, updated_at = ? WHERE id = ?`).run(fields.companyId !== undefined ? fields.companyId : current.company_id, fields.prospectId !== undefined ? fields.prospectId : current.prospect_id, fields.name !== undefined ? fields.name : current.name, fields.email !== undefined ? (fields.email ? String(fields.email).toLowerCase().trim() : null) : current.email, fields.phone !== undefined ? fields.phone : current.phone, fields.role !== undefined ? fields.role : current.role, fields.externalId !== undefined ? fields.externalId : current.external_id, fields.metadata !== undefined ? JSON.stringify(fields.metadata) : current.metadata_json, now, id);
+    return contacts.get(id);
+  },
+};
+
+export const conversations = {
+  create({ id, companyId, contactId, prospectId, channel, externalThreadId, status, subject, summary } = {}) {
+    if (!channel) throw new Error('conversation channel is required');
+    const genId = id || nanoid(12);
+    const now = new Date().toISOString();
+    getDb().prepare(`INSERT INTO conversations (id, company_id, contact_id, prospect_id, channel, external_thread_id, status, subject, summary, last_message_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(genId, companyId || null, contactId || null, prospectId || null, channel, externalThreadId || null, status || 'OPEN', subject || null, summary || null, null, now, now);
+    return conversations.get(genId);
+  },
+  get(id) { return getDb().prepare('SELECT * FROM conversations WHERE id = ?').get(id); },
+  findByExternalThread(channel, externalThreadId) {
+    if (!channel || !externalThreadId) return null;
+    return getDb().prepare('SELECT * FROM conversations WHERE channel = ? AND external_thread_id = ? LIMIT 1').get(channel, externalThreadId);
+  },
+  list({ limit = 50, status, contactId, companyId, prospectId } = {}) {
+    const clauses = []; const params = [];
+    if (status) { clauses.push('status = ?'); params.push(status); }
+    if (contactId) { clauses.push('contact_id = ?'); params.push(contactId); }
+    if (companyId) { clauses.push('company_id = ?'); params.push(companyId); }
+    if (prospectId) { clauses.push('prospect_id = ?'); params.push(prospectId); }
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+    params.push(limit);
+    return getDb().prepare(`SELECT * FROM conversations ${where} ORDER BY COALESCE(last_message_at, created_at) DESC LIMIT ?`).all(...params);
+  },
+  update(id, fields = {}) {
+    const current = conversations.get(id);
+    if (!current) return null;
+    const now = new Date().toISOString();
+    getDb().prepare(`UPDATE conversations SET company_id = ?, contact_id = ?, prospect_id = ?, status = ?, subject = ?, summary = ?, last_message_at = ?, updated_at = ? WHERE id = ?`).run(fields.companyId !== undefined ? fields.companyId : current.company_id, fields.contactId !== undefined ? fields.contactId : current.contact_id, fields.prospectId !== undefined ? fields.prospectId : current.prospect_id, fields.status !== undefined ? fields.status : current.status, fields.subject !== undefined ? fields.subject : current.subject, fields.summary !== undefined ? fields.summary : current.summary, fields.lastMessageAt !== undefined ? fields.lastMessageAt : current.last_message_at, now, id);
+    return conversations.get(id);
+  },
+};
+
+export const inboundMessages = {
+  create({ id, conversationId, companyId, contactId, prospectId, provider, externalMessageId, direction, sender, recipient, subject, body, receivedAt, intent, classification, extractedData, rawMetadata } = {}) {
+    if (!conversationId) throw new Error('conversationId is required');
+    if (!provider) throw new Error('provider is required');
+    const genId = id || nanoid(14);
+    const now = new Date().toISOString();
+    getDb().prepare(`INSERT INTO inbound_messages (id, conversation_id, company_id, contact_id, prospect_id, provider, external_message_id, direction, sender, recipient, subject, body, received_at, intent, classification, extracted_data_json, raw_metadata_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(genId, conversationId, companyId || null, contactId || null, prospectId || null, provider, externalMessageId || null, direction || 'inbound', sender || null, recipient || null, subject || null, body || null, receivedAt || now, intent || null, classification || null, extractedData ? JSON.stringify(extractedData) : null, rawMetadata ? JSON.stringify(rawMetadata) : null, now);
+    return inboundMessages.get(genId);
+  },
+  get(id) { return getDb().prepare('SELECT * FROM inbound_messages WHERE id = ?').get(id); },
+  findByProviderExternalId(provider, externalMessageId) {
+    if (!provider || !externalMessageId) return null;
+    return getDb().prepare('SELECT * FROM inbound_messages WHERE provider = ? AND external_message_id = ? LIMIT 1').get(provider, externalMessageId);
+  },
+  list({ limit = 50, conversationId, contactId, prospectId, classification } = {}) {
+    const clauses = []; const params = [];
+    if (conversationId) { clauses.push('conversation_id = ?'); params.push(conversationId); }
+    if (contactId) { clauses.push('contact_id = ?'); params.push(contactId); }
+    if (prospectId) { clauses.push('prospect_id = ?'); params.push(prospectId); }
+    if (classification) { clauses.push('classification = ?'); params.push(classification); }
+    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+    params.push(limit);
+    return getDb().prepare(`SELECT * FROM inbound_messages ${where} ORDER BY received_at DESC LIMIT ?`).all(...params);
+  },
+};
+
+function extractDomain(urlOrHost) {
+  if (!urlOrHost) return null;
+  try {
+    const withProto = String(urlOrHost).includes('://') ? urlOrHost : `https://${urlOrHost}`;
+    return new URL(withProto).hostname.replace(/^www\./, '').toLowerCase();
+  } catch {
+    return String(urlOrHost).replace(/^www\./, '').toLowerCase() || null;
+  }
+}
