@@ -9,6 +9,7 @@ import { ingestInboundMessage } from '../../integrations/inbound-ingestion.js';
 import { getConversationIntelligence, refreshConversationIntelligence } from '../../integrations/conversation-intelligence.js';
 import { getClientMemory, updateClientMemory, getAuthoritativeFacts } from '../../integrations/client-memory.js';
 import { recommendNextAction } from '../../integrations/next-action.js';
+import { draftClientReply } from '../../integrations/response-draft.js';
 
 export const crmTools = {
   'crm.find_company': findCompany,
@@ -29,6 +30,7 @@ export const crmTools = {
   'crm.refresh_conversation': refreshConversation,
   'crm.qualify_prospect': qualifyProspect,
   'crm.mark_customer': markCustomer,
+  'crm.draft_reply': draftReply,
 };
 
 async function findCompany(args = {}) {
@@ -146,4 +148,12 @@ async function markCustomer(args = {}) {
   const target = args.status === 'WON' ? 'WON' : 'CUSTOMER';
   assertProspectStatusTransition(prospect.status, target);
   return { ok: true, prospect: prospects.updateStatus(id, target), requiresExplicitAction: true };
+}
+
+
+async function draftReply(args = {}) {
+  const conversationId = args.conversationId || args.id;
+  if (!conversationId) throw new Error('conversationId is required');
+  const result = draftClientReply({ conversationId, tone: args.tone });
+  return { ...result, autoSend: false, requiresHumanApproval: true };
 }
