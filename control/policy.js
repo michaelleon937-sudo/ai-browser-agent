@@ -51,6 +51,12 @@ export const ALLOWED_TOOLS = Object.freeze([
   'outreach.approve',
   'outreach.deny',
   'outreach.send_approved',
+  'crm.find_company',
+  'crm.find_contact',
+  'crm.find_conversation',
+  'crm.get_conversation',
+  'crm.list_messages',
+  'crm.ingest_message',
 ]);
 
 export const MUTATING_TOOLS = new Set([
@@ -68,6 +74,7 @@ export const MUTATING_TOOLS = new Set([
   'outreach.approve',
   'outreach.deny',
   'outreach.send_approved',
+  'crm.ingest_message',
 ]);
 
 export const TOOLS_REQUIRING_APPROVAL = new Set([
