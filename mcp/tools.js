@@ -263,6 +263,72 @@ export const MCP_TOOL_DEFINITIONS = [
       approvedDeploy: booleanProperty('Explicit approval for deployment.'),
     }, ['sessionId']),
   },
+  {
+    mcpName: 'outreach_list',
+    controlName: 'outreach.list',
+    title: 'List Outreach Messages',
+    description: 'List outreach drafts and messages (Phase 6). Read-only.',
+    inputSchema: objectSchema({
+      limit: integerProperty('Maximum number of messages to return.'),
+      status: stringProperty('Optional status filter (e.g. READY_FOR_APPROVAL, APPROVED, SENT).'),
+      opportunityId: stringProperty('Optional opportunity ID filter.'),
+      prospectId: stringProperty('Optional prospect ID filter.'),
+    }),
+  },
+  {
+    mcpName: 'outreach_get',
+    controlName: 'outreach.get',
+    title: 'Get Outreach Message',
+    description: 'Get one outreach message with its approvals and send attempts.',
+    inputSchema: objectSchema({
+      messageId: stringProperty('Outreach message ID.'),
+      id: stringProperty('Alias for messageId.'),
+    }),
+  },
+  {
+    mcpName: 'outreach_list_pending',
+    controlName: 'outreach.list_pending',
+    title: 'List Pending Outreach Approvals',
+    description: 'List outreach messages in READY_FOR_APPROVAL status.',
+    inputSchema: objectSchema({
+      limit: integerProperty('Maximum number of messages to return.'),
+    }),
+  },
+  {
+    mcpName: 'outreach_approve',
+    controlName: 'outreach.approve',
+    title: 'Approve Outreach Draft',
+    description: 'Approve a READY_FOR_APPROVAL draft. Requires approved=true. Does not send email.',
+    inputSchema: objectSchema({
+      messageId: stringProperty('Outreach message ID.'),
+      id: stringProperty('Alias for messageId.'),
+      approved: booleanProperty('Must be true to confirm operator approval.'),
+      decidedBy: stringProperty('Optional operator identifier.'),
+    }, ['approved']),
+  },
+  {
+    mcpName: 'outreach_deny',
+    controlName: 'outreach.deny',
+    title: 'Deny Outreach Draft',
+    description: 'Reject a READY_FOR_APPROVAL or APPROVED draft. Does not send email.',
+    inputSchema: objectSchema({
+      messageId: stringProperty('Outreach message ID.'),
+      id: stringProperty('Alias for messageId.'),
+      decidedBy: stringProperty('Optional operator identifier.'),
+    }),
+  },
+  {
+    mcpName: 'outreach_send_approved',
+    controlName: 'outreach.send_approved',
+    title: 'Send Approved Outreach',
+    description: 'Send an APPROVED outreach email. Requires prior approve decision, approved=true, and Idempotency-Key HTTP header. External side effect.',
+    inputSchema: objectSchema({
+      messageId: stringProperty('Outreach message ID.'),
+      id: stringProperty('Alias for messageId.'),
+      approved: booleanProperty('Must be true to confirm send authorization.'),
+      decidedBy: stringProperty('Optional operator identifier.'),
+    }, ['approved']),
+  },
 ];
 
 export default MCP_TOOL_DEFINITIONS;

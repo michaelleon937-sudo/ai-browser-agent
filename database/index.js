@@ -814,3 +814,32 @@ export const repairSessions = {
     return repairSessions.get(id);
   },
 };
+
+
+// ── Phase 6 outreach write methods (attached after repository objects) ──
+outreachMessages.updateStatus = function updateStatus(id, status) {
+  const current = outreachMessages.get(id);
+  if (!current) throw new Error(`Outreach message not found: ${id}`);
+  getDb().prepare(
+    'UPDATE outreach_messages SET status = ?, updated_at = ? WHERE id = ?',
+  ).run(status, new Date().toISOString(), id);
+  return outreachMessages.get(id);
+};
+
+outreachAttempts.update = function update(id, { status, providerMessageId, startedAt, finishedAt, errorMessage } = {}) {
+  const current = outreachAttempts.get(id);
+  if (!current) throw new Error(`Outreach attempt not found: ${id}`);
+  getDb().prepare(`
+    UPDATE outreach_attempts
+    SET status = ?, provider_message_id = ?, started_at = ?, finished_at = ?, error_message = ?
+    WHERE id = ?
+  `).run(
+    status !== undefined ? status : current.status,
+    providerMessageId !== undefined ? providerMessageId : current.provider_message_id,
+    startedAt !== undefined ? startedAt : current.started_at,
+    finishedAt !== undefined ? finishedAt : current.finished_at,
+    errorMessage !== undefined ? errorMessage : current.error_message,
+    id,
+  );
+  return outreachAttempts.get(id);
+};

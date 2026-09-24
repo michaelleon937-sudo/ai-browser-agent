@@ -80,6 +80,12 @@ const EXPECTED_MAPPINGS = [
   ['repair_get', 'repair.get'],
   ['repair_start', 'repair.start'],
   ['repair_advance', 'repair.advance'],
+  ['outreach_list', 'outreach.list'],
+  ['outreach_get', 'outreach.get'],
+  ['outreach_list_pending', 'outreach.list_pending'],
+  ['outreach_approve', 'outreach.approve'],
+  ['outreach_deny', 'outreach.deny'],
+  ['outreach_send_approved', 'outreach.send_approved'],
 ];
 
 const FORBIDDEN = [
@@ -115,8 +121,8 @@ describe('Remote MCP Gateway', () => {
     ({ MCP_TOOL_DEFINITIONS, createMcpServerInstance, mountMcp } = await import('../../mcp/server.js'));
   });
 
-  it('exposes exactly 23 MCP definitions', () => {
-    expect(MCP_TOOL_DEFINITIONS).toHaveLength(23);
+  it('exposes exactly 29 MCP definitions', () => {
+    expect(MCP_TOOL_DEFINITIONS).toHaveLength(29);
   });
 
   it('uses the exact MCP to Control mapping', () => {
@@ -160,10 +166,10 @@ describe('Remote MCP Gateway', () => {
     }
   });
 
-  it('registers all 23 definitions with the MCP server', () => {
+  it('registers all 29 definitions with the MCP server', () => {
     createMcpServerInstance();
 
-    expect(registeredTools).toHaveLength(23);
+    expect(registeredTools).toHaveLength(29);
     expect(registeredTools.map((tool) => tool.name))
       .toEqual(MCP_TOOL_DEFINITIONS.map((definition) => definition.mcpName));
   });
@@ -205,7 +211,7 @@ describe('Remote MCP Gateway', () => {
         service: 'mcp-gateway',
         transport: 'streamable-http',
         path: '/mcp',
-        toolCount: 23,
+        toolCount: 29,
       });
 
       const unauthorized = await fetch(`http://127.0.0.1:${port}/mcp`, {

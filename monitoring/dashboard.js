@@ -17,7 +17,8 @@ import express from 'express';
 import basicAuth from 'express-basic-auth';
 import fs from 'node:fs';
 import path from 'node:path';
-import { tasks, runs, steps, errors as dbErrors, notifications, websiteSamples, prospects, opportunities, samples, proposals, outreachMessages } from '../database/index.js';
+import { tasks, runs, steps, errors as dbErrors, notifications, websiteSamples, prospects, opportunities, samples, proposals, outreachMessages, outreachApprovals, outreachAttempts } from '../database/index.js';
+import { approveOutreachMessage, denyOutreachMessage, sendApprovedOutreach } from '../integrations/outreach-delivery.js';
 import { runAgent } from '../agent/index.js';
 import { scheduleTask, unscheduleTask } from '../scheduler/index.js';
 import { listPending, listAll as listApprovals, recordDecision } from '../agent/approval.js';
@@ -245,7 +246,7 @@ export async function startDashboard() {
 
 
 
-  // Phase 5A — outreach drafts (read-only; no send)
+  // Phase 5A/6 — outreach drafts (read) + Phase 6 approve/deny/send (human-gated)
   app.get('/api/outreach/drafts', (req, res) => {
     res.json(outreachMessages.list({
       limit: Number(req.query.limit) || 50,
@@ -259,6 +260,49 @@ export async function startDashboard() {
     const draft = outreachMessages.get(req.params.id);
     if (!draft) return res.status(404).json({ error: 'not found' });
     res.json(draft);
+  });
+
+  app.post('/api/outreach/drafts/:id/approve', (req, res) => {
+    try {
+      const result = approveOutreachMessage(req.params.id, { decidedBy: req.body?.by || 'dashboard' });
+      res.json({ ok: true, status: result.message.status, messageId: result.message.id, approvalId: result.approval.id, sent: false });
+    } catch (err) {
+      res.status(/not found/i.test(err.message) ? 404 : 400).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/outreach/drafts/:id/deny', (req, res) => {
+    try {
+      const result = denyOutreachMessage(req.params.id, { decidedBy: req.body?.by || 'dashboard' });
+      res.json({ ok: true, status: result.message.status, messageId: result.message.id, approvalId: result.approval.id, sent: false });
+    } catch (err) {
+      res.status(/not found/i.test(err.message) ? 404 : 400).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/outreach/drafts/:id/send', async (req, res) => {
+    try {
+      const idempotencyKey = req.get('Idempotency-Key') || req.body?.idempotencyKey;
+      if (!idempotencyKey) return res.status(400).json({ error: 'Idempotency-Key header (or body.idempotencyKey) is required' });
+      const result = await sendApprovedOutreach(req.params.id, { idempotencyKey, decidedBy: req.body?.by || 'dashboard' });
+      res.status(result.sent || result.replay ? 200 : 502).json({
+        ok: result.sent, replay: Boolean(result.replay), status: result.message?.status,
+        messageId: result.message?.id, attemptId: result.attempt?.id, sent: result.sent,
+        externalSideEffect: result.externalSideEffect, error: result.error || null, crmWarning: result.crmWarning || null,
+      });
+    } catch (err) {
+      res.status(/not found/i.test(err.message) ? 404 : 400).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/outreach/drafts/:id/approvals', (req, res) => {
+    if (!outreachMessages.get(req.params.id)) return res.status(404).json({ error: 'not found' });
+    res.json(outreachApprovals.listForMessage(req.params.id, { limit: Number(req.query.limit) || 20 }));
+  });
+
+  app.get('/api/outreach/drafts/:id/attempts', (req, res) => {
+    if (!outreachMessages.get(req.params.id)) return res.status(404).json({ error: 'not found' });
+    res.json(outreachAttempts.listForMessage(req.params.id, { limit: Number(req.query.limit) || 20 }));
   });
 
 
@@ -373,6 +417,14 @@ function renderHomePage() {
   const recentOutreach = outreachMessages.list({ limit: 20 });
   const outreachRows = recentOutreach.map((m) => {
     const prospect = prospects.get(m.prospect_id);
+    let actions = '—';
+    if (m.status === 'READY_FOR_APPROVAL') {
+      actions = `<button onclick="approveOutreach('${escapeHtml(m.id)}')">Approve</button>
+        <button class="secondary" onclick="denyOutreach('${escapeHtml(m.id)}')">Deny</button>`;
+    } else if (m.status === 'APPROVED' || m.status === 'FAILED') {
+      actions = `<button onclick="sendOutreach('${escapeHtml(m.id)}')">Send</button>
+        <button class="secondary" onclick="denyOutreach('${escapeHtml(m.id)}')">Deny</button>`;
+    }
     return `
     <tr>
       <td><code>${escapeHtml(m.id)}</code></td>
@@ -382,7 +434,7 @@ function renderHomePage() {
       <td>${escapeHtml((m.subject || '').slice(0, 60) || '—')}</td>
       <td><span class="status">${escapeHtml(m.status)}</span></td>
       <td><code>${escapeHtml((m.content_hash || '').slice(0, 12))}…</code></td>
-      <td>${escapeHtml(m.created_at || '—')}</td>
+      <td>${actions}</td>
     </tr>
   `;
   }).join('');
@@ -508,10 +560,10 @@ th { color:#9ca3af; font-weight:600; }
     </table>
 
   <div class="card">
-    <h2>Outreach Drafts (Phase 5A)</h2>
-    <p style="color:#9ca3af;margin:-8px 0 16px;font-size:13px;">Local drafts only — no send. API: <code>/api/outreach/drafts</code></p>
+    <h2>Outreach (Phase 5A + Phase 6)</h2>
+    <p style="color:#9ca3af;margin:-8px 0 16px;font-size:13px;">Drafts require human approve before send. API: <code>/api/outreach/drafts</code> · send needs <code>Idempotency-Key</code></p>
     <table>
-      <thead><tr><th>ID</th><th>Prospect</th><th>Recipient</th><th>Channel</th><th>Subject</th><th>Status</th><th>Hash</th><th>Created</th></tr></thead>
+      <thead><tr><th>ID</th><th>Prospect</th><th>Recipient</th><th>Channel</th><th>Subject</th><th>Status</th><th>Hash</th><th>Action</th></tr></thead>
       <tbody>${outreachRows || `<tr><td colspan="8">No outreach drafts yet.</td></tr>`}</tbody>
     </table>
   </div>
@@ -572,7 +624,39 @@ async function runTask(id) {
     alert(error.message);
   }
 }
-async function decideApproval(id, decision) {
+
+  async function approveOutreach(id) {
+    const response = await fetch('/api/outreach/drafts/' + id + '/approve', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ by: 'dashboard' }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) { alert(data.error || 'Approve failed'); return; }
+    window.location.reload();
+  }
+  async function denyOutreach(id) {
+    const response = await fetch('/api/outreach/drafts/' + id + '/deny', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ by: 'dashboard' }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) { alert(data.error || 'Deny failed'); return; }
+    window.location.reload();
+  }
+  async function sendOutreach(id) {
+    if (!confirm('Send this approved outreach email? This is an external side effect.')) return;
+    const key = 'send-' + id + '-' + Date.now();
+    const response = await fetch('/api/outreach/drafts/' + id + '/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': key },
+      body: JSON.stringify({ by: 'dashboard', idempotencyKey: key }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.sent) { alert(data.error || 'Send failed (check SMTP configuration)'); return; }
+    window.location.reload();
+  }
+
+  async function decideApproval(id, decision) {
   try {
     const response = await fetch('/api/approvals/' + id, {
       method: 'POST',

@@ -17,6 +17,7 @@ import { browserTools } from './tools/browser.js';
 import { githubTools } from './tools/github.js';
 import { renderTools } from './tools/render.js';
 import { repairTools } from './repair.js';
+import { outreachTools } from './tools/outreach.js';
 
 const TOOLS = {
   ...agentTools,
@@ -24,6 +25,7 @@ const TOOLS = {
   ...githubTools,
   ...renderTools,
   ...repairTools,
+  ...outreachTools,
 };
 
 async function runTool(toolName, args, ctx) {
@@ -43,7 +45,7 @@ async function runTool(toolName, args, ctx) {
 
 /**
  * Invoke a Control tool with full policy/audit/idempotency.
- * @returns {Promise<{ ok: boolean, status: number, body: object }>
+ * @returns {Promise<{ ok: boolean, status: number, body: object }>}
  */
 export async function invokeControlTool(opts = {}) {
   const toolName = String(opts.toolName || '');
