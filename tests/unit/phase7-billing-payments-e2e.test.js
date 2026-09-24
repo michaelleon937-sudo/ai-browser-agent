@@ -30,7 +30,7 @@ describe('invoice engine', () => {
   it('creates unique sequential invoice numbers and rejects invalid transitions', () => {
     const a = createInvoice({ subtotal: 100, tax: 0, currency: 'USD', description: 'A' });
     const b = createInvoice({ subtotal: 200, tax: 0, currency: 'USD', description: 'B' });
-    expect(a.invoice_number).toMatch(/^INV-\\d{4}-\\d{6}$/);
+    expect(a.invoice_number).toMatch(/^INV-\d{4}-\d{6}$/);
     expect(b.invoice_number).not.toBe(a.invoice_number);
     expect(() => assertInvoiceStatusTransition('DRAFT', 'PAID')).toThrow();
     expect(() => invoices.updateStatus(a.id, 'PAID')).toThrow();
