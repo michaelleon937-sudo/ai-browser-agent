@@ -10,6 +10,8 @@ export function extractAndStoreMemory({ companyId, contactId, prospectId, extrac
     ['requested_deliverables', extracted.requestedDeliverables],
     ['deadline', extracted.deadline],
     ['budget', extracted.budget],
+    ['industry', extracted.industry],
+    ['quantity', extracted.quantity],
   ];
   for (const [key, value] of map) {
     if (value === undefined || value === null || value === '') continue;
