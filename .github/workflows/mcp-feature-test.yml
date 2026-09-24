@@ -1,0 +1,141 @@
+name: MCP Feature Branch Test
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/grok-mcp-control
+
+permissions:
+  contents: write
+
+jobs:
+  mcp-feature-test:
+    name: MCP feature branch - lock + unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/grok-mcp-control
+          fetch-depth: 0
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Generate package-lock from package.json only
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+
+      - name: Validate package-lock changes are dependency-lock only
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if git diff --name-only | grep -v '^package-lock\\.json$' | grep -q .; then
+            echo "Unexpected files changed by package-lock generation:"
+            git diff --name-only
+            exit 1
+          fi
+
+          python - <<'PY'
+          import json
+          import subprocess
+          import sys
+
+          before = json.loads(subprocess.check_output(["git", "show", "HEAD:package-lock.json"]))
+          with open("package-lock.json", encoding="utf-8") as f:
+              after = json.load(f)
+
+          before_pkgs = before.get("packages", {})
+          after_pkgs = after.get("packages", {})
+
+          changed_existing = []
+          for key in sorted(set(before_pkgs) & set(after_pkgs)):
+              if before_pkgs[key] != after_pkgs[key]:
+                  if key == "":
+                      before_deps = before_pkgs[key].get("dependencies", {})
+                      after_deps = after_pkgs[key].get("dependencies", {})
+                      non_mcp = sorted(
+                          set(before_deps) | set(after_deps)
+                          - {
+                              "@modelcontextprotocol/express",
+                              "@modelcontextprotocol/node",
+                              "@modelcontextprotocol/server",
+                          }
+                      )
+                      # Root metadata can legitimately differ in lockfile-only
+                      # resolution, but no existing non-MCP package entry may change.
+                      root_other = {
+                          k: (before_deps.get(k), after_deps.get(k))
+                          for k in set(before_deps) | set(after_deps)
+                          if k not in {
+                              "@modelcontextprotocol/express",
+                              "@modelcontextprotocol/node",
+                              "@modelcontextprotocol/server",
+                          } and before_deps.get(k) != after_deps.get(k)
+                      }
+                      if root_other:
+                          changed_existing.append((key, root_other))
+                  else:
+                      changed_existing.append((key, "existing package entry changed"))
+
+          if changed_existing:
+              print("Unrelated existing lockfile entries changed:")
+              for item in changed_existing:
+                  print(item)
+              sys.exit(1)
+
+          added = sorted(set(after_pkgs) - set(before_pkgs))
+          removed = sorted(set(before_pkgs) - set(after_pkgs))
+
+          if removed:
+              print("Unexpected removed lockfile package entries:", removed)
+              sys.exit(1)
+
+          print("Added lockfile package entries:")
+          for key in added:
+              print("  ", key)
+
+          root_deps = after_pkgs.get("", {}).get("dependencies", {})
+          required = {
+              "@modelcontextprotocol/express": "^2.0.0",
+              "@modelcontextprotocol/node": "^2.0.0",
+              "@modelcontextprotocol/server": "^2.0.0",
+          }
+          for name, expected in required.items():
+              if root_deps.get(name) != expected:
+                  print(f"Missing or incorrect locked root dependency: {name} -> {root_deps.get(name)!r}")
+                  sys.exit(1)
+
+          print("package-lock MCP dependency consistency: PASS")
+          PY
+
+          echo "=== package-lock diff ==="
+          git diff -- package-lock.json
+
+      - name: Commit MCP package-lock update on feature branch
+        run: |
+          if git diff --quiet -- package-lock.json; then
+            echo "package-lock.json already consistent; no lockfile commit needed."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json
+          git commit -m "chore(mcp): sync package-lock dependencies"
+          git push origin HEAD:feature/grok-mcp-control
+
+      - name: Clean install from committed lockfile
+        run: npm ci
+
+      - name: Run full unit tests
+        run: npm test
+
+      - name: Run MCP gateway unit test explicitly
+        run: npx vitest run tests/unit/mcp-gateway.test.js
