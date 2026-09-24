@@ -314,3 +314,101 @@ CREATE TABLE IF NOT EXISTS repair_sessions (
 
 CREATE INDEX IF NOT EXISTS idx_repair_sessions_task ON repair_sessions (task_id);
 CREATE INDEX IF NOT EXISTS idx_repair_sessions_state ON repair_sessions (state);
+
+-- Phase 6 CRM — companies, contacts, conversations, inbound messages
+
+CREATE TABLE IF NOT EXISTS companies (
+  id                TEXT PRIMARY KEY,
+  name              TEXT NOT NULL,
+  website           TEXT,
+  domain            TEXT,
+  industry          TEXT,
+  location          TEXT,
+  notes             TEXT,
+  metadata_json     TEXT,
+  created_at        TEXT NOT NULL,
+  updated_at        TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_companies_domain ON companies (domain);
+CREATE INDEX IF NOT EXISTS idx_companies_name ON companies (name);
+
+CREATE TABLE IF NOT EXISTS contacts (
+  id                TEXT PRIMARY KEY,
+  company_id        TEXT,
+  prospect_id       TEXT,
+  name              TEXT,
+  email             TEXT,
+  phone             TEXT,
+  role              TEXT,
+  external_id       TEXT,
+  metadata_json     TEXT,
+  created_at        TEXT NOT NULL,
+  updated_at        TEXT NOT NULL,
+  FOREIGN KEY (company_id) REFERENCES companies(id),
+  FOREIGN KEY (prospect_id) REFERENCES prospects(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_contacts_email ON contacts (email);
+CREATE INDEX IF NOT EXISTS idx_contacts_company ON contacts (company_id);
+CREATE INDEX IF NOT EXISTS idx_contacts_prospect ON contacts (prospect_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_external_id ON contacts (external_id) WHERE external_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS conversations (
+  id                  TEXT PRIMARY KEY,
+  company_id          TEXT,
+  contact_id          TEXT,
+  prospect_id         TEXT,
+  channel             TEXT NOT NULL,
+  external_thread_id  TEXT,
+  status              TEXT NOT NULL DEFAULT 'OPEN',
+  subject             TEXT,
+  summary             TEXT,
+  last_message_at     TEXT,
+  created_at          TEXT NOT NULL,
+  updated_at          TEXT NOT NULL,
+  FOREIGN KEY (company_id) REFERENCES companies(id),
+  FOREIGN KEY (contact_id) REFERENCES contacts(id),
+  FOREIGN KEY (prospect_id) REFERENCES prospects(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_conversations_contact ON conversations (contact_id);
+CREATE INDEX IF NOT EXISTS idx_conversations_company ON conversations (company_id);
+CREATE INDEX IF NOT EXISTS idx_conversations_prospect ON conversations (prospect_id);
+CREATE INDEX IF NOT EXISTS idx_conversations_status ON conversations (status);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_conversations_external_thread
+  ON conversations (channel, external_thread_id)
+  WHERE external_thread_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS inbound_messages (
+  id                    TEXT PRIMARY KEY,
+  conversation_id       TEXT NOT NULL,
+  company_id            TEXT,
+  contact_id            TEXT,
+  prospect_id           TEXT,
+  provider              TEXT NOT NULL,
+  external_message_id   TEXT,
+  direction             TEXT NOT NULL DEFAULT 'inbound',
+  sender                TEXT,
+  recipient             TEXT,
+  subject               TEXT,
+  body                  TEXT,
+  received_at           TEXT NOT NULL,
+  intent                TEXT,
+  classification        TEXT,
+  extracted_data_json   TEXT,
+  raw_metadata_json     TEXT,
+  created_at            TEXT NOT NULL,
+  FOREIGN KEY (conversation_id) REFERENCES conversations(id),
+  FOREIGN KEY (company_id) REFERENCES companies(id),
+  FOREIGN KEY (contact_id) REFERENCES contacts(id),
+  FOREIGN KEY (prospect_id) REFERENCES prospects(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_inbound_messages_conversation ON inbound_messages (conversation_id);
+CREATE INDEX IF NOT EXISTS idx_inbound_messages_contact ON inbound_messages (contact_id);
+CREATE INDEX IF NOT EXISTS idx_inbound_messages_prospect ON inbound_messages (prospect_id);
+CREATE INDEX IF NOT EXISTS idx_inbound_messages_received ON inbound_messages (received_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_inbound_messages_provider_external
+  ON inbound_messages (provider, external_message_id)
+  WHERE external_message_id IS NOT NULL;
