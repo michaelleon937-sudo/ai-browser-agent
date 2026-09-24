@@ -3,9 +3,15 @@
 // Enforces policy, audit, and idempotency — never bypass.
 
 import { nanoid } from 'nanoid';
-import { evaluatePolicy } from './policy.js';
-import { appendAudit } from './audit.js';
-import { beginIdempotent, completeIdempotent, failIdempotent } from './idempotency.js';
+import { evaluatePolicy, isMutatingTool, isForbiddenTool } from './policy.js';
+import { recordAudit } from './audit.js';
+import {
+  hashRequest,
+  lookupIdempotency,
+  beginIdempotency,
+  completeIdempotency,
+  parseStoredResult,
+} from './idempotency.js';
 import { agentTools } from './tools/agent.js';
 import { browserTools } from './tools/browser.js';
 import { githubTools } from './tools/github.js';
@@ -13,7 +19,7 @@ import { renderTools } from './tools/render.js';
 import { repairTools } from './repair.js';
 import { outreachTools } from './tools/outreach.js';
 
-const TOOL_HANDLERS = {
+const TOOLS = {
   ...agentTools,
   ...browserTools,
   ...githubTools,
@@ -22,160 +28,120 @@ const TOOL_HANDLERS = {
   ...outreachTools,
 };
 
-/**
- * @param {object} opts
- * @param {string} opts.toolName
- * @param {object} [opts.args]
- * @param {string|null} [opts.idempotencyKey]
- * @param {string} [opts.actor]
- * @param {string|null} [opts.taskId]
- * @param {string|null} [opts.runId]
- * @param {string} [opts.source] - 'http' | 'mcp'
- */
-export async function invokeControlTool({
-  toolName,
-  args = {},
-  idempotencyKey = null,
-  actor = 'operator',
-  taskId = null,
-  runId = null,
-  source = 'http',
-} = {}) {
-  const startedAt = Date.now();
-  const requestId = nanoid(12);
-
-  const policy = evaluatePolicy(toolName, args);
-  if (!policy.allowed) {
-    appendAudit({
-      requestId,
-      actor,
-      toolName,
-      decision: 'deny',
-      reason: policy.reason,
-      taskId,
-      runId,
-      args,
-      source,
-    });
-    const err = new Error(policy.reason || 'forbidden');
+async function runTool(toolName, args, ctx) {
+  if (isForbiddenTool(toolName) || !TOOLS[toolName]) {
+    const err = new Error(`Tool "${toolName}" is not registered`);
+    err.status = 403;
+    throw err;
+  }
+  const policy = evaluatePolicy({ toolName, args });
+  if (!policy.allow) {
+    const err = new Error(policy.reason);
     err.status = policy.status || 403;
-    err.code = policy.code || 'FORBIDDEN';
     throw err;
   }
+  return TOOLS[toolName](args, ctx);
+}
 
-  if (policy.requiresIdempotency && !idempotencyKey) {
-    appendAudit({
-      requestId,
-      actor,
-      toolName,
-      decision: 'deny',
-      reason: 'Idempotency-Key required',
-      taskId,
-      runId,
-      args,
-      source,
-    });
-    const err = new Error('Idempotency-Key header is required for this operation');
-    err.status = 400;
-    err.code = 'IDEMPOTENCY_REQUIRED';
-    throw err;
+/**
+ * Invoke a Control tool with full policy/audit/idempotency.
+ * @returns {Promise<{ ok: boolean, status: number, body: object }>}
+ */
+export async function invokeControlTool(opts = {}) {
+  const toolName = String(opts.toolName || '');
+  const args = opts.args && typeof opts.args === 'object' ? opts.args : {};
+  const operatorId = opts.operatorId || 'control-operator';
+  const requestId = opts.requestId || nanoid(12);
+  const idempotencyKey = opts.idempotencyKey || null;
+  const source = opts.source || 'control';
+  const auditBase = {
+    operatorId,
+    toolName,
+    requestId,
+    idempotencyKey,
+    action: `tool:${toolName}`,
+    details: { source },
+  };
+
+  if (!toolName) {
+    recordAudit({ ...auditBase, status: 'rejected', details: { ...auditBase.details, reason: 'tool name required' } });
+    return { ok: false, status: 400, body: { ok: false, error: 'tool name required', requestId } };
   }
 
-  let idemRecord = null;
-  if (idempotencyKey) {
-    const begun = beginIdempotent({
-      key: idempotencyKey,
-      toolName,
-      requestId,
-      actor,
-    });
-    if (begun.replay) {
-      appendAudit({
-        requestId,
-        actor,
-        toolName,
-        decision: 'replay',
-        reason: 'idempotent replay',
-        taskId,
-        runId,
-        args,
-        source,
-        durationMs: Date.now() - startedAt,
-      });
-      return {
-        ok: true,
-        replay: true,
-        requestId,
-        result: begun.response,
-      };
-    }
-    idemRecord = begun.record;
-  }
-
-  const handler = TOOL_HANDLERS[toolName];
-  if (!handler) {
-    appendAudit({
-      requestId,
-      actor,
-      toolName,
-      decision: 'deny',
-      reason: 'tool not registered',
-      taskId,
-      runId,
-      args,
-      source,
-    });
-    const err = new Error(`Tool not registered: ${toolName}`);
-    err.status = 404;
-    err.code = 'NOT_FOUND';
-    throw err;
+  if (isForbiddenTool(toolName)) {
+    recordAudit({ ...auditBase, status: 'rejected', details: { ...auditBase.details, reason: 'forbidden' } });
+    return {
+      ok: false,
+      status: 403,
+      body: { ok: false, error: `Tool "${toolName}" is forbidden and is not registered`, requestId },
+    };
   }
 
   try {
-    const result = await handler({ ...args, idempotencyKey, requestId, actor });
-    if (idemRecord) {
-      completeIdempotent(idemRecord.id, result);
+    if (isMutatingTool(toolName)) {
+      if (!idempotencyKey) {
+        recordAudit({
+          ...auditBase,
+          status: 'rejected',
+          details: { ...auditBase.details, reason: 'idempotency key required' },
+        });
+        return {
+          ok: false,
+          status: 400,
+          body: { ok: false, error: 'Idempotency-Key header is required for mutating tools', requestId },
+        };
+      }
+      const existing = lookupIdempotency(idempotencyKey);
+      if (existing) {
+        const parsed = parseStoredResult(existing);
+        recordAudit({
+          ...auditBase,
+          status: 'replayed',
+          details: { ...auditBase.details, idempotencyId: existing.id },
+        });
+        return {
+          ok: true,
+          status: 200,
+          body: { ok: true, replayed: true, tool: toolName, requestId, result: parsed.result },
+        };
+      }
+      beginIdempotency({
+        idempotencyKey,
+        operatorId,
+        toolName,
+        requestHash: hashRequest(toolName, args),
+      });
     }
-    appendAudit({
-      requestId,
-      actor,
-      toolName,
-      decision: 'allow',
-      reason: 'ok',
-      taskId,
-      runId,
-      args,
-      source,
-      durationMs: Date.now() - startedAt,
+
+    const result = await runTool(toolName, args, { operatorId, requestId, source });
+    if (isMutatingTool(toolName) && idempotencyKey) {
+      completeIdempotency(idempotencyKey, { status: 'completed', result });
+    }
+    recordAudit({
+      ...auditBase,
+      status: 'ok',
+      target: args.taskId || args.runId || args.path || args.url || args.branch || null,
+      details: { ...auditBase.details, ok: true },
     });
     return {
       ok: true,
-      replay: false,
-      requestId,
-      result,
+      status: 200,
+      body: { ok: true, tool: toolName, requestId, result },
     };
   } catch (err) {
-    if (idemRecord) {
-      try {
-        failIdempotent(idemRecord.id, err.message || String(err));
-      } catch {}
+    if (isMutatingTool(toolName) && idempotencyKey && lookupIdempotency(idempotencyKey)) {
+      completeIdempotency(idempotencyKey, { status: 'failed', result: { error: err.message } });
     }
-    appendAudit({
-      requestId,
-      actor,
-      toolName,
-      decision: 'error',
-      reason: err.message || String(err),
-      taskId,
-      runId,
-      args,
-      source,
-      durationMs: Date.now() - startedAt,
+    const status = err.status || 500;
+    recordAudit({
+      ...auditBase,
+      status: 'error',
+      details: { ...auditBase.details, error: err.message, code: err.code || null },
     });
-    throw err;
+    return {
+      ok: false,
+      status,
+      body: { ok: false, error: err.message, code: err.code || undefined, requestId },
+    };
   }
-}
-
-export function listRegisteredTools() {
-  return Object.keys(TOOL_HANDLERS).sort();
 }
