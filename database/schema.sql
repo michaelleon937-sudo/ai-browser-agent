@@ -412,3 +412,49 @@ CREATE INDEX IF NOT EXISTS idx_inbound_messages_received ON inbound_messages (re
 CREATE UNIQUE INDEX IF NOT EXISTS idx_inbound_messages_provider_external
   ON inbound_messages (provider, external_message_id)
   WHERE external_message_id IS NOT NULL;
+
+
+-- Phase 6 CRM Prompt 2 — client memory + conversation intelligence
+
+CREATE TABLE IF NOT EXISTS client_memory (
+  id                TEXT PRIMARY KEY,
+  company_id        TEXT,
+  contact_id        TEXT,
+  prospect_id       TEXT,
+  key               TEXT NOT NULL,
+  value             TEXT NOT NULL,
+  confidence        TEXT NOT NULL DEFAULT 'INFERRED',
+  source            TEXT NOT NULL,
+  source_message_id TEXT,
+  notes             TEXT,
+  created_at        TEXT NOT NULL,
+  updated_at        TEXT NOT NULL,
+  expires_at        TEXT,
+  FOREIGN KEY (company_id) REFERENCES companies(id),
+  FOREIGN KEY (contact_id) REFERENCES contacts(id),
+  FOREIGN KEY (prospect_id) REFERENCES prospects(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_client_memory_company ON client_memory (company_id);
+CREATE INDEX IF NOT EXISTS idx_client_memory_contact ON client_memory (contact_id);
+CREATE INDEX IF NOT EXISTS idx_client_memory_prospect ON client_memory (prospect_id);
+CREATE INDEX IF NOT EXISTS idx_client_memory_key ON client_memory (key);
+
+CREATE TABLE IF NOT EXISTS conversation_insights (
+  conversation_id       TEXT PRIMARY KEY,
+  message_count         INTEGER NOT NULL DEFAULT 0,
+  latest_message_id     TEXT,
+  current_intent        TEXT,
+  current_classification TEXT,
+  summary               TEXT,
+  facts_json            TEXT,
+  requested_service     TEXT,
+  requested_deliverables TEXT,
+  deadline              TEXT,
+  budget                TEXT,
+  unresolved_questions_json TEXT,
+  next_action           TEXT,
+  next_action_reason    TEXT,
+  updated_at            TEXT NOT NULL,
+  FOREIGN KEY (conversation_id) REFERENCES conversations(id)
+);
