@@ -7,6 +7,7 @@ import {
 } from '../database/index.js';
 import { normalizeInboundPayload, validateNormalizedInbound } from './inbound-adapters.js';
 import { classifyInboundMessage } from './message-classification.js';
+import { refreshConversationIntelligence } from './conversation-intelligence.js';
 
 export function ingestInboundMessage(input = {}) {
   const normalized = input.payload
@@ -106,6 +107,13 @@ export function ingestInboundMessage(input = {}) {
     lastMessageAt: message.received_at,
     subject: conversation.subject || message.subject || null,
   });
+  let intelligence = null;
+  try {
+    intelligence = refreshConversationIntelligence(conversation.id);
+  } catch {
+    intelligence = null;
+  }
+
 
   let prospectStatusUpdated = false;
   if (message.prospect_id) {
@@ -129,6 +137,7 @@ export function ingestInboundMessage(input = {}) {
     intent: classified.intent,
     extracted: classified.extracted,
     prospectStatusUpdated,
+    intelligence: intelligence ? { summary: intelligence.summary, nextAction: intelligence.nextAction, classification: intelligence.insight?.current_classification } : null,
   };
 }
 
