@@ -23,6 +23,7 @@ import { scheduleTask, unscheduleTask } from '../scheduler/index.js';
 import { listPending, listAll as listApprovals, recordDecision } from '../agent/approval.js';
 import { config } from '../config/index.js';
 import { createControlRouter } from '../control/index.js';
+import { mountMcp } from '../mcp/server.js';
 import { isValidSampleId, resolveSampleDir } from '../integrations/website-gen.js';
 
 
@@ -37,6 +38,9 @@ export async function startDashboard() {
 
   // Control API: bearer CONTROL_TOKEN, deny-by-default, mounted BEFORE dashboard basic auth
   app.use('/api/control/v1', createControlRouter());
+
+  // Remote MCP gateway: its own bearer auth/host validation; health remains public.
+  mountMcp(app);
 
   if (config.dashboard.user && config.dashboard.pass) {
     app.use(basicAuth({

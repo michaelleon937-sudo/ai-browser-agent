@@ -12,6 +12,7 @@ import { browserTools } from './tools/browser.js';
 import { githubTools } from './tools/github.js';
 import { renderTools } from './tools/render.js';
 import { repairTools } from './repair.js';
+import { invokeControlTool } from './invoke.js';
 
 const TOOLS = {
   ...agentTools,
@@ -40,6 +41,8 @@ export async function executeTool(toolName, args, ctx = {}) {
   return TOOLS[toolName](args, ctx);
 }
 
+export { invokeControlTool };
+
 export function createControlRouter() {
   const router = express.Router();
 
@@ -67,44 +70,15 @@ export function createControlRouter() {
     const operatorId = req.controlAuth?.operatorId || 'control-operator';
     const idempotencyKey = req.headers['idempotency-key'] || req.body?.idempotencyKey || null;
     const args = req.body || {};
-    const auditBase = { operatorId, toolName, requestId, idempotencyKey, action: `tool:${toolName}` };
-    try {
-      if (isForbiddenTool(toolName) || !ALLOWED_TOOLS.includes(toolName) || !TOOLS[toolName]) {
-        recordAudit({ ...auditBase, status: 'forbidden', details: { reason: 'not registered' } });
-        return res.status(403).json({ ok: false, error: `Tool "${toolName}" is not registered` });
-      }
-      const policy = evaluatePolicy({ toolName, args });
-      if (!policy.allow) {
-        recordAudit({ ...auditBase, status: 'forbidden', details: { reason: policy.reason } });
-        return res.status(policy.status || 403).json({ ok: false, error: policy.reason });
-      }
-      if (isMutatingTool(toolName)) {
-        if (!idempotencyKey) {
-          recordAudit({ ...auditBase, status: 'rejected', details: { reason: 'idempotency key required' } });
-          return res.status(400).json({ ok: false, error: 'Idempotency-Key header is required for mutating tools' });
-        }
-        const existing = lookupIdempotency(idempotencyKey);
-        if (existing) {
-          const parsed = parseStoredResult(existing);
-          recordAudit({ ...auditBase, status: 'replayed', details: { idempotencyId: existing.id } });
-          return res.status(200).json({ ok: true, replayed: true, tool: toolName, requestId, result: parsed.result });
-        }
-        beginIdempotency({ idempotencyKey, operatorId, toolName, requestHash: hashRequest(toolName, args) });
-      }
-      const result = await executeTool(toolName, args, { operatorId, requestId });
-      if (isMutatingTool(toolName) && idempotencyKey) {
-        completeIdempotency(idempotencyKey, { status: 'completed', result });
-      }
-      recordAudit({ ...auditBase, status: 'ok', target: args.taskId || args.runId || args.path || args.url || args.branch || null, details: { ok: true } });
-      return res.json({ ok: true, tool: toolName, requestId, result });
-    } catch (err) {
-      if (isMutatingTool(toolName) && idempotencyKey && lookupIdempotency(idempotencyKey)) {
-        completeIdempotency(idempotencyKey, { status: 'failed', result: { error: err.message } });
-      }
-      const status = err.status || (err instanceof ControlAuthError ? err.status : 500);
-      recordAudit({ ...auditBase, status: 'error', details: { error: err.message, code: err.code || null } });
-      return res.status(status).json({ ok: false, error: err.message, code: err.code || undefined });
-    }
+    const outcome = await invokeControlTool({
+      toolName,
+      args,
+      operatorId,
+      idempotencyKey,
+      requestId,
+      source: 'http',
+    });
+    return res.status(outcome.status).json(outcome.body);
   });
 
   return router;
