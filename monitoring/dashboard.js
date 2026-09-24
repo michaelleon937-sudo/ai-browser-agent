@@ -17,7 +17,7 @@ import express from 'express';
 import basicAuth from 'express-basic-auth';
 import fs from 'node:fs';
 import path from 'node:path';
-import { tasks, runs, steps, errors as dbErrors, notifications, websiteSamples, prospects, opportunities, samples, proposals, outreachMessages, outreachApprovals, outreachAttempts, companies, contacts, conversations, inboundMessages, clientMemory, conversationInsights } from '../database/index.js';
+import { tasks, runs, steps, errors as dbErrors, notifications, websiteSamples, prospects, opportunities, samples, proposals, outreachMessages, outreachApprovals, outreachAttempts, companies, contacts, conversations, inboundMessages, clientMemory, conversationInsights, invoices, payments, projects } from '../database/index.js';
 import { approveOutreachMessage, denyOutreachMessage, sendApprovedOutreach } from '../integrations/outreach-delivery.js';
 import { runAgent } from '../agent/index.js';
 import { scheduleTask, unscheduleTask } from '../scheduler/index.js';
@@ -330,6 +330,32 @@ export async function startDashboard() {
     res.json({ conversation: row, messages: inboundMessages.list({ conversationId: row.id, limit: Number(req.query.limit) || 50 }) });
   });
   
+  
+  app.get('/api/crm/invoices', (req, res) => {
+    res.json(invoices.list({ limit: Number(req.query.limit) || 50, status: req.query.status, companyId: req.query.companyId }));
+  });
+  app.get('/api/crm/invoices/:id', (req, res) => {
+    const row = invoices.get(req.params.id);
+    if (!row) return res.status(404).json({ error: 'not found' });
+    res.json(row);
+  });
+  app.get('/api/crm/payments', (req, res) => {
+    res.json(payments.list({ limit: Number(req.query.limit) || 50, status: req.query.status, invoiceId: req.query.invoiceId }));
+  });
+  app.get('/api/crm/payments/:id', (req, res) => {
+    const row = payments.get(req.params.id);
+    if (!row) return res.status(404).json({ error: 'not found' });
+    res.json(row);
+  });
+  app.get('/api/crm/projects', (req, res) => {
+    res.json(projects.list({ limit: Number(req.query.limit) || 50, status: req.query.status, companyId: req.query.companyId }));
+  });
+  app.get('/api/crm/projects/:id', (req, res) => {
+    const row = projects.get(req.params.id);
+    if (!row) return res.status(404).json({ error: 'not found' });
+    res.json(row);
+  });
+
   app.get('/api/crm/memory', (req, res) => {
     res.json(clientMemory.list({
       limit: Number(req.query.limit) || 50,
