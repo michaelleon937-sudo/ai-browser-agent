@@ -18,6 +18,7 @@ import { githubTools } from './tools/github.js';
 import { renderTools } from './tools/render.js';
 import { repairTools } from './repair.js';
 import { outreachTools } from './tools/outreach.js';
+import { crmTools } from './tools/crm.js';
 
 const TOOLS = {
   ...agentTools,
@@ -26,6 +27,7 @@ const TOOLS = {
   ...renderTools,
   ...repairTools,
   ...outreachTools,
+  ...crmTools,
 };
 
 async function runTool(toolName, args, ctx) {
