@@ -19,7 +19,7 @@ export function classifyInboundMessage({ subject = '', body = '' } = {}) {
     { classification: 'APPROVAL', patterns: [/\bapproved\b/, /\blooks good\b/, /\bgo ahead\b/, /\bplease proceed\b/, /\bgreen light\b/, /\bwe accept\b/] },
     { classification: 'REVISION_REQUEST', patterns: [/\brevision\b/, /\brevise\b/, /\bchange(s)?\b/, /\bedit\b/, /\bupdate the\b/, /\bmake the following\b/] },
     { classification: 'REQUEST_FOR_QUOTE', patterns: [/\bquote\b/, /\bpricing\b/, /\bhow much\b/, /\bcost estimate\b/, /\brate card\b/] },
-    { classification: 'REQUEST_FOR_SERVICE', patterns: [/\bneed (a |your )?(website|landing page|seo|redesign)\b/, /\blooking for\b/, /\bcan you (build|create|design)\b/, /\bwe want to hire\b/] },
+    { classification: 'REQUEST_FOR_SERVICE', patterns: [/\bneed (a |your )?(website|landing page|seo|redesign|design)\b/, /\blooking for\b/, /\bcan you (build|create|design|make)\b/, /\bwe want to hire\b/, /\bdesign\s+\d+\s+(social media\s+)?posts?\b/, /\b(social media|instagram|facebook)\s+posts?\b/] },
     { classification: 'INFORMATION_REQUEST', patterns: [/\bcan you send\b/, /\bmore information\b/, /\bdetails about\b/, /\bportfolio\b/, /\bcase stud/] },
     { classification: 'FOLLOW_UP', patterns: [/\bfollowing up\b/, /\bjust checking in\b/, /\bany update\b/, /\bcircle back\b/] },
     { classification: 'INTERESTED', patterns: [/\binterested\b/, /\blet'?s talk\b/, /\bschedule a (call|meeting)\b/, /\bdemo\b/, /\bnext steps\b/] },
@@ -32,6 +32,8 @@ export function classifyInboundMessage({ subject = '', body = '' } = {}) {
       break;
     }
   }
+  if (classification === 'INTERESTED' && /\bcan you (build|create|design|make)\b/.test(lower)) classification = 'REQUEST_FOR_SERVICE';
+  if (classification === 'QUESTION' && /\bcan you (build|create|design|make)\b/.test(lower)) classification = 'REQUEST_FOR_SERVICE';
   const extracted = extractStructuredFields(text, lower);
   const intent = classification === 'UNKNOWN' ? null
     : [classification.toLowerCase().replace(/_/g, ' '),
@@ -48,7 +50,7 @@ export function classifyInboundMessage({ subject = '', body = '' } = {}) {
 
 function emptyExtracted() {
   return {
-    requestedService: null, quantity: null, deadline: null, budget: null,
+    requestedService: null, quantity: null, deadline: null, budget: null, industry: null,
     brandOrBusinessName: null, requestedDeliverables: null, urgency: null,
     explicitQuestions: [], requestedNextAction: null,
   };
@@ -56,16 +58,24 @@ function emptyExtracted() {
 
 function extractStructuredFields(text, lower) {
   const out = emptyExtracted();
-  const serviceMatch = lower.match(/\b(website redesign|website|landing page|seo|logo|branding|web development|mobile app)\b/);
-  if (serviceMatch) out.requestedService = serviceMatch[1];
-  const qtyMatch = text.match(/\b(\d{1,4})\s*(pages?|units?|hours?|items?)\b/i);
-  if (qtyMatch) out.quantity = `${qtyMatch[1]} ${qtyMatch[2]}`;
-  const deadlineMatch = text.match(/\b(by|before|deadline[:\s]+|due[:\s]+)\s*([A-Za-z]+\s+\d{1,2}(?:,\s*\d{4})?|\d{1,2}\/\d{1,2}(?:\/\d{2,4})?|next week|end of (?:the )?month|asap)\b/i);
-  if (deadlineMatch) out.deadline = deadlineMatch[2];
+  if (/\bsocial media posts?\b|\binstagram posts?\b/.test(lower)) out.requestedService = 'social media design';
+  else {
+    const serviceMatch = lower.match(/\b(website redesign|website|landing page|seo|logo|branding|web development|mobile app)\b/);
+    if (serviceMatch) out.requestedService = serviceMatch[1];
+  }
+  const qtyMatch = text.match(/\b(\d{1,4})\s*(social media\s+)?(posts?|pages?|units?|hours?|items?)\b/i);
+  if (qtyMatch) out.quantity = `${qtyMatch[1]} ${(qtyMatch[3] || qtyMatch[2]).toLowerCase()}`;
+  if (/\bnext week\b/i.test(text)) out.deadline = 'next week';
+  else if (/\bthis week\b/i.test(text)) out.deadline = 'this week';
+  else {
+    const deadlineMatch = text.match(/\b(?:by|before|deadline[:\s]+|due[:\s]+)\s*([A-Za-z]+\s+\d{1,2}(?:,\s*\d{4})?|\d{1,2}\/\d{1,2}(?:\/\d{2,4})?|asap)\b/i);
+    if (deadlineMatch) out.deadline = deadlineMatch[1];
+  }
   const budgetMatch = text.match(/\b(?:budget|up to|around)\s*[\$£€]?\s*([\d,]+(?:\.\d{2})?)\b/i);
   if (budgetMatch) out.budget = budgetMatch[1].replace(/,/g, '');
   const brandMatch = text.match(/\b(?:for|our|my)\s+(?:company|business|brand)\s+([A-Z][A-Za-z0-9&.\- ]{1,40})/);
   if (brandMatch) out.brandOrBusinessName = brandMatch[1].trim();
+  if (/\bclothing brand\b|\bfashion brand\b|\bapparel\b/.test(lower)) out.industry = lower.includes('fashion') ? 'fashion' : 'clothing';
   if (/\basap\b|\burgent\b|\bimmediately\b/.test(lower)) out.urgency = 'high';
   else if (/\bthis week\b|\bsoon\b/.test(lower)) out.urgency = 'medium';
   out.explicitQuestions = text.split(/(?<=[?])\s+/).map((s) => s.trim()).filter((s) => s.endsWith('?') && s.length > 3).slice(0, 5);
@@ -73,6 +83,7 @@ function extractStructuredFields(text, lower) {
   else if (/\bsend (a )?quote\b|\bpricing\b/.test(lower)) out.requestedNextAction = 'send_quote';
   else if (/\brevise\b|\brevision\b/.test(lower)) out.requestedNextAction = 'revise_deliverable';
   const deliverables = [];
+  if (/\bsocial media posts?\b|\binstagram posts?\b/.test(lower)) deliverables.push('social_media_posts');
   if (/\blanding page\b/.test(lower)) deliverables.push('landing_page');
   if (/\bwebsite\b/.test(lower)) deliverables.push('website');
   if (/\blogo\b/.test(lower)) deliverables.push('logo');
