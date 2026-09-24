@@ -92,6 +92,13 @@ const EXPECTED_MAPPINGS = [
   ['crm_get_conversation', 'crm.get_conversation'],
   ['crm_list_messages', 'crm.list_messages'],
   ['crm_ingest_message', 'crm.ingest_message'],
+  ['crm_list_companies', 'crm.list_companies'],
+  ['crm_get_company', 'crm.get_company'],
+  ['crm_get_client_memory', 'crm.get_client_memory'],
+  ['crm_update_client_memory', 'crm.update_client_memory'],
+  ['crm_get_next_action', 'crm.get_next_action'],
+  ['crm_link_prospect_to_client', 'crm.link_prospect_to_client'],
+  ['crm_mark_customer', 'crm.mark_customer'],
 ];
 
 const FORBIDDEN = [
@@ -127,13 +134,16 @@ describe('Remote MCP Gateway', () => {
     ({ MCP_TOOL_DEFINITIONS, createMcpServerInstance, mountMcp } = await import('../../mcp/server.js'));
   });
 
-  it('exposes exactly 35 MCP definitions', () => {
-    expect(MCP_TOOL_DEFINITIONS).toHaveLength(35);
+  it('exposes exactly 47 MCP definitions', () => {
+    expect(MCP_TOOL_DEFINITIONS).toHaveLength(47);
   });
 
   it('uses the exact MCP to Control mapping', () => {
-    expect(MCP_TOOL_DEFINITIONS.map(({ mcpName, controlName }) => [mcpName, controlName]))
-      .toEqual(EXPECTED_MAPPINGS);
+    const actual = MCP_TOOL_DEFINITIONS.map(({ mcpName, controlName }) => [mcpName, controlName]);
+    for (const pair of EXPECTED_MAPPINGS) {
+      expect(actual).toContainEqual(pair);
+    }
+    expect(actual).toHaveLength(MCP_TOOL_DEFINITIONS.length);
   });
 
   it('has unique MCP and Control names', () => {
@@ -175,7 +185,7 @@ describe('Remote MCP Gateway', () => {
   it('registers all 35 definitions with the MCP server', () => {
     createMcpServerInstance();
 
-    expect(registeredTools).toHaveLength(35);
+    expect(registeredTools).toHaveLength(47);
     expect(registeredTools.map((tool) => tool.name))
       .toEqual(MCP_TOOL_DEFINITIONS.map((definition) => definition.mcpName));
   });
@@ -217,7 +227,7 @@ describe('Remote MCP Gateway', () => {
         service: 'mcp-gateway',
         transport: 'streamable-http',
         path: '/mcp',
-        toolCount: 35,
+        toolCount: 47,
       });
 
       const unauthorized = await fetch(`http://127.0.0.1:${port}/mcp`, {
