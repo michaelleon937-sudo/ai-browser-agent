@@ -99,6 +99,7 @@ const EXPECTED_MAPPINGS = [
   ['crm_get_next_action', 'crm.get_next_action'],
   ['crm_link_prospect_to_client', 'crm.link_prospect_to_client'],
   ['crm_mark_customer', 'crm.mark_customer'],
+  ['crm_draft_reply', 'crm.draft_reply'],
 ];
 
 const FORBIDDEN = [
@@ -134,8 +135,8 @@ describe('Remote MCP Gateway', () => {
     ({ MCP_TOOL_DEFINITIONS, createMcpServerInstance, mountMcp } = await import('../../mcp/server.js'));
   });
 
-  it('exposes exactly 47 MCP definitions', () => {
-    expect(MCP_TOOL_DEFINITIONS).toHaveLength(47);
+  it('exposes exactly 48 MCP definitions', () => {
+    expect(MCP_TOOL_DEFINITIONS).toHaveLength(48);
   });
 
   it('uses the exact MCP to Control mapping', () => {
@@ -185,7 +186,7 @@ describe('Remote MCP Gateway', () => {
   it('registers all 35 definitions with the MCP server', () => {
     createMcpServerInstance();
 
-    expect(registeredTools).toHaveLength(47);
+    expect(registeredTools).toHaveLength(48);
     expect(registeredTools.map((tool) => tool.name))
       .toEqual(MCP_TOOL_DEFINITIONS.map((definition) => definition.mcpName));
   });
@@ -227,7 +228,7 @@ describe('Remote MCP Gateway', () => {
         service: 'mcp-gateway',
         transport: 'streamable-http',
         path: '/mcp',
-        toolCount: 47,
+        toolCount: 48,
       });
 
       const unauthorized = await fetch(`http://127.0.0.1:${port}/mcp`, {
