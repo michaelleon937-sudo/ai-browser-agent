@@ -185,7 +185,7 @@ export class SandboxMpesaProvider extends PaymentProvider {
   _validateSandboxEndpoint(apiUrl) {
     try {
       const url = new URL(apiUrl);
-      if (url.protocol !== 'https:' || url.hostname !== 'sandbox.safaricom.co.ke' || url.port || url.pathname !== '' || url.search || url.hash) {
+      if (url.protocol !== 'https:' || url.hostname !== 'sandbox.safaricom.co.ke' || url.port || url.pathname !== '/' || url.search || url.hash) {
         return { ok: false, error: 'Refusing non-sandbox M-Pesa API URL in PAYMENT_MODE=sandbox' };
       }
       return { ok: true, baseUrl: url.origin };
