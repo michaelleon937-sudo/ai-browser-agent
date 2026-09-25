@@ -57,6 +57,8 @@ beforeEach(() => {
   delete process.env.STRIPE_SECRET_KEY;
   delete process.env.STRIPE_WEBHOOK_SECRET;
   delete process.env.MPESA_API_URL;
+  delete process.env.MPESA_CONSUMER_KEY;
+  delete process.env.MPESA_CONSUMER_SECRET;
   delete process.env.MPESA_CLIENT_ID;
   delete process.env.MPESA_CLIENT_SECRET;
   delete process.env.MPESA_SHORTCODE;
@@ -144,7 +146,7 @@ describe('Phase 8B Stripe sandbox', () => {
 });
 
 describe('Phase 8B M-Pesa sandbox', () => {
-  it('rejects missing sandbox credentials and production endpoints', async () => {
+  it('rejects missing sandbox credentials and production endpoints before credential checks', async () => {
     process.env.PAYMENT_MODE = 'sandbox';
     let result = await getPaymentProvider('mpesa').createPaymentRequest({
       amount: 100, currency: 'KES', invoiceId: 'mp-1',
@@ -153,12 +155,6 @@ describe('Phase 8B M-Pesa sandbox', () => {
     expect(result.error).toMatch(/credentials incomplete/i);
 
     process.env.MPESA_API_URL = 'https://api.safaricom.co.ke';
-    process.env.MPESA_CLIENT_ID = 'test';
-    process.env.MPESA_CLIENT_SECRET = 'test';
-    process.env.MPESA_SHORTCODE = '174379';
-    process.env.MPESA_PASSKEY = 'test';
-    process.env.MPESA_CALLBACK_URL = 'https://example.test/webhooks/mpesa';
-
     result = await getPaymentProvider('mpesa').createPaymentRequest({
       amount: 100, currency: 'KES', invoiceId: 'mp-2',
     });
@@ -166,20 +162,24 @@ describe('Phase 8B M-Pesa sandbox', () => {
     expect(result.error).toMatch(/non-sandbox/i);
   });
 
-  it('uses the Daraja sandbox endpoint and refuses to mark a wrong amount successful', async () => {
+  it('uses the real Daraja sandbox OAuth, STK Push, and STK Query endpoints', async () => {
     process.env.PAYMENT_MODE = 'sandbox';
     process.env.MPESA_API_URL = 'https://sandbox.safaricom.co.ke';
-    process.env.MPESA_CLIENT_ID = 'client';
-    process.env.MPESA_CLIENT_SECRET = 'secret';
+    process.env.MPESA_CONSUMER_KEY = 'consumer-key';
+    process.env.MPESA_CONSUMER_SECRET = 'consumer-secret';
     process.env.MPESA_SHORTCODE = '174379';
     process.env.MPESA_PASSKEY = 'passkey';
     process.env.MPESA_CALLBACK_URL = 'https://example.test/webhooks/mpesa';
     process.env.MPESA_PHONE_NUMBER = '254700000000';
 
-    vi.stubGlobal('fetch', vi.fn()
+    const fetchMock = vi.stubGlobal('fetch', vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ access_token: 'sandbox-token' }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({
         ResponseCode: '0', MerchantRequestID: 'mr_1', CheckoutRequestID: 'ws_CO_1',
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ access_token: 'sandbox-token-2' }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        ResponseCode: '0', ResultCode: '0', CheckoutRequestID: 'ws_CO_1', MpesaReceiptNumber: 'RCP_1',
       }), { status: 200 })));
 
     const provider = getPaymentProvider('mpesa');
@@ -189,14 +189,23 @@ describe('Phase 8B M-Pesa sandbox', () => {
 
     expect(created.ok).toBe(true);
     expect(created.providerPaymentId).toBe('ws_CO_1');
-
-    const ledger = _getMockLedger();
-    ledger.get('ws_CO_1').status = 'SUCCEEDED';
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      'https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials',
+    );
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      'https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest',
+    );
+    expect(fetchMock.mock.calls[1][1].headers.Authorization).toBe('Bearer sandbox-token');
 
     const verification = await provider.verifyPayment({
       providerPaymentId: 'ws_CO_1', amount: 101, currency: 'KES',
     });
 
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock.mock.calls[3][0]).toBe(
+      'https://sandbox.safaricom.co.ke/mpesa/stkpushquery/v1/query',
+    );
     expect(verification.verified).toBe(false);
     expect(verification.reason).toMatch(/amount mismatch/i);
   });
@@ -208,16 +217,50 @@ describe('Phase 8B M-Pesa sandbox', () => {
 
     const invalid = await provider.handleWebhook({
       headers: { 'x-mpesa-signature': 'wrong' },
-      body: { providerPaymentId: 'unknown', ResultCode: 0 },
+      body: { Body: { stkCallback: { CheckoutRequestID: 'unknown', ResultCode: 0 } } },
     });
     expect(invalid.ok).toBe(false);
+    expect(invalid.reason).toMatch(/invalid M-Pesa callback authentication/i);
 
     const unknown = await provider.handleWebhook({
       headers: { 'x-mpesa-signature': 'callback-secret' },
-      body: { providerPaymentId: 'unknown', ResultCode: 0 },
+      body: { Body: { stkCallback: { CheckoutRequestID: 'unknown', ResultCode: 0 } } },
     });
     expect(unknown.ok).toBe(false);
     expect(unknown.reason).toMatch(/unknown payment/i);
+  });
+
+  it('accepts only a matching successful Daraja callback and records the provider receipt', async () => {
+    process.env.PAYMENT_MODE = 'sandbox';
+    process.env.MPESA_CALLBACK_SECRET = 'callback-secret';
+    const provider = getPaymentProvider('mpesa');
+    _getMockLedger().set('ws_CO_callback', {
+      provider: 'mpesa', status: 'PENDING', amount: 100, currency: 'KES',
+      checkoutRequestId: 'ws_CO_callback', idempotencyKey: 'callback-key',
+    });
+
+    const callback = await provider.handleWebhook({
+      headers: { 'x-mpesa-signature': 'callback-secret' },
+      body: {
+        Body: {
+          stkCallback: {
+            MerchantRequestID: 'mr_callback',
+            CheckoutRequestID: 'ws_CO_callback',
+            ResultCode: 0,
+            CallbackMetadata: {
+              Item: [
+                { Name: 'Amount', Value: 100 },
+                { Name: 'MpesaReceiptNumber', Value: 'RCP_CALLBACK' },
+              ],
+            },
+          },
+        },
+      },
+    });
+
+    expect(callback.ok).toBe(true);
+    expect(callback.verified).toBe(true);
+    expect(callback.providerTransactionId).toBe('RCP_CALLBACK');
   });
 });
 
