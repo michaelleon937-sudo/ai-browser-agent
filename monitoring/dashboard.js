@@ -25,6 +25,7 @@ import { listPending, listAll as listApprovals, recordDecision } from '../agent/
 import { config } from '../config/index.js';
 import { createControlRouter } from '../control/index.js';
 import { mountMcp } from '../mcp/server.js';
+import { mountPaymentWebhooks } from '../integrations/payments/webhooks.js';
 import { isValidSampleId, resolveSampleDir } from '../integrations/website-gen.js';
 
 
@@ -42,6 +43,7 @@ export async function startDashboard() {
 
   // Remote MCP gateway: its own bearer auth/host validation; health remains public.
   mountMcp(app);
+  mountPaymentWebhooks(app);
 
   if (config.dashboard.user && config.dashboard.pass) {
     app.use(basicAuth({
