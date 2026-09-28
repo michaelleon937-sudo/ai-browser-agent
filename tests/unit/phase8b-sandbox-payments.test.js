@@ -172,7 +172,7 @@ describe('Phase 8B M-Pesa sandbox', () => {
     process.env.MPESA_CALLBACK_URL = 'https://example.test/webhooks/mpesa';
     process.env.MPESA_PHONE_NUMBER = '254700000000';
 
-    const fetchMock = vi.stubGlobal('fetch', vi.fn()
+    const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ access_token: 'sandbox-token' }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({
         ResponseCode: '0', MerchantRequestID: 'mr_1', CheckoutRequestID: 'ws_CO_1',
