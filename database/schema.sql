@@ -495,3 +495,117 @@ CREATE TABLE IF NOT EXISTS billing_records (
   id TEXT PRIMARY KEY, invoice_id TEXT, payment_id TEXT, company_id TEXT, record_type TEXT NOT NULL,
   amount REAL NOT NULL DEFAULT 0, currency TEXT NOT NULL DEFAULT 'USD', description TEXT, created_at TEXT NOT NULL
 );
+
+-- Phase 7 BI — Business Relationship & Intelligence Engine
+
+CREATE TABLE IF NOT EXISTS relationship_states (
+  id                TEXT PRIMARY KEY,
+  company_id        TEXT,
+  contact_id        TEXT,
+  prospect_id       TEXT,
+  state             TEXT NOT NULL DEFAULT 'NEW',
+  previous_state    TEXT,
+  reason            TEXT,
+  source            TEXT NOT NULL DEFAULT 'system',
+  confidence        TEXT NOT NULL DEFAULT 'CONFIRMED_BY_SYSTEM',
+  metadata_json     TEXT,
+  computed_at       TEXT NOT NULL,
+  created_at        TEXT NOT NULL,
+  updated_at        TEXT NOT NULL,
+  FOREIGN KEY (company_id) REFERENCES companies(id),
+  FOREIGN KEY (contact_id) REFERENCES contacts(id),
+  FOREIGN KEY (prospect_id) REFERENCES prospects(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_relationship_states_company ON relationship_states (company_id);
+CREATE INDEX IF NOT EXISTS idx_relationship_states_contact ON relationship_states (contact_id);
+CREATE INDEX IF NOT EXISTS idx_relationship_states_prospect ON relationship_states (prospect_id);
+CREATE INDEX IF NOT EXISTS idx_relationship_states_state ON relationship_states (state);
+CREATE INDEX IF NOT EXISTS idx_relationship_states_updated ON relationship_states (updated_at);
+
+CREATE TABLE IF NOT EXISTS client_timeline_events (
+  id                TEXT PRIMARY KEY,
+  company_id        TEXT,
+  contact_id        TEXT,
+  prospect_id       TEXT,
+  opportunity_id    TEXT,
+  project_id        TEXT,
+  invoice_id        TEXT,
+  payment_id        TEXT,
+  conversation_id   TEXT,
+  event_type        TEXT NOT NULL,
+  title             TEXT NOT NULL,
+  summary           TEXT,
+  actor             TEXT,
+  source            TEXT NOT NULL DEFAULT 'system',
+  confidence        TEXT NOT NULL DEFAULT 'CONFIRMED_BY_SYSTEM',
+  amount            REAL,
+  currency          TEXT,
+  metadata_json     TEXT,
+  occurred_at       TEXT NOT NULL,
+  created_at        TEXT NOT NULL,
+  FOREIGN KEY (company_id) REFERENCES companies(id),
+  FOREIGN KEY (contact_id) REFERENCES contacts(id),
+  FOREIGN KEY (prospect_id) REFERENCES prospects(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_timeline_company ON client_timeline_events (company_id);
+CREATE INDEX IF NOT EXISTS idx_timeline_contact ON client_timeline_events (contact_id);
+CREATE INDEX IF NOT EXISTS idx_timeline_prospect ON client_timeline_events (prospect_id);
+CREATE INDEX IF NOT EXISTS idx_timeline_type ON client_timeline_events (event_type);
+CREATE INDEX IF NOT EXISTS idx_timeline_occurred ON client_timeline_events (occurred_at);
+
+CREATE TABLE IF NOT EXISTS follow_up_recommendations (
+  id                TEXT PRIMARY KEY,
+  company_id        TEXT,
+  contact_id        TEXT,
+  prospect_id       TEXT,
+  conversation_id   TEXT,
+  opportunity_id    TEXT,
+  recommendation_type TEXT NOT NULL,
+  priority          TEXT NOT NULL DEFAULT 'MEDIUM',
+  reason            TEXT NOT NULL,
+  suggested_action  TEXT NOT NULL,
+  due_at            TEXT,
+  status            TEXT NOT NULL DEFAULT 'OPEN',
+  external_side_effect INTEGER NOT NULL DEFAULT 0,
+  source            TEXT NOT NULL DEFAULT 'system',
+  confidence        TEXT NOT NULL DEFAULT 'INFERRED',
+  metadata_json     TEXT,
+  created_at        TEXT NOT NULL,
+  updated_at        TEXT NOT NULL,
+  resolved_at       TEXT,
+  resolved_by       TEXT,
+  FOREIGN KEY (company_id) REFERENCES companies(id),
+  FOREIGN KEY (contact_id) REFERENCES contacts(id),
+  FOREIGN KEY (prospect_id) REFERENCES prospects(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_followups_status ON follow_up_recommendations (status);
+CREATE INDEX IF NOT EXISTS idx_followups_company ON follow_up_recommendations (company_id);
+CREATE INDEX IF NOT EXISTS idx_followups_due ON follow_up_recommendations (due_at);
+CREATE INDEX IF NOT EXISTS idx_followups_priority ON follow_up_recommendations (priority);
+
+CREATE TABLE IF NOT EXISTS client_revenue_snapshots (
+  id                TEXT PRIMARY KEY,
+  company_id        TEXT,
+  contact_id        TEXT,
+  prospect_id       TEXT,
+  total_invoiced    REAL NOT NULL DEFAULT 0,
+  total_paid        REAL NOT NULL DEFAULT 0,
+  total_outstanding REAL NOT NULL DEFAULT 0,
+  invoice_count     INTEGER NOT NULL DEFAULT 0,
+  payment_count     INTEGER NOT NULL DEFAULT 0,
+  project_count     INTEGER NOT NULL DEFAULT 0,
+  currency          TEXT NOT NULL DEFAULT 'USD',
+  first_revenue_at  TEXT,
+  last_revenue_at   TEXT,
+  computed_at       TEXT NOT NULL,
+  metadata_json     TEXT,
+  FOREIGN KEY (company_id) REFERENCES companies(id),
+  FOREIGN KEY (contact_id) REFERENCES contacts(id),
+  FOREIGN KEY (prospect_id) REFERENCES prospects(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_revenue_company ON client_revenue_snapshots (company_id);
+CREATE INDEX IF NOT EXISTS idx_revenue_computed ON client_revenue_snapshots (computed_at);
