@@ -20,6 +20,7 @@ import { repairTools } from './repair.js';
 import { outreachTools } from './tools/outreach.js';
 import { crmTools } from './tools/crm.js';
 import { billingTools } from './tools/billing.js';
+import { biTools } from './tools/bi.js';
 
 const TOOLS = {
   ...agentTools,
@@ -30,6 +31,7 @@ const TOOLS = {
   ...outreachTools,
   ...crmTools,
   ...billingTools,
+  ...biTools,
 };
 
 async function runTool(toolName, args, ctx) {
