@@ -1106,3 +1106,12 @@ export const billingRecords = {
   get(id){ return getDb().prepare('SELECT * FROM billing_records WHERE id = ?').get(id); },
   list({ limit=50, invoiceId, companyId }={}){ const c=[],p=[]; if(invoiceId){c.push('invoice_id = ?');p.push(invoiceId);} if(companyId){c.push('company_id = ?');p.push(companyId);} const w=c.length?`WHERE ${c.join(' AND ')}`:''; p.push(limit); return getDb().prepare(`SELECT * FROM billing_records ${w} ORDER BY created_at DESC LIMIT ?`).all(...p); },
 };
+
+// Phase 7 BI — re-export relationship/timeline/follow-ups/revenue stores
+export {
+  RELATIONSHIP_STATE_VALUES,
+  relationshipStates,
+  clientTimelineEvents,
+  followUpRecommendations,
+  clientRevenueSnapshots,
+} from './bi-store.js';

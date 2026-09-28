@@ -86,6 +86,21 @@ export const ALLOWED_TOOLS = Object.freeze([
   'project.update',
   'project.complete',
   'project.deliver',
+  'bi.get_relationship',
+  'bi.evaluate_relationship',
+  'bi.get_timeline',
+  'bi.record_timeline_event',
+  'bi.generate_followups',
+  'bi.list_followups',
+  'bi.resolve_followup',
+  'bi.get_revenue',
+  'bi.detect_dormant',
+  'bi.detect_repeat_business',
+  'bi.link_opportunity_client',
+  'bi.assess_readiness',
+  'bi.get_client_intelligence',
+  'bi.query',
+  'bi.analyst_brief',
 ]);
 
 export const MUTATING_TOOLS = new Set([
@@ -121,6 +136,11 @@ export const MUTATING_TOOLS = new Set([
   'project.update',
   'project.complete',
   'project.deliver',
+  'bi.evaluate_relationship',
+  'bi.record_timeline_event',
+  'bi.generate_followups',
+  'bi.resolve_followup',
+  'bi.link_opportunity_client',
 ]);
 
 export const TOOLS_REQUIRING_APPROVAL = new Set([
