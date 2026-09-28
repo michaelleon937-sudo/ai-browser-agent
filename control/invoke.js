@@ -21,6 +21,7 @@ import { outreachTools } from './tools/outreach.js';
 import { crmTools } from './tools/crm.js';
 import { billingTools } from './tools/billing.js';
 import { biTools } from './tools/bi.js';
+import { commercialTools } from './tools/commercial.js';
 
 const TOOLS = {
   ...agentTools,
@@ -32,6 +33,7 @@ const TOOLS = {
   ...crmTools,
   ...billingTools,
   ...biTools,
+  ...commercialTools,
 };
 
 async function runTool(toolName, args, ctx) {

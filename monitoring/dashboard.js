@@ -18,6 +18,8 @@ import basicAuth from 'express-basic-auth';
 import fs from 'node:fs';
 import path from 'node:path';
 import { tasks, runs, steps, errors as dbErrors, notifications, websiteSamples, prospects, opportunities, samples, proposals, outreachMessages, outreachApprovals, outreachAttempts, companies, contacts, conversations, inboundMessages, clientMemory, conversationInsights, invoices, payments, projects, relationshipStates, clientTimelineEvents, followUpRecommendations, clientRevenueSnapshots } from '../database/index.js';
+import { quotes, ledger, receipts, paymentReminders, refundRecords, ensureCommercialSchema } from '../database/commercial-store.js';
+import { toCommercialState } from '../integrations/commercial/payment-machine.js';
 import { approveOutreachMessage, denyOutreachMessage, sendApprovedOutreach } from '../integrations/outreach-delivery.js';
 import { runAgent } from '../agent/index.js';
 import { scheduleTask, unscheduleTask } from '../scheduler/index.js';
@@ -419,6 +421,39 @@ export async function startDashboard() {
       if (out.length >= limit) break;
     }
     res.json({ dormant: out });
+  });
+
+
+  // Phase 8 — commercial visibility (read-only; no create/charge/refund/send)
+  app.get('/api/commercial/quotes', (req, res) => {
+    ensureCommercialSchema();
+    res.json(quotes.list({ limit: Number(req.query.limit) || 50, status: req.query.status, companyId: req.query.companyId }));
+  });
+  app.get('/api/commercial/ledger', (req, res) => {
+    ensureCommercialSchema();
+    res.json(ledger.list({ invoiceId: req.query.invoiceId, paymentId: req.query.paymentId, limit: Number(req.query.limit) || 50 }));
+  });
+  app.get('/api/commercial/receipts', (req, res) => {
+    ensureCommercialSchema();
+    res.json(receipts.list({ invoiceId: req.query.invoiceId, limit: Number(req.query.limit) || 50 }));
+  });
+  app.get('/api/commercial/reminders', (req, res) => {
+    ensureCommercialSchema();
+    res.json(paymentReminders.list({ invoiceId: req.query.invoiceId, status: req.query.status, limit: Number(req.query.limit) || 50 }));
+  });
+  app.get('/api/commercial/refunds', (req, res) => {
+    ensureCommercialSchema();
+    res.json(refundRecords.list({ paymentId: req.query.paymentId, limit: Number(req.query.limit) || 50 }));
+  });
+  app.get('/api/commercial/payments/:id', (req, res) => {
+    ensureCommercialSchema();
+    const row = payments.get(req.params.id);
+    if (!row) return res.status(404).json({ error: 'not found' });
+    res.json({
+      payment: row,
+      commercialState: toCommercialState(row.status),
+      receipt: receipts.getByPayment(row.id) || null,
+    });
   });
 
   const PREVIEW_FILES = {

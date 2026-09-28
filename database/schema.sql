@@ -609,3 +609,99 @@ CREATE TABLE IF NOT EXISTS client_revenue_snapshots (
 
 CREATE INDEX IF NOT EXISTS idx_revenue_company ON client_revenue_snapshots (company_id);
 CREATE INDEX IF NOT EXISTS idx_revenue_computed ON client_revenue_snapshots (computed_at);
+
+-- Phase 8 — Commercial quotes, ledger, receipts, reminders, refunds (additive)
+
+CREATE TABLE IF NOT EXISTS quotes (
+  id                TEXT PRIMARY KEY,
+  company_id        TEXT,
+  contact_id        TEXT,
+  prospect_id       TEXT,
+  opportunity_id    TEXT,
+  proposal_id       TEXT,
+  quote_number      TEXT NOT NULL UNIQUE,
+  currency          TEXT NOT NULL DEFAULT 'KES',
+  subtotal          REAL NOT NULL DEFAULT 0,
+  tax               REAL NOT NULL DEFAULT 0,
+  total             REAL NOT NULL DEFAULT 0,
+  status            TEXT NOT NULL DEFAULT 'DRAFT',
+  line_items_json   TEXT,
+  valid_until       TEXT,
+  notes             TEXT,
+  created_at        TEXT NOT NULL,
+  updated_at        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_quotes_status ON quotes (status);
+CREATE INDEX IF NOT EXISTS idx_quotes_company ON quotes (company_id);
+
+CREATE TABLE IF NOT EXISTS quote_sequences (
+  year INTEGER PRIMARY KEY,
+  last_seq INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS transaction_ledger (
+  id                TEXT PRIMARY KEY,
+  invoice_id        TEXT,
+  payment_id        TEXT,
+  quote_id          TEXT,
+  receipt_id        TEXT,
+  company_id        TEXT,
+  entry_type        TEXT NOT NULL,
+  direction         TEXT NOT NULL,
+  amount            REAL NOT NULL DEFAULT 0,
+  currency          TEXT NOT NULL DEFAULT 'KES',
+  status            TEXT NOT NULL DEFAULT 'POSTED',
+  idempotency_key   TEXT,
+  provider          TEXT,
+  provider_txn_id   TEXT,
+  description       TEXT,
+  metadata_json     TEXT,
+  created_at        TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ledger_idempotency ON transaction_ledger (idempotency_key) WHERE idempotency_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_ledger_payment ON transaction_ledger (payment_id);
+CREATE INDEX IF NOT EXISTS idx_ledger_invoice ON transaction_ledger (invoice_id);
+
+CREATE TABLE IF NOT EXISTS receipts (
+  id                TEXT PRIMARY KEY,
+  invoice_id        TEXT NOT NULL,
+  payment_id        TEXT NOT NULL,
+  receipt_number    TEXT NOT NULL UNIQUE,
+  amount            REAL NOT NULL,
+  currency          TEXT NOT NULL,
+  issued_at         TEXT NOT NULL,
+  verified          INTEGER NOT NULL DEFAULT 0,
+  metadata_json     TEXT,
+  created_at        TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_receipts_payment ON receipts (payment_id);
+
+CREATE TABLE IF NOT EXISTS payment_reminders (
+  id                TEXT PRIMARY KEY,
+  invoice_id        TEXT NOT NULL,
+  company_id        TEXT,
+  reminder_type     TEXT NOT NULL,
+  due_at            TEXT,
+  status            TEXT NOT NULL DEFAULT 'OPEN',
+  suggested_action  TEXT NOT NULL,
+  external_side_effect INTEGER NOT NULL DEFAULT 0,
+  created_at        TEXT NOT NULL,
+  resolved_at       TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_reminders_invoice ON payment_reminders (invoice_id);
+CREATE INDEX IF NOT EXISTS idx_reminders_status ON payment_reminders (status);
+
+CREATE TABLE IF NOT EXISTS refund_records (
+  id                TEXT PRIMARY KEY,
+  payment_id        TEXT NOT NULL,
+  invoice_id        TEXT,
+  amount            REAL NOT NULL,
+  currency          TEXT NOT NULL,
+  status            TEXT NOT NULL DEFAULT 'REQUESTED',
+  reason            TEXT,
+  provider_refund_id TEXT,
+  approved_by       TEXT,
+  created_at        TEXT NOT NULL,
+  updated_at        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_refunds_payment ON refund_records (payment_id);

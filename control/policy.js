@@ -101,6 +101,25 @@ export const ALLOWED_TOOLS = Object.freeze([
   'bi.get_client_intelligence',
   'bi.query',
   'bi.analyst_brief',
+  'commercial.create_quote',
+  'commercial.get_quote',
+  'commercial.list_quotes',
+  'commercial.approve_quote',
+  'commercial.send_quote',
+  'commercial.accept_quote',
+  'commercial.convert_quote',
+  'commercial.list_ledger',
+  'commercial.issue_receipt',
+  'commercial.list_receipts',
+  'commercial.generate_reminders',
+  'commercial.list_reminders',
+  'commercial.request_refund',
+  'commercial.approve_refund',
+  'commercial.process_refund',
+  'commercial.list_refunds',
+  'commercial.reconcile_payment',
+  'commercial.reconcile_invoice',
+  'commercial.payment_state',
 ]);
 
 export const MUTATING_TOOLS = new Set([
@@ -141,6 +160,16 @@ export const MUTATING_TOOLS = new Set([
   'bi.generate_followups',
   'bi.resolve_followup',
   'bi.link_opportunity_client',
+  'commercial.create_quote',
+  'commercial.approve_quote',
+  'commercial.send_quote',
+  'commercial.accept_quote',
+  'commercial.convert_quote',
+  'commercial.issue_receipt',
+  'commercial.generate_reminders',
+  'commercial.request_refund',
+  'commercial.approve_refund',
+  'commercial.process_refund',
 ]);
 
 export const TOOLS_REQUIRING_APPROVAL = new Set([
@@ -152,6 +181,10 @@ export const TOOLS_REQUIRING_APPROVAL = new Set([
   'render.deploy',
   'outreach.approve',
   'outreach.send_approved',
+  'commercial.send_quote',
+  'commercial.convert_quote',
+  'commercial.approve_refund',
+  'commercial.process_refund',
 ]);
 
 const BLOCKED_HOST_HINTS = [

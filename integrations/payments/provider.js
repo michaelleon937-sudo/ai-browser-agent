@@ -1,6 +1,7 @@
 // integrations/payments/provider.js
 import crypto from 'node:crypto';
 import { getPaymentMode, assertPaymentExecutionAllowed, redactSecrets } from './mode.js';
+import { ProductionDarajaProvider } from '../commercial/daraja-production.js';
 
 export class PaymentProvider {
   get name() { return 'base'; }
@@ -35,7 +36,43 @@ export class MockMpesaProvider extends PaymentProvider {
     if (currency && currency !== row.currency) return { ok: false, verified: false, status: row.status, reason: 'currency mismatch' };
     return { ok: true, verified: true, status: 'SUCCEEDED', amount: row.amount, currency: row.currency, providerTransactionId: `txn_${providerPaymentId}` };
   }
-  async handleWebhook({ body }) {
+  async handleWebhook({ body, headers = {} }) {
+    // Support both simulate fixtures and real Daraja STK callback shape
+    const stk = body?.Body?.stkCallback;
+    if (stk && stk.CheckoutRequestID) {
+      const checkoutId = String(stk.CheckoutRequestID);
+      const row = mockLedger.get(checkoutId);
+      if (!row) return { ok: false, verified: false, reason: 'unknown payment' };
+      const items = Array.isArray(stk.CallbackMetadata?.Item) ? stk.CallbackMetadata.Item : [];
+      const valueOf = (name) => items.find((i) => i && i.Name === name)?.Value;
+      const success = Number(stk.ResultCode) === 0;
+      const callbackAmount = valueOf('Amount') != null ? Number(valueOf('Amount')) : undefined;
+      const receipt = valueOf('MpesaReceiptNumber');
+      if (success) {
+        if (!Number.isFinite(callbackAmount) || callbackAmount !== Number(row.amount)) {
+          return { ok: false, verified: false, reason: 'amount mismatch in M-Pesa callback' };
+        }
+        if (!receipt) return { ok: false, verified: false, reason: 'missing M-Pesa receipt number' };
+        row.status = 'SUCCEEDED';
+        row.transactionId = String(receipt);
+        mockLedger.set(checkoutId, row);
+      } else {
+        row.status = 'FAILED';
+        mockLedger.set(checkoutId, row);
+      }
+      const eventId = `${checkoutId}:${stk.ResultCode}:${receipt || ''}`;
+      return {
+        ok: true,
+        verified: success,
+        eventId,
+        eventType: 'mpesa.stk.callback',
+        providerPaymentId: checkoutId,
+        status: success ? 'SUCCEEDED' : 'FAILED',
+        amount: callbackAmount != null ? callbackAmount : row.amount,
+        currency: row.currency,
+        providerTransactionId: success ? row.transactionId : null,
+      };
+    }
     if (!body || body.simulate !== true) return { ok: false, verified: false, reason: 'unverified or non-simulated mpesa webhook' };
     const providerPaymentId = body.providerPaymentId;
     const row = mockLedger.get(providerPaymentId);
@@ -317,7 +354,6 @@ export class SandboxMpesaProvider extends PaymentProvider {
 }
 
 export function getPaymentProvider(name) {
-  assertPaymentExecutionAllowed();
   const mode = getPaymentMode();
   const n = String(name || '').toLowerCase();
   if (mode === 'mock') {
@@ -330,7 +366,14 @@ export function getPaymentProvider(name) {
     if (n === 'stripe') return new SandboxStripeProvider();
     throw new Error(`Unknown sandbox payment provider: ${name}`);
   }
+  if (mode === 'live') {
+    // Production M-Pesa abstraction: no live HTTP in this phase.
+    if (n === 'mpesa') return new ProductionDarajaProvider();
+    // Preserve Phase 8A/8B Stripe live protection (disabled / not implemented).
+    assertPaymentExecutionAllowed();
+    throw new Error('Live Stripe providers are not implemented. Use PAYMENT_MODE=mock or PAYMENT_MODE=sandbox.');
+  }
   throw new Error('Unsupported PAYMENT_MODE for provider selection');
 }
 
-export { getPaymentMode, redactSecrets };
+export { getPaymentMode, redactSecrets, ProductionDarajaProvider };
