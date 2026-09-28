@@ -7,45 +7,130 @@ export async function verifyPayment(paymentId) {
   if (!payment) return { ok: false, error: 'payment not found' };
   const invoice = invoices.get(payment.invoice_id);
   if (!invoice) return { ok: false, error: 'invoice not found' };
+
   const provider = getPaymentProvider(payment.provider);
-  const result = await provider.verifyPayment({ providerPaymentId: payment.provider_payment_id, amount: payment.amount, currency: payment.currency });
-  if (!result.ok) return { ok: false, payment, invoice, verified: false, reason: result.reason || result.error || 'provider verification failed', status: result.status || 'UNKNOWN' };
-  if (!result.verified) {
-    if (payment.status === 'CREATED') { try { payments.updateStatus(payment.id, 'PENDING'); } catch {} }
-    return { ok: true, payment: payments.get(payment.id), invoice, verified: false, reason: result.reason || 'not verified by provider', status: result.status || payment.status };
+  const result = await provider.verifyPayment({
+    providerPaymentId: payment.provider_payment_id,
+    amount: payment.amount,
+    currency: payment.currency,
+  });
+
+  if (!result.ok) return {
+    ok: false, payment, invoice, verified: false,
+    reason: result.reason || result.error || 'provider verification failed',
+    status: result.status || 'UNKNOWN',
+  };
+
+  if (!result.verified || result.status !== 'SUCCEEDED') {
+    if (payment.status === 'CREATED') {
+      try { payments.updateStatus(payment.id, 'PENDING'); } catch {}
+    }
+    return {
+      ok: true, payment: payments.get(payment.id), invoice,
+      verified: false,
+      reason: result.reason || 'provider payment is not succeeded',
+      status: result.status || payment.status,
+    };
   }
-  if (Number(result.amount) !== Number(invoice.total)) return { ok: false, payment, invoice, verified: false, reason: `amount mismatch: provider=${result.amount} invoice=${invoice.total}` };
-  if (String(result.currency).toUpperCase() !== String(invoice.currency).toUpperCase()) return { ok: false, payment, invoice, verified: false, reason: `currency mismatch: provider=${result.currency} invoice=${invoice.currency}` };
+
+  if (result.providerTransactionId == null || String(result.providerTransactionId).trim() === '') {
+    return { ok: false, payment, invoice, verified: false, reason: 'missing provider transaction identity', status: 'SUCCEEDED' };
+  }
+
+  if (Number(result.amount) !== Number(invoice.total)) {
+    return {
+      ok: false, payment, invoice, verified: false,
+      reason: 'amount mismatch: provider=' + result.amount + ' invoice=' + invoice.total,
+      status: result.status,
+    };
+  }
+
+  if (String(result.currency).toUpperCase() !== String(invoice.currency).toUpperCase()) {
+    return {
+      ok: false, payment, invoice, verified: false,
+      reason: 'currency mismatch: provider=' + result.currency + ' invoice=' + invoice.currency,
+      status: result.status,
+    };
+  }
+
   if (payment.status !== 'SUCCEEDED') {
     assertPaymentStatusTransition(payment.status, 'SUCCEEDED');
-    payments.updateStatus(payment.id, 'SUCCEEDED', { verifiedAt: new Date().toISOString(), providerTransactionId: result.providerTransactionId });
+    payments.updateStatus(payment.id, 'SUCCEEDED', {
+      verifiedAt: new Date().toISOString(),
+      providerTransactionId: result.providerTransactionId,
+    });
   }
+
   if (invoice.status !== 'PAID') {
     if (['SENT', 'PARTIALLY_PAID', 'OVERDUE', 'APPROVED'].includes(invoice.status)) {
       if (invoice.status === 'APPROVED') invoices.updateStatus(invoice.id, 'SENT');
       const inv = invoices.get(invoice.id);
-      if (['SENT', 'PARTIALLY_PAID', 'OVERDUE'].includes(inv.status)) invoices.updateStatus(invoice.id, 'PAID');
+      if (['SENT', 'PARTIALLY_PAID', 'OVERDUE'].includes(inv.status)) {
+        invoices.updateStatus(invoice.id, 'PAID');
+      }
     }
   }
-  billingRecords.create({ invoiceId: invoice.id, paymentId: payment.id, companyId: invoice.company_id, recordType: 'PAYMENT_CONFIRMED', amount: payment.amount, currency: payment.currency, description: `Verified via ${payment.provider}` });
-  return { ok: true, payment: payments.get(payment.id), invoice: invoices.get(invoice.id), verified: true, status: 'SUCCEEDED' };
+
+  const existingConfirmation = billingRecords
+    .list({ invoiceId: invoice.id, limit: 100 })
+    .find((r) => r.record_type === 'PAYMENT_CONFIRMED' && r.payment_id === payment.id);
+
+  if (!existingConfirmation) {
+    billingRecords.create({
+      invoiceId: invoice.id,
+      paymentId: payment.id,
+      companyId: invoice.company_id,
+      recordType: 'PAYMENT_CONFIRMED',
+      amount: payment.amount,
+      currency: payment.currency,
+      description: 'Verified via ' + payment.provider,
+    });
+  }
+
+  return {
+    ok: true,
+    payment: payments.get(payment.id),
+    invoice: invoices.get(invoice.id),
+    verified: true,
+    status: 'SUCCEEDED',
+  };
 }
 
 export async function handlePaymentWebhook({ provider: providerName, headers, body, rawBody }) {
   const provider = getPaymentProvider(providerName);
   const handled = await provider.handleWebhook({ headers, body, rawBody });
+
   if (!handled.ok) return { ok: false, reason: handled.reason || 'webhook rejected' };
+
   const { paymentWebhookEvents, payments: payRepo } = await import('../../database/index.js');
-  const { event, duplicate } = paymentWebhookEvents.create({ provider: providerName, eventId: handled.eventId, eventType: handled.eventType, paymentId: null, payloadHash: handled.eventId });
+  const { event, duplicate } = paymentWebhookEvents.create({
+    provider: providerName,
+    eventId: handled.eventId,
+    eventType: handled.eventType,
+    paymentId: null,
+    payloadHash: handled.eventId,
+  });
+
   if (duplicate && event.processed) return { ok: true, duplicate: true, event };
-  let payment = payRepo.list({ limit: 100, provider: providerName }).find((p) => p.provider_payment_id === handled.providerPaymentId);
-  if (!payment) { paymentWebhookEvents.markProcessed(event.id); return { ok: false, reason: 'payment not found for webhook', event }; }
+
+  const payment = payRepo.list({ limit: 100, provider: providerName })
+    .find((p) => p.provider_payment_id === handled.providerPaymentId);
+
+  if (!payment) {
+    paymentWebhookEvents.markProcessed(event.id);
+    return { ok: false, reason: 'payment not found for webhook', event };
+  }
+
   if (handled.verified && handled.status === 'SUCCEEDED') {
     const verified = await verifyPayment(payment.id);
     paymentWebhookEvents.markProcessed(event.id);
     return { ok: true, duplicate: false, event, verification: verified };
   }
-  if (handled.status === 'FAILED' && payment.status !== 'FAILED') { try { payRepo.updateStatus(payment.id, 'FAILED'); } catch {} }
+
+  if (handled.status === 'FAILED' && payment.status !== 'FAILED') {
+    try { payRepo.updateStatus(payment.id, 'FAILED'); } catch {}
+  }
+
   paymentWebhookEvents.markProcessed(event.id);
   return { ok: true, duplicate: false, event, payment: payRepo.get(payment.id), verified: false };
 }

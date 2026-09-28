@@ -37,6 +37,7 @@ async function request(method, url, { headers = {}, body } = {}) {
 beforeAll(async () => {
   tmpDbPath = path.join(os.tmpdir(), `control-layer-${Date.now()}.db`);
   process.env.DATABASE_PATH = tmpDbPath;
+  process.env.DATA_DIR = path.dirname(tmpDbPath);
   process.env.NODE_ENV = 'test';
   process.env.AI_PROVIDER = 'stub';
   token = 'test-control-token-phase5b';
