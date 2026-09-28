@@ -17,7 +17,7 @@ import express from 'express';
 import basicAuth from 'express-basic-auth';
 import fs from 'node:fs';
 import path from 'node:path';
-import { tasks, runs, steps, errors as dbErrors, notifications, websiteSamples, prospects, opportunities, samples, proposals, outreachMessages, outreachApprovals, outreachAttempts, companies, contacts, conversations, inboundMessages, clientMemory, conversationInsights, invoices, payments, projects } from '../database/index.js';
+import { tasks, runs, steps, errors as dbErrors, notifications, websiteSamples, prospects, opportunities, samples, proposals, outreachMessages, outreachApprovals, outreachAttempts, companies, contacts, conversations, inboundMessages, clientMemory, conversationInsights, invoices, payments, projects, relationshipStates, clientTimelineEvents, followUpRecommendations, clientRevenueSnapshots } from '../database/index.js';
 import { approveOutreachMessage, denyOutreachMessage, sendApprovedOutreach } from '../integrations/outreach-delivery.js';
 import { runAgent } from '../agent/index.js';
 import { scheduleTask, unscheduleTask } from '../scheduler/index.js';
@@ -383,6 +383,43 @@ export async function startDashboard() {
   });
 
 
+
+// Phase 7 BI — read-only business intelligence visibility
+  app.get('/api/bi/relationship', (req, res) => {
+    const { companyId, contactId, prospectId } = req.query;
+    if (!companyId && !contactId && !prospectId) return res.status(400).json({ error: 'companyId, contactId, or prospectId required' });
+    const current = relationshipStates.getCurrent({ companyId, contactId, prospectId });
+    const history = relationshipStates.listHistory({ companyId, contactId, prospectId, limit: Number(req.query.limit) || 50 });
+    res.json({ current, history });
+  });
+  app.get('/api/bi/timeline', (req, res) => {
+    const { companyId, contactId, prospectId, eventType } = req.query;
+    if (!companyId && !contactId && !prospectId) return res.status(400).json({ error: 'companyId, contactId, or prospectId required' });
+    res.json(clientTimelineEvents.list({ companyId, contactId, prospectId, eventType, limit: Number(req.query.limit) || 100 }));
+  });
+  app.get('/api/bi/followups', (req, res) => {
+    const { companyId, contactId, prospectId, status } = req.query;
+    res.json(followUpRecommendations.list({
+      companyId, contactId, prospectId, status,
+      limit: Number(req.query.limit) || 50,
+    }));
+  });
+  app.get('/api/bi/revenue', (req, res) => {
+    const { companyId, contactId, prospectId } = req.query;
+    if (!companyId && !contactId && !prospectId) return res.status(400).json({ error: 'companyId, contactId, or prospectId required' });
+    const latest = clientRevenueSnapshots.getLatest({ companyId, contactId, prospectId });
+    res.json({ latest });
+  });
+  app.get('/api/bi/dormant', (req, res) => {
+    const limit = Number(req.query.limit) || 50;
+    const out = [];
+    for (const c of companies.list({ limit: 200 })) {
+      const rel = relationshipStates.getCurrent({ companyId: c.id });
+      if (rel && rel.state === 'DORMANT') out.push({ companyId: c.id, companyName: c.name, relationship: rel });
+      if (out.length >= limit) break;
+    }
+    res.json({ dormant: out });
+  });
 
   const PREVIEW_FILES = {
     'index.html': 'text/html; charset=utf-8',
