@@ -1,0 +1,567 @@
+// mcp/tools.js
+// Public Remote MCP tool definitions. Every entry maps 1:1 to an existing
+// Control Layer tool. Keep this list deny-by-default and free of direct
+// production-write or communication capabilities.
+
+const objectSchema = (properties = {}, required = []) => ({
+  type: 'object',
+  properties,
+  required,
+  additionalProperties: false,
+});
+
+const stringProperty = (description) => ({
+  type: 'string',
+  description,
+});
+
+const booleanProperty = (description) => ({
+  type: 'boolean',
+  description,
+});
+
+const integerProperty = (description) => ({
+  type: 'integer',
+  description,
+});
+
+export const MCP_TOOL_DEFINITIONS = [
+  {
+    mcpName: 'agent_health_check',
+    controlName: 'agent.health_check',
+    title: 'Agent Health Check',
+    description: 'Check AI Browser Agent health, database, scheduler, process, and latest run status.',
+    inputSchema: objectSchema(),
+  },
+  {
+    mcpName: 'agent_create_task',
+    controlName: 'agent.create_task',
+    title: 'Create Agent Task',
+    description: 'Create an AI Browser Agent task with an optional schedule and metadata.',
+    inputSchema: objectSchema(
+      {
+        name: stringProperty('Task name.'),
+        goal: stringProperty('Task goal or instruction.'),
+        cronExpression: stringProperty('Optional cron schedule expression.'),
+        timezone: stringProperty('Optional IANA timezone for the schedule.'),
+        metadata: {
+          type: 'object',
+          description: 'Optional task metadata.',
+          additionalProperties: true,
+        },
+      },
+      ['name', 'goal'],
+    ),
+  },
+  {
+    mcpName: 'agent_run_task',
+    controlName: 'agent.run_task',
+    title: 'Run Agent Task',
+    description: 'Start an immediate run for an existing task.',
+    inputSchema: objectSchema({
+      taskId: stringProperty('Existing task ID.'),
+    }, ['taskId']),
+  },
+  {
+    mcpName: 'agent_get_task',
+    controlName: 'agent.get_task',
+    title: 'Get Agent Task',
+    description: 'Read an existing task.',
+    inputSchema: objectSchema({
+      taskId: stringProperty('Existing task ID.'),
+    }, ['taskId']),
+  },
+  {
+    mcpName: 'agent_get_run',
+    controlName: 'agent.get_run',
+    title: 'Get Agent Run',
+    description: 'Read an existing agent run.',
+    inputSchema: objectSchema({
+      runId: stringProperty('Existing run ID.'),
+    }, ['runId']),
+  },
+  {
+    mcpName: 'agent_get_logs',
+    controlName: 'agent.get_logs',
+    title: 'Get Agent Logs',
+    description: 'Read steps, errors, and notifications associated with an agent run.',
+    inputSchema: objectSchema({
+      runId: stringProperty('Existing run ID.'),
+    }, ['runId']),
+  },
+  {
+    mcpName: 'agent_retry_run',
+    controlName: 'agent.retry_run',
+    title: 'Retry Agent Run',
+    description: 'Retry a failed agent run through the existing repair policy.',
+    inputSchema: objectSchema({
+      runId: stringProperty('Existing failed run ID.'),
+    }, ['runId']),
+  },
+
+  {
+    mcpName: 'browser_open',
+    controlName: 'browser.open',
+    title: 'Browser Open',
+    description: 'Open an allowlisted URL in the browser.',
+    inputSchema: objectSchema({
+      url: stringProperty('URL to open.'),
+      waitUntil: stringProperty('Optional browser navigation wait condition.'),
+    }, ['url']),
+  },
+  {
+    mcpName: 'browser_inspect',
+    controlName: 'browser.inspect',
+    title: 'Browser Inspect',
+    description: 'Inspect the current browser page snapshot.',
+    inputSchema: objectSchema(),
+  },
+  {
+    mcpName: 'browser_screenshot',
+    controlName: 'browser.screenshot',
+    title: 'Browser Screenshot',
+    description: 'Capture a screenshot of the current browser page.',
+    inputSchema: objectSchema({
+      fullPage: booleanProperty('Capture the full page when true.'),
+    }),
+  },
+  {
+    mcpName: 'browser_extract',
+    controlName: 'browser.extract',
+    title: 'Browser Extract',
+    description: 'Extract visible page information from the current browser page.',
+    inputSchema: objectSchema(),
+  },
+  {
+    mcpName: 'browser_click',
+    controlName: 'browser.click',
+    title: 'Browser Click',
+    description: 'Click a browser target. Human approval is required by Control policy.',
+    inputSchema: objectSchema(
+      {
+        target: stringProperty('Browser target to click.'),
+        approved: booleanProperty('Explicit human approval required by Control policy.'),
+      },
+      ['target', 'approved'],
+    ),
+  },
+  {
+    mcpName: 'browser_type',
+    controlName: 'browser.type',
+    title: 'Browser Type',
+    description: 'Type text into a browser target. Human approval is required by Control policy.',
+    inputSchema: objectSchema(
+      {
+        target: stringProperty('Browser target to type into.'),
+        text: stringProperty('Text to type.'),
+        approved: booleanProperty('Explicit human approval required by Control policy.'),
+      },
+      ['target', 'text', 'approved'],
+    ),
+  },
+
+  {
+    mcpName: 'github_inspect_repository',
+    controlName: 'github.inspect_repository',
+    title: 'GitHub Inspect Repository',
+    description: 'Inspect the configured GitHub repository and its branches.',
+    inputSchema: objectSchema(),
+  },
+  {
+    mcpName: 'github_read_file',
+    controlName: 'github.read_file',
+    title: 'GitHub Read File',
+    description: 'Read a file from the configured GitHub repository.',
+    inputSchema: objectSchema({
+      path: stringProperty('Repository-relative file path.'),
+      ref: stringProperty('Optional branch, tag, or commit reference.'),
+    }, ['path']),
+  },
+  {
+    mcpName: 'github_run_tests',
+    controlName: 'github.run_tests',
+    title: 'GitHub Run Tests',
+    description: 'Dispatch the repository verification workflow.',
+    inputSchema: objectSchema({
+      ref: stringProperty('Optional branch, tag, or commit reference.'),
+    }),
+  },
+  {
+    mcpName: 'github_get_test_results',
+    controlName: 'github.get_test_results',
+    title: 'GitHub Get Test Results',
+    description: 'Read GitHub Actions verification results.',
+    inputSchema: objectSchema({
+      runId: stringProperty('Optional GitHub Actions run ID.'),
+    }),
+  },
+
+  {
+    mcpName: 'render_get_status',
+    controlName: 'render.get_status',
+    title: 'Render Get Status',
+    description: 'Read Render service status without deploying.',
+    inputSchema: objectSchema({
+      target: stringProperty('Optional Render target, such as staging or production.'),
+      serviceId: stringProperty('Optional Render service ID.'),
+    }),
+  },
+  {
+    mcpName: 'render_get_logs',
+    controlName: 'render.get_logs',
+    title: 'Render Get Logs',
+    description: 'Read Render service logs without deploying.',
+    inputSchema: objectSchema({
+      target: stringProperty('Optional Render target, such as staging or production.'),
+      serviceId: stringProperty('Optional Render service ID.'),
+      limit: integerProperty('Optional maximum number of log records.'),
+    }),
+  },
+  {
+    mcpName: 'render_get_deployments',
+    controlName: 'render.get_deployments',
+    title: 'Render Get Deployments',
+    description: 'Read Render deployment history without deploying.',
+    inputSchema: objectSchema({
+      target: stringProperty('Optional Render target, such as staging or production.'),
+      serviceId: stringProperty('Optional Render service ID.'),
+      limit: integerProperty('Optional maximum number of deployments.'),
+    }),
+  },
+
+  {
+    mcpName: 'repair_get',
+    controlName: 'repair.get',
+    title: 'Repair Get',
+    description: 'Read a repair session.',
+    inputSchema: objectSchema({
+      sessionId: stringProperty('Existing repair session ID.'),
+    }, ['sessionId']),
+  },
+  {
+    mcpName: 'repair_start',
+    controlName: 'repair.start',
+    title: 'Repair Start',
+    description: 'Create or reuse a repair session for a task/run.',
+    inputSchema: objectSchema({
+      taskId: stringProperty('Optional task ID.'),
+      initialRunId: stringProperty('Optional initial run ID.'),
+      maxAttempts: integerProperty('Optional maximum repair attempts.'),
+    }),
+  },
+  {
+    mcpName: 'repair_advance',
+    controlName: 'repair.advance',
+    title: 'Repair Advance',
+    description: 'Advance a repair session while preserving approval gates for modification and deployment.',
+    inputSchema: objectSchema({
+      sessionId: stringProperty('Existing repair session ID.'),
+      runId: stringProperty('Optional run ID to evaluate.'),
+      diagnosis: stringProperty('Optional repair diagnosis.'),
+      branchName: stringProperty('Optional repair branch name.'),
+      approvedModify: booleanProperty('Explicit approval for repository modification.'),
+      approvedDeploy: booleanProperty('Explicit approval for deployment.'),
+    }, ['sessionId']),
+  },
+  {
+    mcpName: 'outreach_list',
+    controlName: 'outreach.list',
+    title: 'List Outreach Messages',
+    description: 'List outreach drafts and messages (Phase 6). Read-only.',
+    inputSchema: objectSchema({
+      limit: integerProperty('Maximum number of messages to return.'),
+      status: stringProperty('Optional status filter (e.g. READY_FOR_APPROVAL, APPROVED, SENT).'),
+      opportunityId: stringProperty('Optional opportunity ID filter.'),
+      prospectId: stringProperty('Optional prospect ID filter.'),
+    }),
+  },
+  {
+    mcpName: 'outreach_get',
+    controlName: 'outreach.get',
+    title: 'Get Outreach Message',
+    description: 'Get one outreach message with its approvals and send attempts.',
+    inputSchema: objectSchema({
+      messageId: stringProperty('Outreach message ID.'),
+      id: stringProperty('Alias for messageId.'),
+    }),
+  },
+  {
+    mcpName: 'outreach_list_pending',
+    controlName: 'outreach.list_pending',
+    title: 'List Pending Outreach Approvals',
+    description: 'List outreach messages in READY_FOR_APPROVAL status.',
+    inputSchema: objectSchema({
+      limit: integerProperty('Maximum number of messages to return.'),
+    }),
+  },
+  {
+    mcpName: 'outreach_approve',
+    controlName: 'outreach.approve',
+    title: 'Approve Outreach Draft',
+    description: 'Approve a READY_FOR_APPROVAL draft. Requires approved=true. Does not send email.',
+    inputSchema: objectSchema({
+      messageId: stringProperty('Outreach message ID.'),
+      id: stringProperty('Alias for messageId.'),
+      approved: booleanProperty('Must be true to confirm operator approval.'),
+      decidedBy: stringProperty('Optional operator identifier.'),
+    }, ['approved']),
+  },
+  {
+    mcpName: 'outreach_deny',
+    controlName: 'outreach.deny',
+    title: 'Deny Outreach Draft',
+    description: 'Reject a READY_FOR_APPROVAL or APPROVED draft. Does not send email.',
+    inputSchema: objectSchema({
+      messageId: stringProperty('Outreach message ID.'),
+      id: stringProperty('Alias for messageId.'),
+      decidedBy: stringProperty('Optional operator identifier.'),
+    }),
+  },
+  {
+    mcpName: 'outreach_send_approved',
+    controlName: 'outreach.send_approved',
+    title: 'Send Approved Outreach',
+    description: 'Send an APPROVED outreach email. Requires prior approve decision, approved=true, and Idempotency-Key HTTP header. External side effect.',
+    inputSchema: objectSchema({
+      messageId: stringProperty('Outreach message ID.'),
+      id: stringProperty('Alias for messageId.'),
+      approved: booleanProperty('Must be true to confirm send authorization.'),
+      decidedBy: stringProperty('Optional operator identifier.'),
+    }, ['approved']),
+  },
+  {
+    mcpName: 'crm_find_company',
+    controlName: 'crm.find_company',
+    title: 'Find Company',
+    description: 'Look up a CRM company by id, domain, or name. Read-only.',
+    inputSchema: objectSchema({
+      id: stringProperty('Company ID.'),
+      domain: stringProperty('Company domain.'),
+      name: stringProperty('Company name.'),
+      limit: integerProperty('Max results when listing.'),
+    }),
+  },
+  {
+    mcpName: 'crm_find_contact',
+    controlName: 'crm.find_contact',
+    title: 'Find Contact',
+    description: 'Look up a CRM contact by id, email, or external id. Read-only.',
+    inputSchema: objectSchema({
+      id: stringProperty('Contact ID.'),
+      email: stringProperty('Contact email.'),
+      externalId: stringProperty('External provider contact id.'),
+      companyId: stringProperty('Filter by company ID.'),
+      prospectId: stringProperty('Filter by prospect ID.'),
+      limit: integerProperty('Max results when listing.'),
+    }),
+  },
+  {
+    mcpName: 'crm_find_conversation',
+    controlName: 'crm.find_conversation',
+    title: 'Find Conversation',
+    description: 'Find CRM conversations by id, external thread, or filters. Read-only.',
+    inputSchema: objectSchema({
+      id: stringProperty('Conversation ID.'),
+      channel: stringProperty('Channel (e.g. email).'),
+      externalThreadId: stringProperty('External thread id.'),
+      status: stringProperty('Conversation status.'),
+      contactId: stringProperty('Filter by contact.'),
+      companyId: stringProperty('Filter by company.'),
+      prospectId: stringProperty('Filter by prospect.'),
+      limit: integerProperty('Max results.'),
+    }),
+  },
+  {
+    mcpName: 'crm_get_conversation',
+    controlName: 'crm.get_conversation',
+    title: 'Get Conversation',
+    description: 'Get a conversation with its messages and linked entities. Read-only.',
+    inputSchema: objectSchema({
+      id: stringProperty('Conversation ID.'),
+      conversationId: stringProperty('Alias for id.'),
+      limit: integerProperty('Max messages to include.'),
+    }),
+  },
+  {
+    mcpName: 'crm_list_messages',
+    controlName: 'crm.list_messages',
+    title: 'List Inbound Messages',
+    description: 'List stored inbound messages with optional filters. Read-only.',
+    inputSchema: objectSchema({
+      conversationId: stringProperty('Filter by conversation.'),
+      contactId: stringProperty('Filter by contact.'),
+      prospectId: stringProperty('Filter by prospect.'),
+      classification: stringProperty('Filter by classification.'),
+      limit: integerProperty('Max results.'),
+    }),
+  },
+  {
+    mcpName: 'crm_ingest_message',
+    controlName: 'crm.ingest_message',
+    title: 'Ingest Inbound Message',
+    description: 'Ingest one inbound message into CRM (idempotent). Does not send any outbound communication.',
+    inputSchema: objectSchema({
+      provider: stringProperty('Provider name (mock, generic, etc.).'),
+      channel: stringProperty('Channel (email, form, etc.).'),
+      sender: stringProperty('Sender address or identifier.'),
+      recipient: stringProperty('Recipient address.'),
+      subject: stringProperty('Message subject.'),
+      body: stringProperty('Message body text.'),
+      externalMessageId: stringProperty('Provider message id for idempotency.'),
+      externalThreadId: stringProperty('Provider thread id.'),
+      receivedAt: stringProperty('ISO timestamp when received.'),
+      prospectId: stringProperty('Optional explicit prospect link.'),
+      companyId: stringProperty('Optional explicit company link.'),
+      contactId: stringProperty('Optional explicit contact link.'),
+    }),
+  },
+
+  {
+    mcpName: 'crm_list_companies',
+    controlName: 'crm.list_companies',
+    title: 'List Companies',
+    description: 'List CRM companies. Read-only.',
+    inputSchema: objectSchema({ limit: integerProperty('Max results.') }),
+  },
+  {
+    mcpName: 'crm_get_company',
+    controlName: 'crm.get_company',
+    title: 'Get Company',
+    description: 'Get company with contacts and memory. Read-only.',
+    inputSchema: objectSchema({ id: stringProperty('Company ID.'), companyId: stringProperty('Alias for id.') }),
+  },
+  {
+    mcpName: 'crm_list_contacts',
+    controlName: 'crm.list_contacts',
+    title: 'List Contacts',
+    description: 'List CRM contacts. Read-only.',
+    inputSchema: objectSchema({ companyId: stringProperty('Filter.'), prospectId: stringProperty('Filter.'), limit: integerProperty('Max.') }),
+  },
+  {
+    mcpName: 'crm_get_contact',
+    controlName: 'crm.get_contact',
+    title: 'Get Contact',
+    description: 'Get contact with company, prospect, memory. Read-only.',
+    inputSchema: objectSchema({ id: stringProperty('Contact ID.'), contactId: stringProperty('Alias.') }),
+  },
+  {
+    mcpName: 'crm_list_conversations',
+    controlName: 'crm.list_conversations',
+    title: 'List Conversations',
+    description: 'List CRM conversations. Read-only.',
+    inputSchema: objectSchema({ status: stringProperty('Filter.'), contactId: stringProperty('Filter.'), companyId: stringProperty('Filter.'), prospectId: stringProperty('Filter.'), limit: integerProperty('Max.') }),
+  },
+  {
+    mcpName: 'crm_get_client_memory',
+    controlName: 'crm.get_client_memory',
+    title: 'Get Client Memory',
+    description: 'List client memory facts with confidence. Read-only.',
+    inputSchema: objectSchema({ companyId: stringProperty('Scope.'), contactId: stringProperty('Scope.'), prospectId: stringProperty('Scope.'), key: stringProperty('Fact key.'), limit: integerProperty('Max.') }),
+  },
+  {
+    mcpName: 'crm_update_client_memory',
+    controlName: 'crm.update_client_memory',
+    title: 'Update Client Memory',
+    description: 'Upsert a confirmed client memory fact. Does not send messages.',
+    inputSchema: objectSchema({ companyId: stringProperty('Scope.'), contactId: stringProperty('Scope.'), prospectId: stringProperty('Scope.'), key: stringProperty('Fact key.'), value: stringProperty('Fact value.'), confidence: stringProperty('CONFIRMED_BY_CLIENT or CONFIRMED_BY_SYSTEM.'), source: stringProperty('Source label.'), notes: stringProperty('Notes.') }, ['key', 'value']),
+  },
+  {
+    mcpName: 'crm_get_next_action',
+    controlName: 'crm.get_next_action',
+    title: 'Get Next Action',
+    description: 'Recommend internal next action for a conversation. Does not execute side effects.',
+    inputSchema: objectSchema({ conversationId: stringProperty('Conversation ID.'), classification: stringProperty('Optional override.'), intent: stringProperty('Optional.'), requestedService: stringProperty('Optional.'), prospectStatus: stringProperty('Optional.'), hasBudget: booleanProperty('Optional.'), messageCount: integerProperty('Optional.') }),
+  },
+  {
+    mcpName: 'crm_link_prospect_to_client',
+    controlName: 'crm.link_prospect_to_client',
+    title: 'Link Prospect to Client',
+    description: 'Link prospect to company/contact records. Does not mark customer automatically.',
+    inputSchema: objectSchema({ prospectId: stringProperty('Prospect ID.'), companyId: stringProperty('Optional company.'), contactId: stringProperty('Optional contact.') }, ['prospectId']),
+  },
+  {
+    mcpName: 'crm_refresh_conversation',
+    controlName: 'crm.refresh_conversation',
+    title: 'Refresh Conversation Intelligence',
+    description: 'Rebuild summary, facts, and next-action for a conversation.',
+    inputSchema: objectSchema({ conversationId: stringProperty('Conversation ID.'), id: stringProperty('Alias.') }),
+  },
+  {
+    mcpName: 'crm_qualify_prospect',
+    controlName: 'crm.qualify_prospect',
+    title: 'Qualify Prospect',
+    description: 'Explicitly mark prospect QUALIFIED. Does not mark CUSTOMER/WON.',
+    inputSchema: objectSchema({ prospectId: stringProperty('Prospect ID.'), id: stringProperty('Alias.') }),
+  },
+  {
+    mcpName: 'crm_mark_customer',
+    controlName: 'crm.mark_customer',
+    title: 'Mark Customer',
+    description: 'Explicit business action to mark CUSTOMER or WON. Requires explicitAction=true. Never auto from message sentiment.',
+    inputSchema: objectSchema({ prospectId: stringProperty('Prospect ID.'), id: stringProperty('Alias.'), explicitAction: booleanProperty('Must be true.'), status: stringProperty('CUSTOMER or WON.') }, ['explicitAction']),
+  },
+
+  {
+    mcpName: 'crm_draft_reply',
+    controlName: 'crm.draft_reply',
+    title: 'Draft Client Reply',
+    description: 'Create an INTERNAL human-editable reply draft. Never sends. Never invents pricing or payments.',
+    inputSchema: objectSchema({ conversationId: stringProperty('Conversation ID.'), id: stringProperty('Alias.'), tone: stringProperty('Optional tone.') }),
+  },
+
+  { mcpName: 'crm_create_invoice', controlName: 'crm.create_invoice', title: 'Create Invoice', description: 'Create a DRAFT invoice. Does not charge clients.', inputSchema: objectSchema({ companyId: stringProperty('Company.'), contactId: stringProperty('Contact.'), prospectId: stringProperty('Prospect.'), opportunityId: stringProperty('Opportunity.'), proposalId: stringProperty('Proposal.'), currency: stringProperty('Currency.'), subtotal: integerProperty('Subtotal.'), tax: integerProperty('Tax.'), total: integerProperty('Total.'), description: stringProperty('Description.') }) },
+  { mcpName: 'crm_get_invoice', controlName: 'crm.get_invoice', title: 'Get Invoice', description: 'Get invoice by ID. Read-only.', inputSchema: objectSchema({ id: stringProperty('Invoice ID.'), invoiceId: stringProperty('Alias.') }) },
+  { mcpName: 'crm_list_invoices', controlName: 'crm.list_invoices', title: 'List Invoices', description: 'List invoices. Read-only.', inputSchema: objectSchema({ status: stringProperty('Filter.'), companyId: stringProperty('Filter.'), limit: integerProperty('Max.') }) },
+  { mcpName: 'crm_approve_invoice', controlName: 'crm.approve_invoice', title: 'Approve Invoice', description: 'Approve invoice for sending. Does not charge.', inputSchema: objectSchema({ id: stringProperty('Invoice ID.'), invoiceId: stringProperty('Alias.') }) },
+  { mcpName: 'crm_send_invoice', controlName: 'crm.send_invoice', title: 'Send Invoice', description: 'Mark invoice SENT (status only; no real email).', inputSchema: objectSchema({ id: stringProperty('Invoice ID.'), invoiceId: stringProperty('Alias.') }) },
+  { mcpName: 'payment_create', controlName: 'payment.create', title: 'Create Payment', description: 'Create payment request via mock provider. No real charge.', inputSchema: objectSchema({ invoiceId: stringProperty('Invoice ID.'), provider: stringProperty('mpesa or stripe.'), amount: integerProperty('Amount.'), currency: stringProperty('Currency.') }, ['invoiceId']) },
+  { mcpName: 'payment_get', controlName: 'payment.get', title: 'Get Payment', description: 'Get payment by ID. Read-only.', inputSchema: objectSchema({ id: stringProperty('Payment ID.'), paymentId: stringProperty('Alias.') }) },
+  { mcpName: 'payment_verify', controlName: 'payment.verify', title: 'Verify Payment', description: 'Verify payment with provider. Client claim alone is insufficient.', inputSchema: objectSchema({ id: stringProperty('Payment ID.'), paymentId: stringProperty('Alias.') }) },
+  { mcpName: 'payment_list', controlName: 'payment.list', title: 'List Payments', description: 'List payments. Read-only.', inputSchema: objectSchema({ status: stringProperty('Filter.'), invoiceId: stringProperty('Filter.'), provider: stringProperty('Filter.'), limit: integerProperty('Max.') }) },
+  { mcpName: 'payment_handle_webhook', controlName: 'payment.handle_webhook', title: 'Handle Payment Webhook', description: 'Process provider webhook with signature/simulate checks. Idempotent.', inputSchema: objectSchema({ provider: stringProperty('Provider name.'), body: stringProperty('Webhook body.'), headers: stringProperty('Headers.') }, ['provider']) },
+  { mcpName: 'project_create', controlName: 'project.create', title: 'Create Project', description: 'Create project record. Does not auto-start without payment.', inputSchema: objectSchema({ invoiceId: stringProperty('Invoice.'), paymentId: stringProperty('Payment.'), companyId: stringProperty('Company.'), prospectId: stringProperty('Prospect.'), opportunityId: stringProperty('Opportunity.'), proposalId: stringProperty('Proposal.'), scope: stringProperty('Scope from proposal.'), projectType: stringProperty('Type.'), deadline: stringProperty('Deadline.') }) },
+  { mcpName: 'project_get', controlName: 'project.get', title: 'Get Project', description: 'Get project by ID. Read-only.', inputSchema: objectSchema({ id: stringProperty('Project ID.'), projectId: stringProperty('Alias.') }) },
+  { mcpName: 'project_start', controlName: 'project.start', title: 'Start Project', description: 'Start project only after verified payment (unless allowUnpaid).', inputSchema: objectSchema({ id: stringProperty('Project ID.'), projectId: stringProperty('Alias.'), allowUnpaid: booleanProperty('Explicit override — default false.') }) },
+  { mcpName: 'project_update', controlName: 'project.update', title: 'Update Project Status', description: 'Advance project status via controlled transitions.', inputSchema: objectSchema({ id: stringProperty('Project ID.'), projectId: stringProperty('Alias.'), status: stringProperty('Target status.') }, ['status']) },
+  { mcpName: 'project_complete', controlName: 'project.complete', title: 'Complete Project', description: 'Mark project COMPLETED via delivery path.', inputSchema: objectSchema({ id: stringProperty('Project ID.'), projectId: stringProperty('Alias.') }) },
+  { mcpName: 'project_deliver', controlName: 'project.deliver', title: 'Deliver Project', description: 'Mark project DELIVERED.', inputSchema: objectSchema({ id: stringProperty('Project ID.'), projectId: stringProperty('Alias.') }) },
+  // Phase 7 BI — Business Relationship & Intelligence (recommendations / read-only)
+  { mcpName: 'bi_get_relationship', controlName: 'bi.get_relationship', title: 'Get Relationship State', description: 'Read current relationship state and history for a client scope. Read-only.', inputSchema: objectSchema({ companyId: stringProperty('Company ID.'), contactId: stringProperty('Contact ID.'), prospectId: stringProperty('Prospect ID.') }) },
+  { mcpName: 'bi_evaluate_relationship', controlName: 'bi.evaluate_relationship', title: 'Evaluate Relationship', description: 'Recompute relationship state from evidence. Persists transition; never auto-WON or auto-send.', inputSchema: objectSchema({ companyId: stringProperty('Company ID.'), contactId: stringProperty('Contact ID.'), prospectId: stringProperty('Prospect ID.'), persist: booleanProperty('Persist transition (default true).') }) },
+  { mcpName: 'bi_get_timeline', controlName: 'bi.get_timeline', title: 'Get Client Timeline', description: 'List client timeline events. Read-only.', inputSchema: objectSchema({ companyId: stringProperty('Company ID.'), contactId: stringProperty('Contact ID.'), prospectId: stringProperty('Prospect ID.'), eventType: stringProperty('Optional event type filter.'), limit: integerProperty('Max events.') }) },
+  { mcpName: 'bi_record_timeline_event', controlName: 'bi.record_timeline_event', title: 'Record Timeline Event', description: 'Record an explicit timeline event. Does not send messages or payments.', inputSchema: objectSchema({ companyId: stringProperty('Company ID.'), contactId: stringProperty('Contact ID.'), prospectId: stringProperty('Prospect ID.'), opportunityId: stringProperty('Opportunity ID.'), projectId: stringProperty('Project ID.'), invoiceId: stringProperty('Invoice ID.'), paymentId: stringProperty('Payment ID.'), conversationId: stringProperty('Conversation ID.'), eventType: stringProperty('Event type.'), title: stringProperty('Title.'), summary: stringProperty('Summary.'), actor: stringProperty('Actor.'), amount: integerProperty('Optional amount.'), currency: stringProperty('Currency.'), occurredAt: stringProperty('ISO timestamp.') }) },
+  { mcpName: 'bi_generate_followups', controlName: 'bi.generate_followups', title: 'Generate Follow-up Recommendations', description: 'Generate follow-up recommendations only. Never sends email/DM/WhatsApp.', inputSchema: objectSchema({ companyId: stringProperty('Company ID.'), contactId: stringProperty('Contact ID.'), prospectId: stringProperty('Prospect ID.'), persist: booleanProperty('Persist recommendations.') }) },
+  { mcpName: 'bi_list_followups', controlName: 'bi.list_followups', title: 'List Follow-up Recommendations', description: 'List open or filtered follow-up recommendations. Read-only.', inputSchema: objectSchema({ companyId: stringProperty('Company ID.'), contactId: stringProperty('Contact ID.'), prospectId: stringProperty('Prospect ID.'), status: stringProperty('Status filter.'), limit: integerProperty('Max.') }) },
+  { mcpName: 'bi_resolve_followup', controlName: 'bi.resolve_followup', title: 'Resolve Follow-up', description: 'Mark a follow-up recommendation resolved/dismissed. No external side effect.', inputSchema: objectSchema({ id: stringProperty('Follow-up ID.'), followUpId: stringProperty('Alias for id.'), resolvedBy: stringProperty('Operator id.'), status: stringProperty('RESOLVED or DISMISSED.') }) },
+  { mcpName: 'bi_get_revenue', controlName: 'bi.get_revenue', title: 'Get Client Revenue', description: 'Compute or read client revenue snapshot. Read-oriented.', inputSchema: objectSchema({ companyId: stringProperty('Company ID.'), contactId: stringProperty('Contact ID.'), prospectId: stringProperty('Prospect ID.'), persist: booleanProperty('Persist snapshot.') }) },
+  { mcpName: 'bi_detect_dormant', controlName: 'bi.detect_dormant', title: 'Detect Dormant Clients', description: 'List dormant clients by inactivity. Read-only.', inputSchema: objectSchema({ limit: integerProperty('Max.'), dormantDays: integerProperty('Days threshold (default 60).') }) },
+  { mcpName: 'bi_detect_repeat_business', controlName: 'bi.detect_repeat_business', title: 'Detect Repeat Business', description: 'Find paid/completed clients without open work. Recommendations only.', inputSchema: objectSchema({ limit: integerProperty('Max.') }) },
+  { mcpName: 'bi_link_opportunity_client', controlName: 'bi.link_opportunity_client', title: 'Link Opportunity to Client', description: 'Link an opportunity to company/contact/prospect. Does not mark WON.', inputSchema: objectSchema({ opportunityId: stringProperty('Opportunity ID.'), companyId: stringProperty('Company ID.'), contactId: stringProperty('Contact ID.'), prospectId: stringProperty('Prospect ID.') }) },
+  { mcpName: 'bi_assess_readiness', controlName: 'bi.assess_readiness', title: 'Assess Project/Payment Readiness', description: 'Advisory readiness checks. project.start remains approval-gated.', inputSchema: objectSchema({ companyId: stringProperty('Company ID.'), contactId: stringProperty('Contact ID.'), prospectId: stringProperty('Prospect ID.'), invoiceId: stringProperty('Invoice ID.'), paymentId: stringProperty('Payment ID.') }) },
+  { mcpName: 'bi_get_client_intelligence', controlName: 'bi.get_client_intelligence', title: 'Get Client Intelligence', description: 'Full client dossier: relationship, timeline, revenue, facts, readiness.', inputSchema: objectSchema({ companyId: stringProperty('Company ID.'), contactId: stringProperty('Contact ID.'), prospectId: stringProperty('Prospect ID.'), refreshRelationship: booleanProperty('Recompute relationship.') }) },
+  { mcpName: 'bi_query', controlName: 'bi.query', title: 'Business Intelligence Query', description: 'Run a BI query: dormant, repeat_business, revenue_summary, relationship_distribution, pipeline.', inputSchema: objectSchema({ query: stringProperty('Query name.'), q: stringProperty('Alias.'), limit: integerProperty('Max.') }) },
+    // Phase 8 — commercial (18 tools). Mutating tools remain approval-gated in Control policy.
+  { mcpName: 'commercial_create_quote', controlName: 'commercial.create_quote', title: 'Create Quote', description: 'Create a DRAFT commercial quote. Does not send or charge.', inputSchema: objectSchema({ companyId: stringProperty('Company.'), contactId: stringProperty('Contact.'), prospectId: stringProperty('Prospect.'), opportunityId: stringProperty('Opportunity.'), proposalId: stringProperty('Proposal.'), currency: stringProperty('Currency.'), subtotal: integerProperty('Subtotal.'), tax: integerProperty('Tax.'), lineItems: stringProperty('Optional line items JSON.'), validUntil: stringProperty('Optional expiry.'), notes: stringProperty('Notes.') }) },
+  { mcpName: 'commercial_get_quote', controlName: 'commercial.get_quote', title: 'Get Quote', description: 'Get a quote by ID. Read-only.', inputSchema: objectSchema({ id: stringProperty('Quote ID.'), quoteId: stringProperty('Alias.') }) },
+  { mcpName: 'commercial_list_quotes', controlName: 'commercial.list_quotes', title: 'List Quotes', description: 'List commercial quotes. Read-only.', inputSchema: objectSchema({ status: stringProperty('Filter.'), companyId: stringProperty('Filter.'), limit: integerProperty('Max.') }) },
+  { mcpName: 'commercial_approve_quote', controlName: 'commercial.approve_quote', title: 'Approve Quote', description: 'Approve a DRAFT quote. Does not send externally.', inputSchema: objectSchema({ id: stringProperty('Quote ID.'), quoteId: stringProperty('Alias.') }) },
+  { mcpName: 'commercial_send_quote', controlName: 'commercial.send_quote', title: 'Send Quote', description: 'Mark quote SENT internally. Does not email or DM the client.', inputSchema: objectSchema({ id: stringProperty('Quote ID.'), quoteId: stringProperty('Alias.'), approved: booleanProperty('Required by Control policy.') }) },
+  { mcpName: 'commercial_accept_quote', controlName: 'commercial.accept_quote', title: 'Accept Quote', description: 'Mark quote ACCEPTED. Does not auto-convert or charge.', inputSchema: objectSchema({ id: stringProperty('Quote ID.'), quoteId: stringProperty('Alias.') }) },
+  { mcpName: 'commercial_convert_quote', controlName: 'commercial.convert_quote', title: 'Convert Quote', description: 'Convert an accepted quote into a DRAFT invoice. Approval-gated.', inputSchema: objectSchema({ id: stringProperty('Quote ID.'), quoteId: stringProperty('Alias.'), approved: booleanProperty('Required by Control policy.') }) },
+  { mcpName: 'commercial_list_ledger', controlName: 'commercial.list_ledger', title: 'List Ledger', description: 'List transaction ledger entries. Read-only.', inputSchema: objectSchema({ invoiceId: stringProperty('Filter.'), paymentId: stringProperty('Filter.'), limit: integerProperty('Max.') }) },
+  { mcpName: 'commercial_issue_receipt', controlName: 'commercial.issue_receipt', title: 'Issue Receipt', description: 'Issue a receipt for a COMPLETED/verified payment. Does not send externally.', inputSchema: objectSchema({ paymentId: stringProperty('Payment ID.') }, ['paymentId']) },
+  { mcpName: 'commercial_list_receipts', controlName: 'commercial.list_receipts', title: 'List Receipts', description: 'List receipts. Read-only.', inputSchema: objectSchema({ invoiceId: stringProperty('Filter.'), limit: integerProperty('Max.') }) },
+  { mcpName: 'commercial_generate_reminders', controlName: 'commercial.generate_reminders', title: 'Generate Payment Reminders', description: 'Create reminder recommendations only. Never sends email/DM/WhatsApp.', inputSchema: objectSchema({ invoiceId: stringProperty('Invoice ID.') }, ['invoiceId']) },
+  { mcpName: 'commercial_list_reminders', controlName: 'commercial.list_reminders', title: 'List Payment Reminders', description: 'List payment reminder recommendations. Read-only.', inputSchema: objectSchema({ invoiceId: stringProperty('Filter.'), status: stringProperty('Filter.'), limit: integerProperty('Max.') }) },
+  { mcpName: 'commercial_request_refund', controlName: 'commercial.request_refund', title: 'Request Refund', description: 'Create a refund request record. Does not execute a provider refund.', inputSchema: objectSchema({ paymentId: stringProperty('Payment ID.'), amount: integerProperty('Amount.'), reason: stringProperty('Reason.') }, ['paymentId']) },
+  { mcpName: 'commercial_approve_refund', controlName: 'commercial.approve_refund', title: 'Approve Refund', description: 'Approve a refund request. Does not execute live refund. Approval-gated.', inputSchema: objectSchema({ id: stringProperty('Refund ID.'), refundId: stringProperty('Alias.'), approved: booleanProperty('Required by Control policy.'), approvedBy: stringProperty('Operator.') }) },
+  { mcpName: 'commercial_process_refund', controlName: 'commercial.process_refund', title: 'Process Refund', description: 'Attempt refund processing through the selected provider. Live execution remains disabled. Approval-gated.', inputSchema: objectSchema({ id: stringProperty('Refund ID.'), refundId: stringProperty('Alias.'), approved: booleanProperty('Required by Control policy.') }) },
+  { mcpName: 'commercial_list_refunds', controlName: 'commercial.list_refunds', title: 'List Refunds', description: 'List refund records. Read-only.', inputSchema: objectSchema({ paymentId: stringProperty('Filter.'), limit: integerProperty('Max.') }) },
+  { mcpName: 'commercial_reconcile_payment', controlName: 'commercial.reconcile_payment', title: 'Reconcile Payment', description: 'Reconcile a payment against provider evidence. Never infers COMPLETED from the request alone.', inputSchema: objectSchema({ paymentId: stringProperty('Payment ID.'), id: stringProperty('Alias.'), providerResult: stringProperty('Optional provider evidence JSON.') }) },
+  { mcpName: 'commercial_reconcile_invoice', controlName: 'commercial.reconcile_invoice', title: 'Reconcile Invoice', description: 'Reconcile invoice payments. Recommendations and status only.', inputSchema: objectSchema({ invoiceId: stringProperty('Invoice ID.') }, ['invoiceId']) },
+
+{ mcpName: 'bi_analyst_brief', controlName: 'bi.analyst_brief', title: 'AI Business Analyst Brief', description: 'Structured analyst brief. Recommendations only; no automatic communication or payment.', inputSchema: objectSchema({ companyId: stringProperty('Company ID.'), contactId: stringProperty('Contact ID.'), prospectId: stringProperty('Prospect ID.') }) },
+
+];
+
+export default MCP_TOOL_DEFINITIONS;
