@@ -15,7 +15,7 @@ export const COMMERCIAL_PAYMENT_STATES = Object.freeze([
 export function toCommercialState(storeStatus) {
   const s = String(storeStatus || '').toUpperCase();
   if (s === 'SUCCEEDED' || s === 'COMPLETED') return 'COMPLETED';
-  if (s === 'PROCESSING') return 'PENDING';
+  if (s === 'PROCESSING') return 'AUTHORIZED';
   if (s === 'UNKNOWN') return 'RECONCILIATION_REQUIRED';
   if (COMMERCIAL_PAYMENT_STATES.includes(s)) return s;
   return 'CREATED';
