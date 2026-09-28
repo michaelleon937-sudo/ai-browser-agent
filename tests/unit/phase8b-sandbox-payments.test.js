@@ -180,7 +180,8 @@ describe('Phase 8B M-Pesa sandbox', () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({ access_token: 'sandbox-token-2' }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({
         ResponseCode: '0', ResultCode: '0', CheckoutRequestID: 'ws_CO_1', MpesaReceiptNumber: 'RCP_1',
-      }), { status: 200 })));
+      }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
 
     const provider = getPaymentProvider('mpesa');
     const created = await provider.createPaymentRequest({
