@@ -9,36 +9,31 @@
 //
 // Environment variables: see .env.example.
 
-
 import { ensureDirs, config } from '../config/index.js';
 import { migrate, closeDb } from '../database/index.js';
 import { startDashboard } from '../monitoring/dashboard.js';
 import { startScheduler, stopScheduler } from '../scheduler/index.js';
 import { notify } from '../notifications/index.js';
 import browser from '../browser/index.js';
-
+import { installInboundEmailWebhook } from '../integrations/inbound-webhook.js';
 
 async function main() {
   ensureDirs();
   migrate();
 
-
-  await startDashboard();
+  const server = await startDashboard();
+  installInboundEmailWebhook(server);
   startScheduler();
 
-
-  // Light-touch heartbeat for visibility.
   const heartbeat = setInterval(() => {
     notify({
       level: 'debug',
       subject: 'agent-heartbeat',
       body: `uptime ${Math.round(process.uptime())}s`,
     }).catch(() => {});
-  }, 60 * 60 * 1000); // hourly
-
+  }, 60 * 60 * 1000);
 
   console.log(`[main] ai-browser-agent running. Dashboard on http://${config.dashboard.host}:${config.dashboard.port}`);
-
 
   const shutdown = async (signal) => {
     console.log(`\n[main] received ${signal}, shutting down…`);
@@ -51,8 +46,6 @@ async function main() {
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
 
-
-  // Trap uncaught errors so the container restart loop gets a clean exit.
   process.on('uncaughtException', (err) => {
     console.error('[main] uncaughtException:', err);
     notify({ level: 'fatal', subject: 'uncaughtException', body: err.message });
@@ -62,7 +55,6 @@ async function main() {
     notify({ level: 'fatal', subject: 'unhandledRejection', body: String(reason) });
   });
 }
-
 
 main().catch((err) => {
   console.error('[main] boot failed:', err);
