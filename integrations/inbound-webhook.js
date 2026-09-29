@@ -1,9 +1,7 @@
 // integrations/inbound-webhook.js
-// Phase A2 — authenticated Mailgun inbound-email webhook and safe CRM read endpoints.
+// Phase A2 — authenticated Mailgun inbound-email webhook.
 import crypto from 'node:crypto';
-import { inboundMessages, conversations } from '../database/index.js';
 import { ingestA2InboundMessage } from './a2-safe-ingestion.js';
-import { generateA2ReplyDraft } from './a2-reply-draft.js';
 
 const ROUTE = '/api/inbound/email/mailgun.json';
 const MAX_BODY_BYTES = 1024 * 1024;
@@ -53,19 +51,6 @@ async function readBody(req, maxBytes) {
 
 function json(res, status, body) { res.statusCode = status; res.setHeader('Content-Type', 'application/json; charset=utf-8'); res.end(JSON.stringify(body)); }
 
-async function handleDraftRoute(req, res) {
-  const match = String(req.url || '').split('?')[0].match(/^\/api\/crm\/conversations\/([^/]+)\/draft$/);
-  if (!match) return false;
-  if (req.method !== 'GET') { json(res, 405, { ok: false, error: 'method not allowed' }); return true; }
-  const conversation = conversations.get(match[1]);
-  if (!conversation) { json(res, 404, { ok: false, error: 'not found' }); return true; }
-  const messages = inboundMessages.list({ conversationId: conversation.id, limit: 1 });
-  const latest = messages[0];
-  const result = await generateA2ReplyDraft({ conversationId: conversation.id, messageText: latest?.body || latest?.subject || '', context: { classification: latest?.classification, nextAction: null } });
-  json(res, 200, result);
-  return true;
-}
-
 export function installInboundEmailWebhook(server, { route = ROUTE } = {}) {
   if (!server || typeof server.listeners !== 'function') throw new Error('HTTP server is required');
   if (installedServers.has(server)) return server;
@@ -74,7 +59,6 @@ export function installInboundEmailWebhook(server, { route = ROUTE } = {}) {
   if (typeof original !== 'function') throw new Error('Express request listener not found');
   server.removeAllListeners('request');
   server.on('request', async (req, res) => {
-    if (await handleDraftRoute(req, res)) return;
     const pathname = String(req.url || '').split('?')[0];
     if (req.method !== 'POST' || pathname !== route) return original(req, res);
     const signingKey = process.env.MAILGUN_WEBHOOK_SIGNING_KEY || '';
