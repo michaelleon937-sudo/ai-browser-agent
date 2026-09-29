@@ -17,7 +17,7 @@ import express from 'express';
 import basicAuth from 'express-basic-auth';
 import fs from 'node:fs';
 import path from 'node:path';
-import { tasks, runs, steps, errors as dbErrors, notifications, websiteSamples, prospects, opportunities, samples, proposals, outreachMessages, outreachApprovals, outreachAttempts, companies, contacts, conversations, inboundMessages, clientMemory, conversationInsights, invoices, payments, projects, relationshipStates, clientTimelineEvents, followUpRecommendations, clientRevenueSnapshots } from '../database/index.js';
+import { tasks, runs, steps, errors as dbErrors, notifications, websiteSamples, prospects, opportunities, samples, proposals, outreachMessages, outreachApprovals, outreachAttempts, companies, contacts, conversations, inboundMessages, clientMemory, conversationInsights, invoices, payments, projects, relationshipStates, clientTimelineEvents, followUpRecommendations, clientRevenueSnapshots, clientDeliveries } from '../database/index.js';
 import { quotes, ledger, receipts, paymentReminders, refundRecords, ensureCommercialSchema } from '../database/commercial-store.js';
 import { toCommercialState } from '../integrations/commercial/payment-machine.js';
 import { approveOutreachMessage, denyOutreachMessage, sendApprovedOutreach } from '../integrations/outreach-delivery.js';
@@ -455,6 +455,24 @@ export async function startDashboard() {
       receipt: receipts.getByPayment(row.id) || null,
     });
   });
+
+// Phase A1 — client deliveries (read-only visibility)
+  app.get('/api/crm/deliveries', (req, res) => {
+    res.json(clientDeliveries.list({
+      limit: Number(req.query.limit) || 50,
+      status: req.query.status,
+      conversationId: req.query.conversationId,
+      invoiceId: req.query.invoiceId,
+      companyId: req.query.companyId,
+      contactId: req.query.contactId,
+    }));
+  });
+  app.get('/api/crm/deliveries/:id', (req, res) => {
+    const row = clientDeliveries.get(req.params.id);
+    if (!row) return res.status(404).json({ error: 'not found' });
+    res.json(row);
+  });
+
 
   const PREVIEW_FILES = {
     'index.html': 'text/html; charset=utf-8',

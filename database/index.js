@@ -1115,3 +1115,6 @@ export {
   followUpRecommendations,
   clientRevenueSnapshots,
 } from './bi-store.js';
+
+
+export { clientDeliveries, clientDeliveryAttempts } from './client-delivery-store.js';

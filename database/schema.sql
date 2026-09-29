@@ -705,3 +705,58 @@ CREATE TABLE IF NOT EXISTS refund_records (
   updated_at        TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_refunds_payment ON refund_records (payment_id);
+
+-- Phase A1 — controlled client deliveries (approval-gated SMTP outbound)
+CREATE TABLE IF NOT EXISTS client_deliveries (
+  id                  TEXT PRIMARY KEY,
+  message_type        TEXT NOT NULL,
+  channel             TEXT NOT NULL DEFAULT 'email',
+  status              TEXT NOT NULL DEFAULT 'DRAFT',
+  recipient           TEXT NOT NULL,
+  subject             TEXT NOT NULL,
+  body_text           TEXT NOT NULL,
+  body_html           TEXT,
+  content_hash        TEXT NOT NULL,
+  company_id          TEXT,
+  contact_id          TEXT,
+  conversation_id     TEXT,
+  prospect_id         TEXT,
+  opportunity_id      TEXT,
+  proposal_id         TEXT,
+  quote_id            TEXT,
+  invoice_id          TEXT,
+  payment_id          TEXT,
+  project_id          TEXT,
+  payment_url         TEXT,
+  artifact_url        TEXT,
+  artifact_kind       TEXT,
+  correlation_id      TEXT,
+  provider_message_id TEXT,
+  decided_by          TEXT,
+  approved_at         TEXT,
+  sent_at             TEXT,
+  error_message       TEXT,
+  metadata_json       TEXT,
+  created_at          TEXT NOT NULL,
+  updated_at          TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_client_deliveries_status ON client_deliveries (status);
+CREATE INDEX IF NOT EXISTS idx_client_deliveries_conversation ON client_deliveries (conversation_id);
+CREATE INDEX IF NOT EXISTS idx_client_deliveries_company ON client_deliveries (company_id);
+CREATE INDEX IF NOT EXISTS idx_client_deliveries_invoice ON client_deliveries (invoice_id);
+CREATE INDEX IF NOT EXISTS idx_client_deliveries_created ON client_deliveries (created_at);
+
+CREATE TABLE IF NOT EXISTS client_delivery_attempts (
+  id                    TEXT PRIMARY KEY,
+  delivery_id           TEXT NOT NULL,
+  idempotency_key       TEXT NOT NULL UNIQUE,
+  status                TEXT NOT NULL DEFAULT 'PENDING',
+  provider_message_id   TEXT,
+  started_at            TEXT,
+  finished_at           TEXT,
+  error_message         TEXT,
+  created_at            TEXT NOT NULL,
+  FOREIGN KEY (delivery_id) REFERENCES client_deliveries(id)
+);
+CREATE INDEX IF NOT EXISTS idx_client_delivery_attempts_delivery ON client_delivery_attempts (delivery_id);
+CREATE INDEX IF NOT EXISTS idx_client_delivery_attempts_status ON client_delivery_attempts (status);
