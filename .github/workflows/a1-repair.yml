@@ -1,5 +1,6 @@
 name: A1 Temporary MCP Repair
 on:
+  workflow_dispatch:
   push:
     branches:
       - feature/phase-a1-client-communication
@@ -7,7 +8,6 @@ permissions:
   contents: write
 jobs:
   repair:
-    if: github.event.head_commit.message != 'fix(a1): remove MCP business idempotency field'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout feature branch
@@ -15,28 +15,26 @@ jobs:
         with:
           ref: feature/phase-a1-client-communication
           fetch-depth: 0
-      - name: Remove business idempotencyKey from MCP schema
+      - name: Repair MCP schema
         run: |
           python3 - <<'PY'
           from pathlib import Path
           p=Path("mcp/tools.js")
           s=p.read_text()
-          old="""      idempotencyKey: stringProperty('Required idempotency key.'),\n"""
+          old="      idempotencyKey: stringProperty('Required idempotency key.'),\n"
           if old not in s:
-              raise SystemExit("Expected A1 idempotencyKey schema field was not found")
-          s=s.replace(old,"",1)
-          p.write_text(s)
+              raise SystemExit("Expected A1 idempotencyKey schema field not found")
+          p.write_text(s.replace(old,"",1))
           PY
-      - name: Verify and commit repair
+      - name: Verify repair
         run: |
           node --check mcp/tools.js
-          grep -n "client_delivery_send_approved" mcp/tools.js
-          if grep -q "idempotencyKey: stringProperty" mcp/tools.js; then
-            echo "business idempotencyKey still present"
-            exit 1
-          fi
+          ! grep -q "idempotencyKey: stringProperty" mcp/tools.js
+      - name: Remove temporary workflow and commit
+        run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add mcp/tools.js .github/workflows/a1-repair.yml
+          git add mcp/tools.js
+          git rm .github/workflows/a1-repair.yml
           git commit -m "fix(a1): remove MCP business idempotency field"
           git push origin HEAD:feature/phase-a1-client-communication
