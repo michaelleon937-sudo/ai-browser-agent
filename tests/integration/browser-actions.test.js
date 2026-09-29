@@ -31,16 +31,16 @@ describe('browser primitives (integration)', () => {
   it('evaluates browser expressions in the page context', async () => {
     await browser.navigate('https://example.com');
     const expressionResult = await browser.evaluate('document.body.innerText');
-    expect(expressionResult.toLowerCase()).toContain('example domain');
+    expect(expressionResult.toLowerCase()).toContain('documentation examples');
 
     const functionBodyResult = await browser.evaluate('return document.body.innerText;');
-    expect(functionBodyResult.toLowerCase()).toContain('example domain');
+    expect(functionBodyResult.toLowerCase()).toContain('documentation examples');
   }, 30_000);
 
   it('reads visible text from the page', async () => {
     await browser.navigate('https://example.com');
     const info = await browser.getPageInfo();
-    expect(info.visibleText.toLowerCase()).toContain('example domain');
+    expect(info.visibleText.toLowerCase()).toContain('documentation examples');
   }, 30_000);
 
   it('opens and closes a new tab', async () => {
@@ -52,12 +52,12 @@ describe('browser primitives (integration)', () => {
 
   it('waits for text to appear on the page', async () => {
     await browser.navigate('https://example.com');
-    await expect(browser.waitForText('Example Domain', { timeoutMs: 5000 })).resolves.toEqual({ ok: true });
+    await expect(browser.waitForText('documentation examples', { timeoutMs: 5000 })).resolves.toEqual({ ok: true });
   }, 15_000);
 
   it('fail-fast on missing data-agent-ref before click (no long timeout)', async () => {
     await browser.navigate('https://example.com');
-    // No snapshot taken â refs from a previous page must not be reused.
+    // No snapshot taken — refs from a previous page must not be reused.
     const started = Date.now();
     await expect(browser.click('e0')).rejects.toThrow(/Stale or missing ref/);
     expect(Date.now() - started).toBeLessThan(5000);
