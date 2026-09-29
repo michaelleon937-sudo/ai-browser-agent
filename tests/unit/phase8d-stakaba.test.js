@@ -1,8 +1,7 @@
 // tests/unit/phase8d-stakaba.test.js
 // Phase 8D — Stakaba Tanzania payment provider (mock + safety)
 
-import { describe, it, beforeEach } from 'node:test';
-import assert from 'node:assert/strict';
+import { describe, it, expect, beforeEach } from 'vitest';
 
 import {
   MockStakabaProvider,
@@ -25,13 +24,13 @@ describe('Phase 8D Stakaba', () => {
 
   it('provider construction (mock)', () => {
     const p = new MockStakabaProvider();
-    assert.equal(p.name, 'stakaba');
+    expect(p.name).toBe('stakaba');
   });
 
   it('getPaymentProvider returns stakaba in mock mode', () => {
     process.env.PAYMENT_MODE = 'mock';
     const p = getPaymentProvider('stakaba');
-    assert.equal(p.name, 'stakaba');
+    expect(p.name).toBe('stakaba');
   });
 
   it('sandbox configuration requires sk_test_ key', async () => {
@@ -44,8 +43,8 @@ describe('Phase 8D Stakaba', () => {
       mobileNumber: '255742000331',
       network: 'Mpesa',
     });
-    assert.equal(r.ok, false);
-    assert.match(String(r.error), /STAKABA_API_KEY/);
+    expect(r.ok).toBe(false);
+    expect(String(r.error)).toMatch(/STAKABA_API_KEY/);
   });
 
   it('sandbox rejects sk_live_ while live disabled', async () => {
@@ -59,8 +58,8 @@ describe('Phase 8D Stakaba', () => {
       mobileNumber: '255742000331',
       network: 'Mpesa',
     });
-    assert.equal(r.ok, false);
-    assert.match(String(r.error), /Live|sk_live_/i);
+    expect(r.ok).toBe(false);
+    expect(String(r.error)).toMatch(/Live|sk_live_/i);
   });
 
   it('checkout creation (mock collection)', async () => {
@@ -73,9 +72,9 @@ describe('Phase 8D Stakaba', () => {
       network: 'Mpesa',
       metadata: { orderId: 'ORD-1' },
     });
-    assert.equal(r.ok, true);
-    assert.ok(r.providerPaymentId);
-    assert.equal(r.status, 'PENDING');
+    expect(r.ok).toBe(true);
+    expect(r.providerPaymentId).toBeTruthy();
+    expect(r.status).toBe('PENDING');
   });
 
   it('card channel returns checkoutUrl (mock)', async () => {
@@ -89,9 +88,9 @@ describe('Phase 8D Stakaba', () => {
       customerName: 'Jane Doe',
       customerPhone: '255742000331',
     });
-    assert.equal(r.ok, true);
-    assert.ok(r.checkoutUrl);
-    assert.match(r.checkoutUrl, /checkout\.stakaba\.com/);
+    expect(r.ok).toBe(true);
+    expect(r.checkoutUrl).toBeTruthy();
+    expect(r.checkoutUrl).toMatch(/checkout\.stakaba\.com/);
   });
 
   it('rejects non-TZS currency', async () => {
@@ -102,20 +101,20 @@ describe('Phase 8D Stakaba', () => {
       mobileNumber: '255742000331',
       network: 'Mpesa',
     });
-    assert.equal(r.ok, false);
+    expect(r.ok).toBe(false);
   });
 
   it('normalizePhone maps local formats to 255', () => {
-    assert.equal(normalizePhone('0742000331'), '255742000331');
-    assert.equal(normalizePhone('+255742000331'), '255742000331');
-    assert.equal(normalizePhone('255742000331'), '255742000331');
+    expect(normalizePhone('0742000331')).toBe('255742000331');
+    expect(normalizePhone('+255742000331')).toBe('255742000331');
+    expect(normalizePhone('255742000331')).toBe('255742000331');
   });
 
   it('mapStakabaStatus maps SUCCESS to SUCCEEDED', () => {
-    assert.equal(mapStakabaStatus('SUCCESS'), 'SUCCEEDED');
-    assert.equal(mapStakabaStatus('FAILED'), 'FAILED');
-    assert.equal(mapStakabaStatus('PENDING'), 'PENDING');
-    assert.equal(mapStakabaStatus('weird'), 'UNKNOWN');
+    expect(mapStakabaStatus('SUCCESS')).toBe('SUCCEEDED');
+    expect(mapStakabaStatus('FAILED')).toBe('FAILED');
+    expect(mapStakabaStatus('PENDING')).toBe('PENDING');
+    expect(mapStakabaStatus('weird')).toBe('UNKNOWN');
   });
 
   it('successful payment via webhook + verify', async () => {
@@ -139,29 +138,28 @@ describe('Phase 8D Stakaba', () => {
         createdAt: '2026-06-05T14:22:00Z',
       },
     });
-    assert.equal(wh.ok, true);
-    assert.equal(wh.verified, true);
-    assert.equal(wh.status, 'SUCCEEDED');
-    assert.equal(wh.providerTransactionId, 'MPESA12345');
+    expect(wh.ok).toBe(true);
+    expect(wh.verified).toBe(true);
+    expect(wh.status).toBe('SUCCEEDED');
+    expect(wh.providerTransactionId).toBe('MPESA12345');
 
     const v = await p.verifyPayment({
       providerPaymentId: created.providerPaymentId,
       amount: 5000,
       currency: 'TZS',
     });
-    assert.equal(v.ok, true);
-    assert.equal(v.verified, true);
-    assert.equal(v.providerTransactionId, 'MPESA12345');
+    expect(v.ok).toBe(true);
+    expect(v.verified).toBe(true);
+    expect(v.providerTransactionId).toBe('MPESA12345');
 
-    assert.equal(
+    expect(
       canMarkCompleted({
         providerVerified: v.verified,
         providerTransactionId: v.providerTransactionId,
         amountMatch: true,
         currencyMatch: true,
       }),
-      true,
-    );
+    ).toBe(true);
   });
 
   it('wrong amount rejects completion', async () => {
@@ -183,17 +181,16 @@ describe('Phase 8D Stakaba', () => {
         providerReference: 'X1',
       },
     });
-    assert.equal(wh.ok, false);
-    assert.match(String(wh.reason), /amount mismatch/i);
-    assert.equal(
+    expect(wh.ok).toBe(false);
+    expect(String(wh.reason)).toMatch(/amount mismatch/i);
+    expect(
       canMarkCompleted({
         providerVerified: false,
         providerTransactionId: 'X1',
         amountMatch: false,
         currencyMatch: true,
       }),
-      false,
-    );
+    ).toBe(false);
   });
 
   it('wrong currency rejects', async () => {
@@ -215,8 +212,8 @@ describe('Phase 8D Stakaba', () => {
         providerReference: 'X2',
       },
     });
-    assert.equal(wh.ok, false);
-    assert.match(String(wh.reason), /currency mismatch/i);
+    expect(wh.ok).toBe(false);
+    expect(String(wh.reason)).toMatch(/currency mismatch/i);
   });
 
   it('unknown payment rejected', async () => {
@@ -230,18 +227,18 @@ describe('Phase 8D Stakaba', () => {
         currency: 'TZS',
       },
     });
-    assert.equal(wh.ok, false);
-    assert.match(String(wh.reason), /unknown payment/i);
+    expect(wh.ok).toBe(false);
+    expect(String(wh.reason)).toMatch(/unknown payment/i);
   });
 
   it('malformed callback rejected', async () => {
     const p = new MockStakabaProvider();
     const a = await p.handleWebhook({ body: null });
-    assert.equal(a.ok, false);
+    expect(a.ok).toBe(false);
     const b = await p.handleWebhook({ body: [] });
-    assert.equal(b.ok, false);
+    expect(b.ok).toBe(false);
     const c = await p.handleWebhook({ body: { status: 'SUCCESS' } });
-    assert.equal(c.ok, false);
+    expect(c.ok).toBe(false);
   });
 
   it('failed payment does not complete', async () => {
@@ -262,15 +259,15 @@ describe('Phase 8D Stakaba', () => {
         currency: 'TZS',
       },
     });
-    assert.equal(wh.ok, true);
-    assert.equal(wh.verified, false);
-    assert.equal(wh.status, 'FAILED');
+    expect(wh.ok).toBe(true);
+    expect(wh.verified).toBe(false);
+    expect(wh.status).toBe('FAILED');
     const v = await p.verifyPayment({
       providerPaymentId: created.providerPaymentId,
       amount: 1000,
       currency: 'TZS',
     });
-    assert.equal(v.verified, false);
+    expect(v.verified).toBe(false);
   });
 
   it('duplicate webhook is deterministic (same eventId)', async () => {
@@ -293,56 +290,53 @@ describe('Phase 8D Stakaba', () => {
     };
     const a = await p.handleWebhook({ body: payload });
     const b = await p.handleWebhook({ body: payload });
-    assert.equal(a.ok, true);
-    assert.equal(b.ok, true);
-    assert.equal(a.eventId, b.eventId);
+    expect(a.ok).toBe(true);
+    expect(b.ok).toBe(true);
+    expect(a.eventId).toBe(b.eventId);
   });
 
   it('COMPLETED hard gate requires all four conditions', () => {
-    assert.equal(
+    expect(
       canMarkCompleted({
         providerVerified: true,
         providerTransactionId: 't1',
         amountMatch: true,
         currencyMatch: true,
       }),
-      true,
-    );
-    assert.equal(
+    ).toBe(true);
+    expect(
       canMarkCompleted({
         providerVerified: true,
         providerTransactionId: '',
         amountMatch: true,
         currencyMatch: true,
       }),
-      false,
-    );
-    assert.equal(
+    ).toBe(false);
+    expect(
       canMarkCompleted({
         providerVerified: false,
         providerTransactionId: 't1',
         amountMatch: true,
         currencyMatch: true,
       }),
-      false,
-    );
+    ).toBe(false);
   });
 
   it('secret redaction does not echo keys', () => {
     const redacted = redactSecrets('sk_test_abcdefghijklmnop');
-    assert.notEqual(redacted, 'sk_test_abcdefghijklmnop');
-    assert.ok(String(redacted).includes('***'));
+    expect(redacted).not.toBe('sk_test_abcdefghijklmnop');
+    expect(String(redacted)).toMatch(/\*\*\*/);
   });
 
   it('live payment remains disabled for stakaba', () => {
     process.env.PAYMENT_MODE = 'live';
     process.env.LIVE_PAYMENTS_ENABLED = 'false';
-    assert.throws(() => getPaymentProvider('stakaba'), /LIVE|not enabled|disabled|blocked/i);
+    expect(() => getPaymentProvider('stakaba')).toThrow(/LIVE|not enabled|disabled|blocked/i);
   });
 
   it('refund not enabled', async () => {
     const p = new MockStakabaProvider();
     const r = await p.refundPayment({ providerPaymentId: 'x' });
-    assert.equal(r.ok, false);
+    expect(r.ok).toBe(false);
   });
 });
