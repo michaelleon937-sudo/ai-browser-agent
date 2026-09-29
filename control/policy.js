@@ -120,6 +120,13 @@ export const ALLOWED_TOOLS = Object.freeze([
   'commercial.reconcile_payment',
   'commercial.reconcile_invoice',
   'commercial.payment_state',
+  'client_delivery.prepare',
+  'client_delivery.get',
+  'client_delivery.list',
+  'client_delivery.approve',
+  'client_delivery.deny',
+  'client_delivery.send_approved',
+  'client_delivery.artifact_status',
 ]);
 
 export const MUTATING_TOOLS = new Set([
@@ -170,6 +177,10 @@ export const MUTATING_TOOLS = new Set([
   'commercial.request_refund',
   'commercial.approve_refund',
   'commercial.process_refund',
+  'client_delivery.prepare',
+  'client_delivery.approve',
+  'client_delivery.deny',
+  'client_delivery.send_approved',
 ]);
 
 export const TOOLS_REQUIRING_APPROVAL = new Set([
@@ -185,6 +196,8 @@ export const TOOLS_REQUIRING_APPROVAL = new Set([
   'commercial.convert_quote',
   'commercial.approve_refund',
   'commercial.process_refund',
+  'client_delivery.approve',
+  'client_delivery.send_approved',
 ]);
 
 const BLOCKED_HOST_HINTS = [
