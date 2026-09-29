@@ -662,9 +662,8 @@ export const MCP_TOOL_DEFINITIONS = [
     inputSchema: objectSchema({
       deliveryId: stringProperty('Delivery ID.'),
       approved: booleanProperty('Must be true to authorize the send.'),
-      idempotencyKey: stringProperty('Required idempotency key.'),
       decidedBy: stringProperty('Operator identity.'),
-    }, ['deliveryId', 'approved', 'idempotencyKey']),
+    }, ['deliveryId', 'approved']),
   },
   {
     mcpName: 'client_delivery_artifact_status',
