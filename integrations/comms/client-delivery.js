@@ -2,9 +2,10 @@
 import { createHash } from 'node:crypto';
 import { config } from '../../config/index.js';
 import {
-  getDb, clientDeliveries, clientDeliveryAttempts, conversations, inboundMessages,
+  getDb, conversations, inboundMessages,
   invoices, payments, projects,
 } from '../../database/index.js';
+import { clientDeliveries, clientDeliveryAttempts } from '../../database/client-delivery-store.js';
 import { renderTemplate, assertSafeClientContent, TEMPLATE_TYPES } from './templates.js';
 
 const INTERNAL_PATH_RE = /(\/mnt\/|\/home\/workdir\/|\/var\/data\/|file:\/\/)/i;
