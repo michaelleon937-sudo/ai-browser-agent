@@ -705,7 +705,6 @@ CREATE TABLE IF NOT EXISTS refund_records (
   updated_at        TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_refunds_payment ON refund_records (payment_id);
-
 -- Phase A1 — controlled client deliveries (approval-gated SMTP outbound)
 CREATE TABLE IF NOT EXISTS client_deliveries (
   id                  TEXT PRIMARY KEY,
