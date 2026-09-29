@@ -10,6 +10,7 @@ import { getConversationIntelligence, refreshConversationIntelligence } from '..
 import { getClientMemory, updateClientMemory, getAuthoritativeFacts } from '../../integrations/client-memory.js';
 import { recommendNextAction } from '../../integrations/next-action.js';
 import { draftClientReply } from '../../integrations/response-draft.js';
+import { generateA2ReplyDraft } from '../../integrations/a2-reply-draft.js';
 
 export const crmTools = {
   'crm.find_company': findCompany,
@@ -150,10 +151,14 @@ async function markCustomer(args = {}) {
   return { ok: true, prospect: prospects.updateStatus(id, target), requiresExplicitAction: true };
 }
 
-
 async function draftReply(args = {}) {
   const conversationId = args.conversationId || args.id;
   if (!conversationId) throw new Error('conversationId is required');
-  const result = draftClientReply({ conversationId, tone: args.tone });
+  const latest = inboundMessages.list({ conversationId, limit: 1 })[0];
+  const result = await generateA2ReplyDraft({
+    conversationId,
+    messageText: latest?.body || latest?.subject || '',
+    context: { classification: latest?.classification, nextAction: null },
+  });
   return { ...result, autoSend: false, requiresHumanApproval: true };
 }
