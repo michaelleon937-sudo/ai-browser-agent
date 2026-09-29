@@ -1,9 +1,10 @@
 // integrations/payments/webhooks.js
-// Public HTTP webhook handlers for Stripe / M-Pesa (Daraja).
+// Public HTTP webhook handlers for Stripe / M-Pesa (Daraja) / Stakaba.
 // Mounted by monitoring/dashboard.js — no secrets logged.
 //
 // Canonical M-Pesa callback route: POST /api/payments/mpesa/callback
 // Legacy alias: POST /webhooks/mpesa
+// Canonical Stakaba callback: POST /api/payments/stakaba/callback
 //
 // Callback reception is allowed in all modes. Live STK/charge execution remains
 // gated by LIVE_PAYMENTS_ENABLED + ProductionDaraja (no outbound live HTTP).
@@ -109,6 +110,47 @@ async function handleMpesaCallbackHttp(req, res) {
   }
 }
 
+async function handleStakabaCallbackHttp(req, res) {
+  try {
+    let body = req.body;
+    if (body === undefined || body === null) {
+      return res.status(400).json({ ok: false, reason: 'malformed JSON' });
+    }
+    if (typeof body === 'string') {
+      try {
+        body = JSON.parse(body);
+      } catch {
+        return res.status(400).json({ ok: false, reason: 'malformed JSON' });
+      }
+    }
+    if (typeof body !== 'object' || Array.isArray(body)) {
+      return res.status(400).json({ ok: false, reason: 'malformed payload' });
+    }
+
+    const result = await handlePaymentWebhook({
+      provider: 'stakaba',
+      headers: req.headers || {},
+      body,
+      rawBody: req.rawBody,
+    });
+
+    if (!result.ok && !result.duplicate) {
+      const reason = result.reason || 'rejected';
+      const status =
+        reason.includes('authentication') || reason.includes('unauthorized') ? 401 : 400;
+      return res.status(status).json({ ok: false, reason });
+    }
+
+    // Official Stakaba docs: return HTTP 200 to acknowledge
+    return res.status(200).json({
+      ok: true,
+      duplicate: Boolean(result.duplicate),
+    });
+  } catch {
+    return res.status(500).json({ ok: false, reason: 'callback handler error' });
+  }
+}
+
 export function mountPaymentWebhooks(app) {
   app.post('/webhooks/stripe', expressRawJson(), async (req, res) => {
     try {
@@ -151,6 +193,9 @@ export function mountPaymentWebhooks(app) {
 
   // Legacy alias
   app.post('/webhooks/mpesa', expressJson(), handleMpesaCallbackHttp);
+
+  // Canonical Stakaba callback
+  app.post('/api/payments/stakaba/callback', expressJson(), handleStakabaCallbackHttp);
 }
 
 function expressJson() {
