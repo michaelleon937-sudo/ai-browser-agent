@@ -1,0 +1,35 @@
+name: A2 Certification
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches:
+      - feature/phase-a2-inbound-provider-finalization
+      - master
+
+jobs:
+  a2-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Integration tests
+        run: npm run test:integration
+
+      - name: Full regression
+        run: npm run test:all
