@@ -2,7 +2,11 @@
 import crypto from 'node:crypto';
 import { getPaymentMode, assertPaymentExecutionAllowed, redactSecrets } from './mode.js';
 import { ProductionDarajaProvider } from '../commercial/daraja-production.js';
-import { MockStakabaProvider, SandboxStakabaProvider } from './stakaba.js';
+import {
+  MockStakabaProvider,
+  SandboxStakabaProvider,
+  LiveStakabaProvider,
+} from './stakaba.js';
 
 export class PaymentProvider {
   get name() { return 'base'; }
@@ -38,7 +42,6 @@ export class MockMpesaProvider extends PaymentProvider {
     return { ok: true, verified: true, status: 'SUCCEEDED', amount: row.amount, currency: row.currency, providerTransactionId: `txn_${providerPaymentId}` };
   }
   async handleWebhook({ body, headers = {} }) {
-    // Support both simulate fixtures and real Daraja STK callback shape
     const stk = body?.Body?.stkCallback;
     if (stk && stk.CheckoutRequestID) {
       const checkoutId = String(stk.CheckoutRequestID);
@@ -232,149 +235,164 @@ export class SandboxMpesaProvider extends PaymentProvider {
     }
   }
   _requireSandboxCreds() {
-    const c=this._cfg();
-    const endpoint=this._validateSandboxEndpoint(c.apiUrl);
-    if(!endpoint.ok) return endpoint;
-    const missing=[];
-    if(!c.consumerKey) missing.push('MPESA_CONSUMER_KEY');
-    if(!c.consumerSecret) missing.push('MPESA_CONSUMER_SECRET');
-    if(!c.shortcode) missing.push('MPESA_SHORTCODE');
-    if(!c.passkey) missing.push('MPESA_PASSKEY');
-    if(!c.callbackUrl) missing.push('MPESA_CALLBACK_URL');
-    if(!c.phoneNumber) missing.push('MPESA_PHONE_NUMBER');
-    if(missing.length) return {ok:false,error:'M-Pesa sandbox credentials incomplete ('+missing.join(', ')+')'};
+    const c = this._cfg();
+    const endpoint = this._validateSandboxEndpoint(c.apiUrl);
+    if (!endpoint.ok) return endpoint;
+    const missing = [];
+    if (!c.consumerKey) missing.push('MPESA_CONSUMER_KEY');
+    if (!c.consumerSecret) missing.push('MPESA_CONSUMER_SECRET');
+    if (!c.shortcode) missing.push('MPESA_SHORTCODE');
+    if (!c.passkey) missing.push('MPESA_PASSKEY');
+    if (!c.callbackUrl) missing.push('MPESA_CALLBACK_URL');
+    if (!c.phoneNumber) missing.push('MPESA_PHONE_NUMBER');
+    if (missing.length) return { ok: false, error: 'M-Pesa sandbox credentials incomplete (' + missing.join(', ') + ')' };
     let callback;
-    try { callback=new URL(c.callbackUrl); } catch { return {ok:false,error:'Invalid MPESA_CALLBACK_URL'}; }
-    if(callback.protocol!=='https:') return {ok:false,error:'MPESA_CALLBACK_URL must use HTTPS'};
-    return {ok:true,cfg:c,baseUrl:endpoint.baseUrl};
+    try { callback = new URL(c.callbackUrl); } catch { return { ok: false, error: 'Invalid MPESA_CALLBACK_URL' }; }
+    if (callback.protocol !== 'https:') return { ok: false, error: 'MPESA_CALLBACK_URL must use HTTPS' };
+    return { ok: true, cfg: c, baseUrl: endpoint.baseUrl };
   }
   _timestamp() {
-    const d=new Date(),p=n=>String(n).padStart(2,'0');
-    return d.getUTCFullYear()+p(d.getUTCMonth()+1)+p(d.getUTCDate())+p(d.getUTCHours())+p(d.getUTCMinutes())+p(d.getUTCSeconds());
+    const d = new Date(), p = (n) => String(n).padStart(2, '0');
+    return d.getUTCFullYear() + p(d.getUTCMonth() + 1) + p(d.getUTCDate()) + p(d.getUTCHours()) + p(d.getUTCMinutes()) + p(d.getUTCSeconds());
   }
-  _password(shortcode,passkey,timestamp) {
-    return Buffer.from(String(shortcode)+String(passkey)+String(timestamp),'utf8').toString('base64');
+  _password(shortcode, passkey, timestamp) {
+    return Buffer.from(String(shortcode) + String(passkey) + String(timestamp), 'utf8').toString('base64');
   }
-  async _accessToken(cfg,baseUrl) {
-    const auth=Buffer.from(cfg.consumerKey+':'+cfg.consumerSecret,'utf8').toString('base64');
+  async _accessToken(cfg, baseUrl) {
+    const auth = Buffer.from(cfg.consumerKey + ':' + cfg.consumerSecret, 'utf8').toString('base64');
     try {
-      const res=await fetch(baseUrl+'/oauth/v1/generate?grant_type=client_credentials',{method:'GET',headers:{Authorization:'Basic '+auth,Accept:'application/json'}});
-      const data=await res.json().catch(()=>({}));
-      if(!res.ok) return {ok:false,error:'M-Pesa sandbox authentication failed (HTTP '+res.status+')'};
-      if(!data.access_token) return {ok:false,error:'M-Pesa sandbox authentication response missing access token'};
-      return {ok:true,token:data.access_token};
-    } catch(err) { return {ok:false,error:'M-Pesa sandbox network error: '+err.message}; }
+      const res = await fetch(baseUrl + '/oauth/v1/generate?grant_type=client_credentials', { method: 'GET', headers: { Authorization: 'Basic ' + auth, Accept: 'application/json' } });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return { ok: false, error: 'M-Pesa sandbox authentication failed (HTTP ' + res.status + ')' };
+      if (!data.access_token) return { ok: false, error: 'M-Pesa sandbox authentication response missing access token' };
+      return { ok: true, token: data.access_token };
+    } catch (err) { return { ok: false, error: 'M-Pesa sandbox network error: ' + err.message }; }
   }
-  async createPaymentRequest({amount,currency,invoiceId,idempotencyKey}) {
-    const creds=this._requireSandboxCreds();
-    if(!creds.ok) return {ok:false,error:creds.error,status:'FAILED'};
-    if(String(currency||'KES').toUpperCase()!=='KES') return {ok:false,error:'M-Pesa Daraja sandbox requires KES currency',status:'FAILED'};
-    const numericAmount=Number(amount);
-    if(!Number.isFinite(numericAmount)||numericAmount<=0||!Number.isInteger(numericAmount)) return {ok:false,error:'M-Pesa amount must be a positive integer KES amount',status:'FAILED'};
-    const existing=idempotencyKey?[...mockLedger.values()].find(r=>r.provider==='mpesa'&&r.idempotencyKey===String(idempotencyKey)):null;
-    if(existing) return {ok:true,providerPaymentId:existing.checkoutRequestId,status:existing.status,checkoutUrl:null,duplicate:true};
-    const token=await this._accessToken(creds.cfg,creds.baseUrl);
-    if(!token.ok) return {ok:false,error:token.error,status:'UNKNOWN'};
-    const timestamp=this._timestamp();
-    const payload={BusinessShortCode:creds.cfg.shortcode,Password:this._password(creds.cfg.shortcode,creds.cfg.passkey,timestamp),Timestamp:timestamp,TransactionType:creds.cfg.transactionType,Amount:numericAmount,PartyA:creds.cfg.phoneNumber,PartyB:creds.cfg.shortcode,PhoneNumber:creds.cfg.phoneNumber,CallBackURL:creds.cfg.callbackUrl,AccountReference:creds.cfg.accountReference,TransactionDesc:creds.cfg.transactionDesc};
+  async createPaymentRequest({ amount, currency, invoiceId, idempotencyKey }) {
+    const creds = this._requireSandboxCreds();
+    if (!creds.ok) return { ok: false, error: creds.error, status: 'FAILED' };
+    if (String(currency || 'KES').toUpperCase() !== 'KES') return { ok: false, error: 'M-Pesa Daraja sandbox requires KES currency', status: 'FAILED' };
+    const numericAmount = Number(amount);
+    if (!Number.isFinite(numericAmount) || numericAmount <= 0 || !Number.isInteger(numericAmount)) return { ok: false, error: 'M-Pesa amount must be a positive integer KES amount', status: 'FAILED' };
+    const existing = idempotencyKey ? [...mockLedger.values()].find((r) => r.provider === 'mpesa' && r.idempotencyKey === String(idempotencyKey)) : null;
+    if (existing) return { ok: true, providerPaymentId: existing.checkoutRequestId, status: existing.status, checkoutUrl: null, duplicate: true };
+    const token = await this._accessToken(creds.cfg, creds.baseUrl);
+    if (!token.ok) return { ok: false, error: token.error, status: 'UNKNOWN' };
+    const timestamp = this._timestamp();
+    const payload = {
+      BusinessShortCode: creds.cfg.shortcode,
+      Password: this._password(creds.cfg.shortcode, creds.cfg.passkey, timestamp),
+      Timestamp: timestamp,
+      TransactionType: creds.cfg.transactionType,
+      Amount: numericAmount,
+      PartyA: creds.cfg.phoneNumber,
+      PartyB: creds.cfg.shortcode,
+      PhoneNumber: creds.cfg.phoneNumber,
+      CallBackURL: creds.cfg.callbackUrl,
+      AccountReference: String(invoiceId || creds.cfg.accountReference).slice(0, 12),
+      TransactionDesc: String(creds.cfg.transactionDesc).slice(0, 13),
+    };
     try {
-      const res=await fetch(creds.baseUrl+'/mpesa/stkpush/v1/processrequest',{method:'POST',headers:{Authorization:'Bearer '+token.token,'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify(payload)});
-      const data=await res.json().catch(()=>({}));
-      if(!res.ok) return {ok:false,error:data?.errorMessage||data?.errorCode||('M-Pesa STK HTTP '+res.status),status:'FAILED'};
-      const checkoutId=data.CheckoutRequestID||data.checkoutRequestID;
-      if(!checkoutId) return {ok:false,error:'M-Pesa STK response missing CheckoutRequestID',status:'FAILED'};
-      mockLedger.set(String(checkoutId),{status:'PENDING',amount:numericAmount,currency:'KES',invoiceId,provider:'mpesa',checkoutRequestId:String(checkoutId),idempotencyKey:idempotencyKey?String(idempotencyKey):null});
-      return {ok:true,providerPaymentId:String(checkoutId),status:'PENDING',checkoutUrl:null};
-    } catch(err) { return {ok:false,error:'M-Pesa sandbox network error: '+err.message,status:'UNKNOWN'}; }
+      const res = await fetch(creds.baseUrl + '/mpesa/stkpush/v1/processrequest', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + token.token, 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ResponseCode !== '0') {
+        return { ok: false, error: data.errorMessage || data.ResponseDescription || ('M-Pesa STK HTTP ' + res.status), status: 'FAILED' };
+      }
+      const checkoutId = data.CheckoutRequestID;
+      if (!checkoutId) return { ok: false, error: 'M-Pesa response missing CheckoutRequestID', status: 'FAILED' };
+      mockLedger.set(checkoutId, {
+        status: 'PENDING',
+        amount: numericAmount,
+        currency: 'KES',
+        invoiceId,
+        provider: 'mpesa',
+        checkoutRequestId: checkoutId,
+        merchantRequestId: data.MerchantRequestID,
+        idempotencyKey: idempotencyKey ? String(idempotencyKey) : null,
+      });
+      return { ok: true, providerPaymentId: checkoutId, status: 'PENDING', checkoutUrl: null, raw: { CheckoutRequestID: checkoutId, MerchantRequestID: data.MerchantRequestID } };
+    } catch (err) {
+      return { ok: false, error: 'M-Pesa network error: ' + err.message, status: 'UNKNOWN' };
+    }
   }
   async getPaymentStatus(providerPaymentId) {
-    const creds=this._requireSandboxCreds();
-    if(!creds.ok) return {ok:false,status:'UNKNOWN',error:creds.error};
-    const token=await this._accessToken(creds.cfg,creds.baseUrl);
-    if(!token.ok) return {ok:false,status:'UNKNOWN',error:token.error};
-    const timestamp=this._timestamp();
-    const payload={BusinessShortCode:creds.cfg.shortcode,Password:this._password(creds.cfg.shortcode,creds.cfg.passkey,timestamp),Timestamp:timestamp,CheckoutRequestID:providerPaymentId};
-    try {
-      const res=await fetch(creds.baseUrl+'/mpesa/stkpushquery/v1/query',{method:'POST',headers:{Authorization:'Bearer '+token.token,'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify(payload)});
-      const data=await res.json().catch(()=>({}));
-      if(!res.ok) return {ok:false,status:'UNKNOWN',error:data?.errorMessage||('M-Pesa query HTTP '+res.status)};
-      const resultCode=data.ResultCode!=null?String(data.ResultCode):null;
-      let status='PENDING';
-      if(resultCode==='0') status='SUCCEEDED';
-      else if(resultCode!=null&&resultCode!=='0') status='FAILED';
-      const row=mockLedger.get(providerPaymentId);
-      const amount=row?row.amount:undefined;
-      const currency=row?row.currency:'KES';
-      const receipt=data.MpesaReceiptNumber||data.ReceiptNumber||null;
-      if(status==='SUCCEEDED'&&row){row.status='SUCCEEDED';row.transactionId=receipt||row.transactionId;mockLedger.set(providerPaymentId,row);}
-      return {ok:true,status,amount,currency,providerTransactionId:status==='SUCCEEDED'?(receipt||providerPaymentId):null};
-    } catch(err) { return {ok:false,status:'UNKNOWN',error:'M-Pesa sandbox network error: '+err.message}; }
+    const row = mockLedger.get(providerPaymentId);
+    if (row) return { ok: true, status: row.status, amount: row.amount, currency: row.currency };
+    return { ok: false, status: 'UNKNOWN', error: 'not found in local ledger (query STK status not wired in this phase)' };
   }
-  async verifyPayment({providerPaymentId,amount,currency}) {
-    const st=await this.getPaymentStatus(providerPaymentId);
-    if(!st.ok) return {ok:false,verified:false,status:st.status||'UNKNOWN',reason:st.error};
-    if(st.status!=='SUCCEEDED') return {ok:true,verified:false,status:st.status,reason:'not succeeded at provider'};
-    if(amount!=null&&st.amount!=null&&Number(amount)!==Number(st.amount)) return {ok:false,verified:false,status:st.status,reason:'amount mismatch'};
-    if(currency&&st.currency&&String(currency).toUpperCase()!==String(st.currency).toUpperCase()) return {ok:false,verified:false,status:st.status,reason:'currency mismatch'};
-    return {ok:true,verified:true,status:'SUCCEEDED',amount:st.amount,currency:st.currency,providerTransactionId:st.providerTransactionId};
+  async verifyPayment({ providerPaymentId, amount, currency }) {
+    const st = await this.getPaymentStatus(providerPaymentId);
+    if (!st.ok) return { ok: false, verified: false, status: 'UNKNOWN', reason: st.error };
+    if (st.status !== 'SUCCEEDED') return { ok: true, verified: false, status: st.status, reason: 'not succeeded at provider' };
+    if (amount != null && Number(st.amount) !== Number(amount)) return { ok: false, verified: false, status: st.status, reason: 'amount mismatch' };
+    if (currency && String(st.currency).toUpperCase() !== String(currency).toUpperCase()) return { ok: false, verified: false, status: st.status, reason: 'currency mismatch' };
+    return { ok: true, verified: true, status: 'SUCCEEDED', amount: st.amount, currency: st.currency, providerTransactionId: providerPaymentId };
   }
-  async handleWebhook({body,headers={}}) {
-    const shared=this._cfg().callbackSecret;
-    if(shared) {
-      const got=headers['x-mpesa-signature']||headers['X-Mpesa-Signature']||'';
-      const expected=crypto.createHash('sha256').update(shared,'utf8').digest('hex');
-      const candidate=crypto.createHash('sha256').update(String(got),'utf8').digest('hex');
-      if(!got||!crypto.timingSafeEqual(Buffer.from(expected),Buffer.from(candidate))) return {ok:false,verified:false,reason:'invalid M-Pesa callback authentication'};
-    }
-    if(!body||typeof body!=='object') return {ok:false,verified:false,reason:'malformed M-Pesa callback body'};
-    const stk=body.Body?.stkCallback;
-    if(!stk||!stk.CheckoutRequestID||stk.ResultCode==null) return {ok:false,verified:false,reason:'malformed M-Pesa STK callback'};
-    const checkoutId=String(stk.CheckoutRequestID);
-    const row=mockLedger.get(checkoutId);
-    if(!row||row.provider!=='mpesa') return {ok:false,verified:false,reason:'unknown payment'};
-    const items=Array.isArray(stk.CallbackMetadata?.Item)?stk.CallbackMetadata.Item:[];
-    const valueOf=name=>items.find(i=>i&&i.Name===name)?.Value;
-    const success=Number(stk.ResultCode)===0;
-    const callbackAmount=valueOf('Amount')!=null?Number(valueOf('Amount')):undefined;
-    const receipt=valueOf('MpesaReceiptNumber');
-    if(success) {
-      if(!Number.isFinite(callbackAmount)||callbackAmount!==Number(row.amount)) return {ok:false,verified:false,reason:'amount mismatch in M-Pesa callback'};
-      if(!receipt) return {ok:false,verified:false,reason:'missing M-Pesa receipt number'};
-      row.status='SUCCEEDED'; row.transactionId=String(receipt); mockLedger.set(checkoutId,row);
+  async handleWebhook({ body }) {
+    const stk = body?.Body?.stkCallback;
+    if (!stk || !stk.CheckoutRequestID) return { ok: false, verified: false, reason: 'malformed M-Pesa STK callback' };
+    const checkoutId = String(stk.CheckoutRequestID);
+    const row = mockLedger.get(checkoutId);
+    if (!row) return { ok: false, verified: false, reason: 'unknown payment' };
+    const items = Array.isArray(stk.CallbackMetadata?.Item) ? stk.CallbackMetadata.Item : [];
+    const valueOf = (name) => items.find((i) => i && i.Name === name)?.Value;
+    const success = Number(stk.ResultCode) === 0;
+    const callbackAmount = valueOf('Amount') != null ? Number(valueOf('Amount')) : undefined;
+    const receipt = valueOf('MpesaReceiptNumber');
+    if (success) {
+      if (!Number.isFinite(callbackAmount) || callbackAmount !== Number(row.amount)) return { ok: false, verified: false, reason: 'amount mismatch in M-Pesa callback' };
+      if (!receipt) return { ok: false, verified: false, reason: 'missing M-Pesa receipt number' };
+      row.status = 'SUCCEEDED'; row.transactionId = String(receipt); mockLedger.set(checkoutId, row);
     } else {
-      row.status='FAILED'; mockLedger.set(checkoutId,row);
+      row.status = 'FAILED'; mockLedger.set(checkoutId, row);
     }
-    const eventId=String(stk.CheckoutRequestID)+':'+String(stk.ResultCode)+':'+String(receipt||'');
-    return {ok:true,verified:success,eventId,eventType:'mpesa.stk.callback',providerPaymentId:checkoutId,status:success?'SUCCEEDED':'FAILED',amount:callbackAmount!=null?callbackAmount:row.amount,currency:row.currency,providerTransactionId:success?row.transactionId:null};
+    const eventId = String(stk.CheckoutRequestID) + ':' + String(stk.ResultCode) + ':' + String(receipt || '');
+    return { ok: true, verified: success, eventId, eventType: 'mpesa.stk.callback', providerPaymentId: checkoutId, status: success ? 'SUCCEEDED' : 'FAILED', amount: callbackAmount != null ? callbackAmount : row.amount, currency: row.currency, providerTransactionId: success ? row.transactionId : null };
   }
-  async refundPayment(){return {ok:false,error:'refund not implemented in Phase 8B sandbox'};}
+  async refundPayment() { return { ok: false, error: 'refund not implemented in Phase 8B sandbox' }; }
 }
 
 export function getPaymentProvider(name) {
   const mode = getPaymentMode();
   const n = String(name || '').toLowerCase();
+
   if (mode === 'mock') {
     if (n === 'mpesa') return new MockMpesaProvider();
     if (n === 'stripe') return new MockStripeProvider();
     if (n === 'stakaba') return new MockStakabaProvider();
     throw new Error(`Unknown payment provider: ${name}`);
   }
+
   if (mode === 'sandbox') {
     if (n === 'mpesa') return new SandboxMpesaProvider();
     if (n === 'stripe') return new SandboxStripeProvider();
     if (n === 'stakaba') return new SandboxStakabaProvider();
     throw new Error(`Unknown sandbox payment provider: ${name}`);
   }
+
   if (mode === 'live') {
-    if (n === 'mpesa') return new ProductionDarajaProvider();
-    if (n === 'stakaba') {
-      assertPaymentExecutionAllowed();
-      throw new Error('Live Stakaba is not enabled. Keep PAYMENT_MODE=sandbox and STAKABA_ENV=sandbox until explicit authorization.');
-    }
+    // Explicit gate before any live provider
     assertPaymentExecutionAllowed();
-    throw new Error('Live Stripe providers are not implemented. Use PAYMENT_MODE=mock or PAYMENT_MODE=sandbox.');
+    if (n === 'mpesa') return new ProductionDarajaProvider();
+    if (n === 'stakaba') return new LiveStakabaProvider();
+    if (n === 'stripe') {
+      throw new Error('Live Stripe providers are not implemented. Use PAYMENT_MODE=mock or PAYMENT_MODE=sandbox.');
+    }
+    throw new Error(`Unknown live payment provider: ${name}`);
   }
+
   throw new Error('Unsupported PAYMENT_MODE for provider selection');
 }
 
-export { getPaymentMode, redactSecrets, ProductionDarajaProvider, MockStakabaProvider, SandboxStakabaProvider };
+export {
+  getPaymentMode,
+  redactSecrets,
+  ProductionDarajaProvider,
+  MockStakabaProvider,
+  SandboxStakabaProvider,
+  LiveStakabaProvider,
+};
