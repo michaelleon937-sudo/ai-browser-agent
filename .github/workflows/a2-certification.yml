@@ -1,0 +1,53 @@
+name: A2 Certification
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches:
+      - feature/phase-a2-inbound-provider-finalization
+      - master
+
+jobs:
+  a2-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATA_DIR: ${{ github.workspace }}/.test-data
+      NODE_ENV: test
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Unit tests
+        run: |
+          set +e
+          npm test
+          ec=$?
+          echo "A2_UNIT_EXIT_CODE=$ec"
+          exit $ec
+
+      - name: Integration tests
+        run: |
+          set +e
+          npm run test:integration
+          ec=$?
+          echo "A2_INTEGRATION_EXIT_CODE=$ec"
+          exit $ec
+
+      - name: Full regression
+        run: |
+          set +e
+          npm run test:all
+          ec=$?
+          echo "A2_FULL_EXIT_CODE=$ec"
+          exit $ec
