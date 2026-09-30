@@ -12,6 +12,9 @@ jobs:
   a2-regression:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      DATA_DIR: ${{ github.workspace }}/.test-data
+      NODE_ENV: test
     steps:
       - name: Checkout exact commit
         uses: actions/checkout@v4
