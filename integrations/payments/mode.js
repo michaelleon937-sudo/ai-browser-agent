@@ -1,5 +1,6 @@
 // integrations/payments/mode.js
-// Payment mode: mock (default) | sandbox | live (blocked in Phase 8A)
+// Payment mode: mock (default) | sandbox | live
+// Live requires LIVE_PAYMENTS_ENABLED=true (explicit owner authorization).
 
 const VALID = new Set(['mock', 'sandbox', 'live']);
 
@@ -13,19 +14,26 @@ export function isLivePaymentsEnabled() {
   return String(process.env.LIVE_PAYMENTS_ENABLED || 'false').toLowerCase() === 'true';
 }
 
+/**
+ * Gate outbound payment execution.
+ * - mock / sandbox: always allowed
+ * - live: only when LIVE_PAYMENTS_ENABLED=true
+ * Live *providers* are selected by getPaymentProvider(); this only blocks execution
+ * when live is requested without explicit authorization.
+ */
 export function assertPaymentExecutionAllowed() {
   const mode = getPaymentMode();
   if (mode === 'live') {
     if (!isLivePaymentsEnabled()) {
-      const err = new Error('PAYMENT_MODE=live is disabled. Set LIVE_PAYMENTS_ENABLED=true only after explicit authorization (Phase 8A blocks live).');
+      const err = new Error(
+        'PAYMENT_MODE=live is disabled. Set LIVE_PAYMENTS_ENABLED=true only after explicit authorization.'
+      );
       err.code = 'LIVE_PAYMENTS_BLOCKED';
       err.status = 403;
       throw err;
     }
-    const err = new Error('Live payment providers are not implemented in Phase 8A. Use PAYMENT_MODE=mock or PAYMENT_MODE=sandbox.');
-    err.code = 'LIVE_NOT_IMPLEMENTED';
-    err.status = 503;
-    throw err;
+    // Live providers (Stakaba, Daraja) are implemented; gate is env only.
+    return mode;
   }
   return mode;
 }
