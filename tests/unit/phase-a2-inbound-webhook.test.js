@@ -68,11 +68,11 @@ describe('Phase A2 CloudMailin inbound security', () => {
   it('supports plain-only and HTML-only messages while rejecting missing content', () => {
     expect(normalizeCloudMailinInbound(cloudmailinPayload({ html: '' })).body).toContain('Please quote');
     expect(normalizeCloudMailinInbound(cloudmailinPayload({ plain: '' })).body).toContain('<p>Please quote');
-    expect(() => normalizeCloudMailinInbound(cloudmailinPayload({ plain: '', html: '', subject: '' }))).toThrow(/message content required/);
+    expect(() => normalizeCloudMailinInbound(cloudmailinPayload({ plain: '', html: '', headers: { ...cloudmailinPayload().headers, subject: '' } }))).toThrow(/message content required/);
   });
 
   it('rejects missing sender, recipient, and message_id without fabricating identity', () => {
-    expect(() => normalizeCloudMailinInbound(cloudmailinPayload({ headers: { ...cloudmailinPayload().headers, from: '' } }))).toThrow(/sender required/);
+    expect(() => normalizeCloudMailinInbound(cloudmailinPayload({ headers: { ...cloudmailinPayload().headers, from: '' }, envelope: { ...cloudmailinPayload().envelope, from: '' } }))).toThrow(/sender required/);
     expect(() => normalizeCloudMailinInbound(cloudmailinPayload({ envelope: { ...cloudmailinPayload().envelope, to: '' } }))).toThrow(/recipient required/);
     expect(() => normalizeCloudMailinInbound(cloudmailinPayload({ headers: { ...cloudmailinPayload().headers, message_id: '' } }))).toThrow(/message_id required/);
   });
