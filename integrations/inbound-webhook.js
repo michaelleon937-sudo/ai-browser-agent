@@ -1,8 +1,9 @@
 // integrations/inbound-webhook.js
 // Phase A2 — provider-neutral authenticated inbound email webhook.
-// Production provider: Resend. Mailgun is no longer a mandatory dependency.
+// Production providers: Resend/Svix and CloudMailin. Both feed the existing A2 ingestion path.
 import crypto from 'node:crypto';
 import { ingestA2InboundMessage } from './a2-safe-ingestion.js';
+import { normalizeCloudMailinInbound, verifyCloudMailinAuthorization } from './inbound-cloudmailin.js';
 
 const ROUTE = '/api/inbound/email/resend.json';
 const MAX_BODY_BYTES = 1024 * 1024;
@@ -110,6 +111,10 @@ function json(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
+function hasResendAuthenticationHeaders(req) {
+  return Boolean(req.headers['svix-id'] || req.headers['svix-timestamp'] || req.headers['svix-signature']);
+}
+
 export function installInboundEmailWebhook(server, { route = ROUTE } = {}) {
   if (!server || typeof server.listeners !== 'function') throw new Error('HTTP server is required');
   if (installedServers.has(server)) return server;
@@ -121,41 +126,64 @@ export function installInboundEmailWebhook(server, { route = ROUTE } = {}) {
     const pathname = String(req.url || '').split('?')[0];
     if (req.method !== 'POST' || pathname !== route) return original(req, res);
 
-    const provider = String(process.env.INBOUND_EMAIL_PROVIDER || 'resend').trim().toLowerCase();
-    if (provider !== 'resend') return json(res, 503, { ok: false, error: 'unsupported inbound email provider' });
-
-    const signingSecret = process.env.RESEND_WEBHOOK_SIGNING_SECRET || '';
-    if (!signingSecret) return json(res, 503, { ok: false, error: 'inbound email provider is not configured' });
-
     try {
       const rawBody = await readBody(req, MAX_BODY_BYTES);
-      const verification = verifyResendSignature({
-        signingSecret,
-        webhookId: req.headers['svix-id'],
-        webhookTimestamp: req.headers['svix-timestamp'],
-        webhookSignature: req.headers['svix-signature'],
-        rawBody,
-        maxAgeSeconds: Number(process.env.RESEND_WEBHOOK_MAX_AGE_SECONDS) || DEFAULT_MAX_AGE_SECONDS,
+
+      if (hasResendAuthenticationHeaders(req)) {
+        const signingSecret = process.env.RESEND_WEBHOOK_SIGNING_SECRET || '';
+        if (!signingSecret) return json(res, 503, { ok: false, error: 'inbound email provider is not configured' });
+
+        const verification = verifyResendSignature({
+          signingSecret,
+          webhookId: req.headers['svix-id'],
+          webhookTimestamp: req.headers['svix-timestamp'],
+          webhookSignature: req.headers['svix-signature'],
+          rawBody,
+          maxAgeSeconds: Number(process.env.RESEND_WEBHOOK_MAX_AGE_SECONDS) || DEFAULT_MAX_AGE_SECONDS,
+        });
+        if (!verification.ok) return json(res, 401, { ok: false, error: 'unauthorized webhook' });
+
+        let payload;
+        try { payload = JSON.parse(rawBody); } catch { return json(res, 400, { ok: false, error: 'invalid JSON payload' }); }
+        if (payload.type !== 'email.received') return json(res, 202, { ok: true, ignored: true });
+
+        let normalized = normalizeResendInbound(payload);
+        if (!normalized.body && normalized.rawMetadata.emailId) {
+          const apiKey = process.env.RESEND_API_KEY || '';
+          if (!apiKey) return json(res, 503, { ok: false, error: 'inbound email content provider is not configured' });
+          const email = await retrieveResendEmail(normalized.rawMetadata.emailId, apiKey);
+          normalized = normalizeResendInbound({ ...payload, data: { ...payload.data, ...email } });
+        }
+
+        if (!normalized.externalMessageId) return json(res, 400, { ok: false, error: 'message identifier required' });
+        if (!normalized.sender || (!normalized.body && !normalized.subject)) {
+          return json(res, 400, { ok: false, error: 'sender and message content required' });
+        }
+
+        const result = ingestA2InboundMessage({ normalized });
+        return json(res, 200, {
+          ok: true,
+          duplicate: Boolean(result.duplicate),
+          messageId: result.message?.id || null,
+          conversationId: result.conversation?.id || null,
+          classification: result.classification || null,
+          intent: result.intent || null,
+          unresolved: !result.contact && !result.company && !result.prospect,
+          externalSideEffect: false,
+        });
+      }
+
+      const authorization = req.headers.authorization;
+      const verification = verifyCloudMailinAuthorization({
+        authorization,
+        secret: process.env.CLOUDMAILIN_WEBHOOK_AUTH_SECRET || '',
       });
-      if (!verification.ok) return json(res, 401, { ok: false, error: 'unauthorized webhook' });
+      if (!verification.ok) return json(res, verification.status || 401, { ok: false, error: verification.status === 503 ? 'CloudMailin provider is not configured' : 'unauthorized CloudMailin webhook' });
 
       let payload;
       try { payload = JSON.parse(rawBody); } catch { return json(res, 400, { ok: false, error: 'invalid JSON payload' }); }
-      if (payload.type !== 'email.received') return json(res, 202, { ok: true, ignored: true });
 
-      let normalized = normalizeResendInbound(payload);
-      if (!normalized.body && normalized.rawMetadata.emailId) {
-        const apiKey = process.env.RESEND_API_KEY || '';
-        if (!apiKey) return json(res, 503, { ok: false, error: 'inbound email content provider is not configured' });
-        const email = await retrieveResendEmail(normalized.rawMetadata.emailId, apiKey);
-        normalized = normalizeResendInbound({ ...payload, data: { ...payload.data, ...email } });
-      }
-
-      if (!normalized.externalMessageId) return json(res, 400, { ok: false, error: 'message identifier required' });
-      if (!normalized.sender || (!normalized.body && !normalized.subject)) {
-        return json(res, 400, { ok: false, error: 'sender and message content required' });
-      }
-
+      const normalized = normalizeCloudMailinInbound(payload);
       const result = ingestA2InboundMessage({ normalized });
       return json(res, 200, {
         ok: true,

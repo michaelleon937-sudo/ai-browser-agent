@@ -35,6 +35,10 @@ export const config = {
     pass: process.env.DASHBOARD_PASS || '',
   },
 
+  inboundEmail: {
+    cloudmailinWebhookAuthSecret: process.env.CLOUDMAILIN_WEBHOOK_AUTH_SECRET || '',
+  },
+
   control: {
     token: process.env.CONTROL_TOKEN || '',
     maxRepairAttempts: num(process.env.MAX_REPAIR_ATTEMPTS, 3),
