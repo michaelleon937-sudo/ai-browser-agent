@@ -8,8 +8,15 @@ const CLOUDMAILIN_ENV_KEYS = [
   'CLOUDMAILIN_OUTBOUND_TEST_MODE',
 ];
 
+const originalCloudMailinEnv = Object.fromEntries(
+  CLOUDMAILIN_ENV_KEYS.map((key) => [key, process.env[key]]),
+);
+
 afterAll(() => {
-  for (const key of CLOUDMAILIN_ENV_KEYS) delete process.env[key];
+  for (const key of CLOUDMAILIN_ENV_KEYS) {
+    if (originalCloudMailinEnv[key] === undefined) delete process.env[key];
+    else process.env[key] = originalCloudMailinEnv[key];
+  }
 });
 
 describe('CloudMailin outbound adapter', () => {
