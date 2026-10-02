@@ -18,6 +18,7 @@ beforeAll(async () => {
   process.env.PAYMENT_MODE = 'mock';
   process.env.LIVE_PAYMENTS_ENABLED = 'false';
   delete process.env.SMTP_HOST;
+  process.env.NOTIFY_EMAIL_FROM = 'test@example.com';
 
   ({ migrate, closeDb, companies, contacts, conversations, inboundMessages } =
     await import('../../database/index.js'));
@@ -38,6 +39,7 @@ beforeAll(async () => {
 
 afterAll(() => {
   try { closeDb(); } catch { /* */ }
+  delete process.env.NOTIFY_EMAIL_FROM;
   try { fs.unlinkSync(tmpDbPath); } catch { /* */ }
 });
 

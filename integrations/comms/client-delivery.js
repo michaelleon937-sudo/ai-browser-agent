@@ -1,4 +1,4 @@
-// Phase A1 — approval-gated client delivery over email (SMTP).
+// Phase A1/A2.1 — approval-gated customer email delivery (CloudMailin primary; SMTP legacy).
 import { createHash } from 'node:crypto';
 import { config } from '../../config/index.js';
 import {
@@ -6,6 +6,7 @@ import {
   invoices, payments, projects,
 } from '../../database/index.js';
 import { clientDeliveries, clientDeliveryAttempts } from '../../database/client-delivery-store.js';
+import { sendCloudMailinMessage, cloudMailinConfigured } from '../cloudmailin-outbound.js';
 import { renderTemplate, assertSafeClientContent, TEMPLATE_TYPES } from './templates.js';
 
 const INTERNAL_PATH_RE = /(\/mnt\/|\/home\/workdir\/|\/var\/data\/|file:\/\/)/i;
@@ -198,7 +199,7 @@ export function denyClientDelivery(deliveryId, { decidedBy = 'control' } = {}) {
   };
 }
 
-async function createTransport(injected) {
+async function createLegacySmtpTransport(injected) {
   if (injected !== undefined) return injected;
   if (!config.notifications?.smtp?.host) return null;
   const nodemailer = (await import('nodemailer')).default;
@@ -229,7 +230,7 @@ function ensureConversationForDelivery(d) {
   } catch { return null; }
 }
 
-function recordOutbound(d, { providerMessageId } = {}) {
+function recordOutbound(d, { providerMessageId, provider = 'cloudmailin', sender } = {}) {
   let conversationId = d.conversation_id || ensureConversationForDelivery(d);
   if (conversationId && !d.conversation_id) {
     try {
@@ -240,12 +241,12 @@ function recordOutbound(d, { providerMessageId } = {}) {
   }
   if (!conversationId) return null;
   const externalId = providerMessageId || `outbound:${d.id}`;
-  const prior = inboundMessages.findByProviderExternalId?.('smtp', externalId);
+  const prior = inboundMessages.findByProviderExternalId?.(provider, externalId);
   if (prior) return prior;
   return inboundMessages.create({
     conversationId, companyId: d.company_id, contactId: d.contact_id, prospectId: d.prospect_id,
-    provider: 'smtp', externalMessageId: externalId, direction: 'outbound',
-    sender: config.notifications?.email?.from || config.notifications?.smtp?.user || null,
+    provider, externalMessageId: externalId, direction: 'outbound',
+    sender: sender || config.cloudmailin?.outbound?.from || config.notifications?.email?.from || config.notifications?.smtp?.user || null,
     recipient: d.recipient, subject: d.subject, body: d.body_text, receivedAt: new Date().toISOString(),
     classification: d.message_type,
     rawMetadata: {
@@ -259,9 +260,8 @@ function recordOutbound(d, { providerMessageId } = {}) {
 export async function sendApprovedClientDelivery(deliveryId, {
   idempotencyKey, decidedBy = 'control', transport,
 } = {}) {
-  if (!idempotencyKey || String(idempotencyKey).trim() === '') {
-    throw new Error('idempotencyKey is required');
-  }
+  if (!idempotencyKey || String(idempotencyKey).trim() === '') throw new Error('idempotencyKey is required');
+
   const existingAttempt = clientDeliveryAttempts.getByIdempotencyKey(idempotencyKey);
   if (existingAttempt) {
     const delivery = clientDeliveries.get(existingAttempt.delivery_id);
@@ -270,9 +270,11 @@ export async function sendApprovedClientDelivery(deliveryId, {
       sent: existingAttempt.status === 'SUCCESS', externalSideEffect: existingAttempt.status === 'SUCCESS',
     };
   }
+
   const d = clientDeliveries.get(deliveryId);
   if (!d) throw new Error(`delivery not found: ${deliveryId}`);
   if (d.status !== 'APPROVED') throw new Error(`send requires APPROVED status (got ${d.status})`);
+
   const hash = computeDeliveryContentHash({
     recipient: d.recipient, channel: d.channel, subject: d.subject, bodyText: d.body_text,
     messageType: d.message_type, paymentUrl: d.payment_url, artifactUrl: d.artifact_url,
@@ -280,62 +282,82 @@ export async function sendApprovedClientDelivery(deliveryId, {
   if (hash !== d.content_hash) throw new Error('content hash mismatch; re-approve after changes');
   assertSafeClientContent(d.subject);
   assertSafeClientContent(d.body_text);
+
   clientDeliveries.updateStatus(deliveryId, 'SENDING');
   let attempt = clientDeliveryAttempts.create({
     deliveryId, idempotencyKey, status: 'PENDING', startedAt: new Date().toISOString(),
   });
-  const mailer = await createTransport(transport);
-  if (!mailer) {
-    const finishedAt = new Date().toISOString();
-    attempt = clientDeliveryAttempts.update(attempt.id, {
-      status: 'FAILED', finishedAt,
-      errorMessage: 'SMTP not configured (set SMTP_HOST and related env vars)',
-    });
-    const failed = clientDeliveries.updateStatus(deliveryId, 'FAILED', { errorMessage: attempt.error_message });
-    return {
-      ok: false, replay: false, attempt, delivery: failed,
-      sent: false, externalSideEffect: false, error: attempt.error_message,
-    };
-  }
+
   try {
-    const from = config.notifications.email?.from
-      || config.notifications.smtp?.user
-      || (transport ? 'phase-a1-test@localhost' : null);
-    if (!from) throw new Error('NOTIFY_EMAIL_FROM or SMTP_USER required as From address');
-    const info = await mailer.sendMail({
-      from, to: d.recipient, subject: d.subject, text: d.body_text, html: d.body_html || undefined,
-    });
+    let providerMessageId = null;
+    let provider = 'cloudmailin';
+    let sender = config.cloudmailin?.outbound?.from || null;
+
+    if (!transport && cloudMailinConfigured()) {
+      const result = await sendCloudMailinMessage({
+        deliveryId, to: d.recipient, subject: d.subject, plain: d.body_text,
+        html: d.body_html || undefined, conversationId: d.conversation_id,
+        tags: [d.message_type],
+      });
+      providerMessageId = result.providerMessageId;
+      const current = clientDeliveries.get(deliveryId);
+      let metadata = {};
+      try { metadata = current?.metadata_json ? JSON.parse(current.metadata_json) : {}; } catch {}
+      metadata.cloudmailinClientMessageId = result.clientMessageId;
+      metadata.inReplyTo = result.inReplyTo || null;
+      metadata.references = result.references || [];
+      clientDeliveries.updateStatus(deliveryId, 'SENT', {
+        providerMessageId, sentAt: new Date().toISOString(), decidedBy, errorMessage: null,
+      });
+      getDb().prepare('UPDATE client_deliveries SET metadata_json = ?, updated_at = ? WHERE id = ?')
+        .run(JSON.stringify(metadata), new Date().toISOString(), deliveryId);
+    } else {
+      provider = 'smtp';
+      sender = config.notifications.email?.from || config.notifications.smtp?.user || (transport ? config.cloudmailin?.outbound?.from : null) || null;
+      const mailer = await createLegacySmtpTransport(transport);
+      if (!mailer) throw new Error('Customer outbound is not configured. Set CloudMailin outbound credentials.');
+      if (!sender) throw new Error('NOTIFY_EMAIL_FROM or SMTP_USER required as legacy SMTP From address');
+      const latestInbound = (inboundMessages.list({ conversationId: d.conversation_id, limit: 50 }) || [])
+        .find((row) => row.direction !== 'outbound' && row.external_message_id);
+      const headers = {};
+      if (latestInbound?.external_message_id) {
+        headers['In-Reply-To'] = latestInbound.external_message_id;
+        const meta = latestInbound.raw_metadata_json ? (() => { try { return JSON.parse(latestInbound.raw_metadata_json) || {}; } catch { return {}; } })() : {};
+        const refs = Array.isArray(meta.references) ? meta.references : [];
+        headers.References = [...new Set([...refs, latestInbound.external_message_id])].join(' ');
+      }
+      const info = await mailer.sendMail({
+        from: sender, to: d.recipient, subject: d.subject, text: d.body_text,
+        html: d.body_html || undefined, headers,
+      });
+      providerMessageId = info?.messageId || null;
+      clientDeliveries.updateStatus(deliveryId, 'SENT', {
+        providerMessageId, sentAt: new Date().toISOString(), decidedBy, errorMessage: null,
+      });
+    }
+
     const finishedAt = new Date().toISOString();
-    const providerMessageId = info?.messageId || null;
     attempt = clientDeliveryAttempts.update(attempt.id, {
       status: 'SUCCESS', providerMessageId, finishedAt, errorMessage: null,
     });
-    const sent = clientDeliveries.updateStatus(deliveryId, 'SENT', {
-      providerMessageId, sentAt: finishedAt, decidedBy, errorMessage: null,
-    });
+    const sent = clientDeliveries.get(deliveryId);
     let outboundMessageId = null;
     try {
-      outboundMessageId = recordOutbound(sent, { providerMessageId })?.id || null;
+      outboundMessageId = recordOutbound(sent, { providerMessageId, provider, sender })?.id || null;
     } catch (err) {
-      return {
-        ok: true, replay: false, attempt, delivery: sent,
-        sent: true, externalSideEffect: true, providerMessageId, historyWarning: err.message,
-      };
+      return { ok: true, replay: false, attempt, delivery: sent, sent: true,
+        externalSideEffect: true, providerMessageId, outboundMessageId, historyWarning: err.message };
     }
-    return {
-      ok: true, replay: false, attempt, delivery: sent,
-      sent: true, externalSideEffect: true, providerMessageId, outboundMessageId,
-    };
+    return { ok: true, replay: false, attempt, delivery: sent, sent: true,
+      externalSideEffect: true, providerMessageId, outboundMessageId };
   } catch (err) {
     const finishedAt = new Date().toISOString();
     attempt = clientDeliveryAttempts.update(attempt.id, {
       status: 'FAILED', finishedAt, errorMessage: err.message || String(err),
     });
     const failed = clientDeliveries.updateStatus(deliveryId, 'FAILED', { errorMessage: attempt.error_message });
-    return {
-      ok: false, replay: false, attempt, delivery: failed,
-      sent: false, externalSideEffect: false, error: attempt.error_message,
-    };
+    return { ok: false, replay: false, attempt, delivery: failed, sent: false,
+      externalSideEffect: false, error: attempt.error_message };
   }
 }
 

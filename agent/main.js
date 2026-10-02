@@ -1,13 +1,7 @@
 #!/usr/bin/env node
 // agent/main.js
-// Top-level entrypoint. Boots the dashboard, scheduler, and (optionally) a
-// long-lived browser session. Designed to run inside Docker / cloud and stay
-// up for days. SIGTERM / SIGINT trigger a clean shutdown.
-//
-// Usage:
-//   node agent/main.js
-//
-// Environment variables: see .env.example.
+// Top-level entrypoint. Boots the dashboard, scheduler, and optional browser
+// session. SIGTERM / SIGINT trigger a clean shutdown.
 
 import { ensureDirs, config } from '../config/index.js';
 import { migrate, closeDb } from '../database/index.js';
@@ -16,6 +10,7 @@ import { startScheduler, stopScheduler } from '../scheduler/index.js';
 import { notify } from '../notifications/index.js';
 import browser from '../browser/index.js';
 import { installInboundEmailWebhook } from '../integrations/inbound-webhook.js';
+import { installCloudMailinOutboundEventsWebhook } from '../integrations/cloudmailin-events-webhook.js';
 
 async function main() {
   ensureDirs();
@@ -23,6 +18,7 @@ async function main() {
 
   const server = await startDashboard();
   installInboundEmailWebhook(server);
+  installCloudMailinOutboundEventsWebhook(server);
   startScheduler();
 
   const heartbeat = setInterval(() => {
