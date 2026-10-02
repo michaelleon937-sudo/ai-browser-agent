@@ -313,7 +313,7 @@ export async function sendApprovedClientDelivery(deliveryId, {
         .run(JSON.stringify(metadata), new Date().toISOString(), deliveryId);
     } else {
       provider = 'smtp';
-      sender = config.notifications.email?.from || config.notifications.smtp?.user || null;
+      sender = config.notifications.email?.from || config.notifications.smtp?.user || (transport ? config.cloudmailin?.outbound?.from : null) || null;
       const mailer = await createLegacySmtpTransport(transport);
       if (!mailer) throw new Error('Customer outbound is not configured. Set CloudMailin outbound credentials.');
       if (!sender) throw new Error('NOTIFY_EMAIL_FROM or SMTP_USER required as legacy SMTP From address');
