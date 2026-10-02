@@ -760,3 +760,21 @@ CREATE TABLE IF NOT EXISTS client_delivery_attempts (
 );
 CREATE INDEX IF NOT EXISTS idx_client_delivery_attempts_delivery ON client_delivery_attempts (delivery_id);
 CREATE INDEX IF NOT EXISTS idx_client_delivery_attempts_status ON client_delivery_attempts (status);
+
+-- Phase A2.1 — CloudMailin outbound delivery event idempotency/audit
+CREATE TABLE IF NOT EXISTS client_delivery_events (
+  id                  TEXT PRIMARY KEY,
+  delivery_id         TEXT,
+  provider            TEXT NOT NULL DEFAULT 'cloudmailin',
+  event_key           TEXT NOT NULL UNIQUE,
+  event_kind          TEXT NOT NULL,
+  provider_message_id TEXT,
+  original_message_id TEXT,
+  recipient           TEXT,
+  occurred_at         TEXT,
+  details_json        TEXT,
+  created_at          TEXT NOT NULL,
+  FOREIGN KEY (delivery_id) REFERENCES client_deliveries(id)
+);
+CREATE INDEX IF NOT EXISTS idx_client_delivery_events_delivery ON client_delivery_events (delivery_id);
+CREATE INDEX IF NOT EXISTS idx_client_delivery_events_provider_message ON client_delivery_events (provider_message_id);
