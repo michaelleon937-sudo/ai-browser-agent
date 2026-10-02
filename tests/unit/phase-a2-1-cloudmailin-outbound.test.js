@@ -1,5 +1,16 @@
 // tests/unit/phase-a2-1-cloudmailin-outbound.test.js
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
+
+const CLOUDMAILIN_ENV_KEYS = [
+  'CLOUDMAILIN_OUTBOUND_ACCOUNT_ID',
+  'CLOUDMAILIN_OUTBOUND_API_TOKEN',
+  'CLOUDMAILIN_OUTBOUND_FROM',
+  'CLOUDMAILIN_OUTBOUND_TEST_MODE',
+];
+
+afterAll(() => {
+  for (const key of CLOUDMAILIN_ENV_KEYS) delete process.env[key];
+});
 
 describe('CloudMailin outbound adapter', () => {
   it('uses the documented messages endpoint, bearer auth, and thread headers', async () => {
