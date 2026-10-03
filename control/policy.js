@@ -120,12 +120,18 @@ export const ALLOWED_TOOLS = Object.freeze([
   'commercial.reconcile_payment',
   'commercial.reconcile_invoice',
   'commercial.payment_state',
+  'website.generate',
+  'website.prepare_delivery',
   'client_delivery.prepare',
   'client_delivery.get',
   'client_delivery.list',
   'client_delivery.approve',
   'client_delivery.deny',
   'client_delivery.send_approved',
+  'website.generate',
+  'website.variations',
+  'website.prepare_delivery',
+  'website.capabilities',
   'client_delivery.artifact_status',
 ]);
 

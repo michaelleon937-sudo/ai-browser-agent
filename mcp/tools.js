@@ -673,6 +673,10 @@ export const MCP_TOOL_DEFINITIONS = [
     inputSchema: objectSchema(),
   },
 
+  { mcpName:'website_generate',controlName:'website.generate',title:'Generate Professional Website',description:'Generate a reviewable website from a client brief; no deployment.',inputSchema:objectSchema({brief:{type:'object',description:'Client brief.',additionalProperties:true},name:stringProperty('Name.'),industry:stringProperty('Industry.'),variationIndex:integerProperty('0-2.')}) },
+  { mcpName:'website_variations',controlName:'website.variations',title:'Website Design Directions',description:'Return available visual directions.',inputSchema:objectSchema({brief:{type:'object',description:'Client brief.',additionalProperties:true},name:stringProperty('Name.'),industry:stringProperty('Industry.')}) },
+  { mcpName:'website_prepare_delivery',controlName:'website.prepare_delivery',title:'Prepare Website Delivery',description:'Run QA and return approval-gated readiness; no deployment.',inputSchema:objectSchema({brief:{type:'object',description:'Client brief.',additionalProperties:true},variationIndex:integerProperty('Direction.')}) },
+  { mcpName:'website_capabilities',controlName:'website.capabilities',title:'Website Engine Capabilities',description:'Read-only capability manifest.',inputSchema:objectSchema() },
 ];
 
 export default MCP_TOOL_DEFINITIONS;
