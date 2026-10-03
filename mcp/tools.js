@@ -677,6 +677,63 @@ export const MCP_TOOL_DEFINITIONS = [
   { mcpName:'website_variations',controlName:'website.variations',title:'Website Design Directions',description:'Return available visual directions.',inputSchema:objectSchema({brief:{type:'object',description:'Client brief.',additionalProperties:true},name:stringProperty('Name.'),industry:stringProperty('Industry.')}) },
   { mcpName:'website_prepare_delivery',controlName:'website.prepare_delivery',title:'Prepare Website Delivery',description:'Run QA and return approval-gated readiness; no deployment.',inputSchema:objectSchema({brief:{type:'object',description:'Client brief.',additionalProperties:true},variationIndex:integerProperty('Direction.')}) },
   { mcpName:'website_capabilities',controlName:'website.capabilities',title:'Website Engine Capabilities',description:'Read-only capability manifest.',inputSchema:objectSchema() },
+
+  {
+    mcpName: 'website_create_project',
+    controlName: 'website.create_project',
+    title: 'Website Create Project',
+    description: 'Create a structured website project from a client brief with design specification, SEO metadata, versioning, and audit history.',
+    inputSchema: objectSchema({ brief: { type: 'object', description: 'Structured client brief.', additionalProperties: true }, variationIndex: integerProperty('Optional design variation index.'), origin: stringProperty('Optional canonical website origin.') }, ['brief']),
+  },
+  {
+    mcpName: 'website_request_revision',
+    controlName: 'website.request_revision',
+    title: 'Website Request Revision',
+    description: 'Create a targeted client revision request without regenerating unrelated project state.',
+    inputSchema: objectSchema({ project: { type: 'object', description: 'Current website project.', additionalProperties: true }, request: { type: 'object', description: 'Revision request.', additionalProperties: true } }, ['project','request']),
+  },
+  {
+    mcpName: 'website_apply_revision',
+    controlName: 'website.apply_revision',
+    title: 'Website Apply Revision',
+    description: 'Apply a targeted website revision and create a new version.',
+    inputSchema: objectSchema({ project: { type: 'object', description: 'Current website project.', additionalProperties: true }, request: { type: 'object', description: 'Revision application data.', additionalProperties: true } }, ['project']),
+  },
+  {
+    mcpName: 'website_qa',
+    controlName: 'website.qa',
+    title: 'Website QA',
+    description: 'Run website quality, security, visual, and SEO gates.',
+    inputSchema: objectSchema({ project: { type: 'object', description: 'Website project.', additionalProperties: true } }, ['project']),
+  },
+  {
+    mcpName: 'website_self_repair',
+    controlName: 'website.self_repair',
+    title: 'Website Self Repair',
+    description: 'Run a bounded AI repair loop against detected safe QA failures.',
+    inputSchema: objectSchema({ project: { type: 'object', description: 'Website project.', additionalProperties: true }, maxRepairs: integerProperty('Maximum repair iterations, capped by policy.') }, ['project']),
+  },
+  {
+    mcpName: 'website_approve',
+    controlName: 'website.approve',
+    title: 'Website Approve',
+    description: 'Approve a website only after production QA gates pass.',
+    inputSchema: objectSchema({ project: { type: 'object', description: 'Website project.', additionalProperties: true }, actor: stringProperty('Approver identity.') }, ['project']),
+  },
+  {
+    mcpName: 'website_prepare_production',
+    controlName: 'website.prepare_production',
+    title: 'Website Prepare Production',
+    description: 'Prepare an approved website for deployment; does not bypass approval gates.',
+    inputSchema: objectSchema({ project: { type: 'object', description: 'Website project.', additionalProperties: true } }, ['project']),
+  },
+  {
+    mcpName: 'website_delivery_manifest',
+    controlName: 'website.delivery_manifest',
+    title: 'Website Delivery Manifest',
+    description: 'Produce a secret-free delivery manifest for a website project.',
+    inputSchema: objectSchema({ project: { type: 'object', description: 'Website project.', additionalProperties: true } }, ['project']),
+  },
 ];
 
 export default MCP_TOOL_DEFINITIONS;
