@@ -1,0 +1,10 @@
+import { describe, expect, it } from 'vitest';
+import { createWebsiteProject, requestRevision, applyTargetedRevision, runProductionQa, approveWebsite, prepareProduction, buildDeliveryManifest } from '../../website-engine/production.js';
+
+describe('professional website engine production lifecycle', () => {
+  const brief = { name:'Atlas Studio', industry:'architecture', description:'Architecture and interior design studio.', audience:'Property owners and developers', goal:'Generate qualified project enquiries', seoKeywords:['architecture','interior design'], content:{ heroTitle:'Spaces with purpose.', cta:'Start a project' } };
+  it('creates a structured project with SEO, versions and audit', () => { const p=createWebsiteProject(brief,{origin:'https://example.com'}); expect(p.state).toBe('DRAFT'); expect(p.designSpecification).toBeTruthy(); expect(p.seo.canonical).toBe('https://example.com/'); expect(p.versions).toHaveLength(1); expect(p.audit[0].event).toBe('project.created'); });
+  it('supports targeted revisions without dropping version history', () => { const p=createWebsiteProject(brief); const r=requestRevision(p,{type:'copy',instruction:'Change the hero headline',target:'hero'}); const next=applyTargetedRevision(r,{value:'Designed for extraordinary living.'}); expect(next.versions).toHaveLength(2); expect(next.revisions.at(-1).status).toBe('APPLIED'); expect(next.clientBrief.content.heroTitle).toBe('Designed for extraordinary living.'); });
+  it('runs production QA and keeps approval gated', () => { const p=createWebsiteProject(brief); const qa=runProductionQa(p); expect(qa.passed).toBe(true); const approved=approveWebsite(p,'client'); expect(approved.state).toBe('APPROVED'); const delivery=prepareProduction(approved); expect(delivery.status).toBe('DEPLOYMENT_PENDING'); });
+  it('builds a secret-free delivery manifest', () => { const p=createWebsiteProject(brief); const m=buildDeliveryManifest(p); expect(m.secretsIncluded).toBe(false); expect(m.artifacts).toContain('index.html'); });
+});
