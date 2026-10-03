@@ -222,6 +222,6 @@ describe('control policy and MCP registration', () => {
     ]) {
       expect(src).toContain(route);
     }
-    expect(src).not.toMatch(/app\\.post\\('\\/api\\/commercial/);
+    expect(src).not.toContain("app.post('/api/commercial");
   });
 });
