@@ -128,9 +128,7 @@ export const ALLOWED_TOOLS = Object.freeze([
   'client_delivery.approve',
   'client_delivery.deny',
   'client_delivery.send_approved',
-  'website.generate',
   'website.variations',
-  'website.prepare_delivery',
   'website.capabilities',
   'client_delivery.artifact_status',
 ]);
