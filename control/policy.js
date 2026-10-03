@@ -129,6 +129,19 @@ export const ALLOWED_TOOLS = Object.freeze([
   'website.approve',
   'website.prepare_production',
   'website.delivery_manifest',
+  'website.create_design_spec',
+  'website.preview',
+  'website.revise',
+  'website.visual_qa',
+  'website.prepare_deployment',
+  'website.deploy',
+  'website.rollback',
+  'website.status',
+  'website.delivery',
+  'website.open_review',
+  'website.review_comment',
+  'website.review_decision',
+  'website.compare_versions',
   'website.prepare_delivery',
   'client_delivery.prepare',
   'client_delivery.get',
@@ -199,7 +212,14 @@ export const MUTATING_TOOLS = new Set([
   'website.apply_revision',
   'website.self_repair',
   'website.approve',
-  'website.prepare_production',]);
+  'website.prepare_production',
+  'website.revise',
+  'website.deploy',
+  'website.rollback',
+  'website.prepare_deployment',
+  'website.open_review',
+  'website.review_comment',
+  'website.review_decision',]);
 
 export const TOOLS_REQUIRING_APPROVAL = new Set([
   'crm.send_invoice',
@@ -218,7 +238,10 @@ export const TOOLS_REQUIRING_APPROVAL = new Set([
   'client_delivery.send_approved',
 
   'website.approve',
-  'website.prepare_production',]);
+  'website.prepare_production',
+  'website.prepare_deployment',
+  'website.deploy',
+  'website.rollback',]);
 
 const BLOCKED_HOST_HINTS = [
   'checkout',

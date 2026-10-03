@@ -1,5 +1,5 @@
 import {buildWebsite,prepareDelivery,summarizeEngine} from "../../website-engine/index.js";
-import {createWebsiteProject,requestRevision,applyTargetedRevision,runProductionQa,selfRepair,approveWebsite,prepareProduction,buildDeliveryManifest} from "../../website-engine/production.js";
+import {createWebsiteProject,requestRevision,applyTargetedRevision,runProductionQa,selfRepair,approveWebsite,prepareProduction,buildDeliveryManifest,createDesignSpecProject,runFullVisualQa,deployWebsite,rollbackWebsite,websiteStatus,openClientReview,addClientReviewComment,decideClientReview,compareVersions} from "../../website-engine/production.js";
 function req(a){if(!a||(!a.brief&&!a.industry&&!a.name)){const e=Error("brief or basic project fields are required");e.status=400;throw e}}
 export async function generate(a={}){req(a);const p=buildWebsite(a,{variationIndex:Number(a.variationIndex||0)});return{ok:true,projectId:p.id,designSpecification:p.spec,qa:p.qa,files:p.files,audit:p.audit}}
 export async function variations(a={}){req(a);const p=buildWebsite(a,{variationIndex:0});return{ok:true,projectId:p.id,available:["Luxury Editorial","Modern Minimal","Futuristic 3D"],selected:p.spec.name}}

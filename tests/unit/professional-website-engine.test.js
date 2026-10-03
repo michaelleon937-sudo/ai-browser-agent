@@ -1,4 +1,6 @@
 import{describe,it,expect}from"vitest";
+import{listRegisteredTools}from"../../control/index.js";
+import{MCP_TOOL_DEFINITIONS}from"../../mcp/tools.js";
 import{analyzeBrief,createDesignSpecification,createDesignVariations,generateDesignSystem,buildWebsite,runQualityChecks,runSecurityChecks,runVisualQa,prepareDelivery,summarizeEngine}from"../../website-engine/index.js";
 describe("Professional Website & Design Engine",()=>{
 it("brief intelligence",()=>expect(analyzeBrief({description:"premium luxury hotel"}).style).toBe("luxury"));
@@ -28,3 +30,6 @@ it("audit",()=>expect(buildWebsite({}).audit.map(x=>x.event)).toContain("design.
 it("capabilities",()=>expect(summarizeEngine().features).toContain("approval-gated-delivery"));
 it("no secret",()=>expect(JSON.stringify(buildWebsite({}).files)).not.toMatch(/CONTROL_TOKEN|ANTHROPIC_API_KEY|OPENAI_API_KEY/));
 });
+
+it("exact website control lifecycle is registered",()=>{const names=listRegisteredTools();expect(names).toEqual(expect.arrayContaining(["website.create_design_spec","website.preview","website.revise","website.visual_qa","website.prepare_deployment","website.deploy","website.rollback","website.status","website.delivery"]));});
+it("exact website MCP lifecycle is exposed",()=>{const names=MCP_TOOL_DEFINITIONS.map(x=>x.controlName);expect(names).toEqual(expect.arrayContaining(["website.create_design_spec","website.preview","website.revise","website.visual_qa","website.prepare_deployment","website.deploy","website.rollback","website.status","website.delivery"]));});
