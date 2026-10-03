@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
-import { buildWebsite, createDesignSpecification, runQualityChecks, runSecurityChecks, runVisualQa, prepareDelivery } from './index.js';
+import { buildWebsite, createDesignSpecification, runQualityChecks, runSecurityChecks, runVisualQa, runRenderedVisualQa, prepareDelivery } from './index.js';\nimport { createReviewSession, addReviewComment, recordReviewDecision, compareWebsiteVersions } from './review.js';\nimport { triggerRenderDeploy, listRenderDeploys, waitForRenderDeploy, rollbackRenderDeploy, deploymentCapabilities } from './deployment.js';
 
-export const WEBSITE_ENGINE_VERSION = '1.1.0';
+export const WEBSITE_ENGINE_VERSION = '2.0.0';
 export const APPROVAL_STATES = Object.freeze(['DRAFT','INTERNAL_REVIEW','CLIENT_REVIEW','REVISION_REQUESTED','READY_FOR_APPROVAL','APPROVED','DEPLOYMENT_PENDING','DEPLOYED','DELIVERED']);
 const now = () => new Date().toISOString();
 const id = (prefix, value = '') => `${prefix}_${crypto.createHash('sha256').update(`${value}:${Date.now()}:${Math.random()}`).digest('hex').slice(0, 16)}`;
@@ -74,4 +74,27 @@ export function selfRepair(project, maxRepairs = 2) {
 export function gateForApproval(project) { const qa = runProductionQa(project); return qa.passed ? { ok: true, status: 'READY_FOR_APPROVAL', qa } : { ok: false, status: 'BLOCKED', qa }; }
 export function approveWebsite(project, actor = 'client') { const gate = gateForApproval(project); if (!gate.ok) return { ...project, gate }; const approval = { approvalId: id('approval', project.projectId), actor: clean(actor) || 'client', at: now(), status: 'APPROVED' }; return { ...project, state: 'APPROVED', updatedAt: approval.at, approvals: [...project.approvals, approval], audit: [...project.audit, { event: 'approval.granted', approvalId: approval.approvalId, at: approval.at }] }; }
 export function prepareProduction(project) { const gate = gateForApproval(project); if (!gate.ok) return { ok: false, status: 'BLOCKED', projectId: project?.projectId || null, gate }; if (project.state !== 'APPROVED') return { ok: false, status: 'APPROVAL_REQUIRED', projectId: project.projectId, gate }; const delivery = prepareDelivery(project.site); if (!delivery.ok) return { ok: false, status: 'BLOCKED', projectId: project.projectId, delivery }; return { ok: true, status: 'DEPLOYMENT_PENDING', projectId: project.projectId, version: project.versions.at(-1)?.version || 1, files: Object.keys(project.site.files), seo: project.seo, delivery }; }
-export function buildDeliveryManifest(project) { if (!project?.projectId) throw new Error('website project is required'); return { projectId: project.projectId, engineVersion: project.engineVersion, version: project.versions.at(-1)?.version || 1, state: project.state, source: ['index.html','styles.css','app.js'], artifacts: Object.keys(project.site.files), seo: project.seo, approvalCount: project.approvals.length, revisionCount: project.revisions.length, generatedAt: now(), secretsIncluded: false }; }
+
+export function createDesignSpecProject(brief = {}) {
+  const normalized = normalizeClientBrief(brief);
+  const spec = createDesignSpecification(normalized);
+  return { ok: true, designSpecification: spec, contentArchitecture: { pages: spec.pages, industryModules: spec.industryModules } };
+}
+export async function runFullVisualQa(project) {
+  const base = runProductionQa(project);
+  const rendered = await runRenderedVisualQa(project.site);
+  return { ...base, renderedVisual: rendered, passed: base.passed && rendered.passed };
+}
+export function openClientReview(project, origin = '') { return createReviewSession(project, origin); }
+export function addClientReviewComment(project, comment) { return addReviewComment(project, comment); }
+export function decideClientReview(project, decision, actor) { return recordReviewDecision(project, decision, actor); }
+export function compareVersions(project, fromVersion, toVersion) { return compareWebsiteVersions(project, fromVersion, toVersion); }
+export async function deployWebsite(project, options = {}) {
+  if (project?.state !== 'APPROVED') throw Object.assign(new Error('website must be APPROVED before deployment'), { status: 403 });
+  const deploy = await triggerRenderDeploy(options);
+  const verified = options.wait === false ? deploy : await waitForRenderDeploy({ serviceId: options.serviceId, deployId: deploy.id });
+  return { ok: verified.status === 'live', status: verified.status, deploy: verified, project: { ...project, state: verified.status === 'live' ? 'DEPLOYED' : 'DEPLOYMENT_PENDING' } };
+}
+export async function websiteStatus(options = {}) { return { ok: true, deploys: await listRenderDeploys(options), capabilities: deploymentCapabilities() }; }
+export async function rollbackWebsite(options = {}) { return { ok: true, deploy: await rollbackRenderDeploy(options) }; }
+\nexport function buildDeliveryManifest(project) { if (!project?.projectId) throw new Error('website project is required'); return { projectId: project.projectId, engineVersion: project.engineVersion, version: project.versions.at(-1)?.version || 1, state: project.state, source: ['index.html','styles.css','app.js'], artifacts: Object.keys(project.site.files), seo: project.seo, approvalCount: project.approvals.length, revisionCount: project.revisions.length, generatedAt: now(), secretsIncluded: false }; }
