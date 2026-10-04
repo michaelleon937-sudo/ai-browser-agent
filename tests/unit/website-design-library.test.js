@@ -74,7 +74,7 @@ describe('professional website design library', () => {
     expect(spec.designDirection.depth).toBe('3d');
     expect(spec.threeD.required).toBe(true);
     expect(resolveComposition(spec.designDirection)).toEqual(expect.objectContaining({
-      hero: 'dynamic-grid',
+      hero: 'dynamic-feature',
     }));
   });
 
@@ -94,12 +94,12 @@ describe('professional website design library', () => {
     }, { industry: 'luxury' });
 
     expect(variations).toHaveLength(3);
-    expect(variations.map(v => v.designDirection.name)).toEqual([
+    expect(variations.map(v => v.designDirection)).toEqual([
       'Quiet Luxury',
       'Cybersecurity Command',
       'Jewelry Atelier',
     ]);
-    expect(new Set(variations.map(v => v.designDirection.depth)).size).toBeGreaterThan(1);
+    expect(new Set(variations.map(v => v.grid)).size).toBeGreaterThan(1);
     expect(variations.every(v => v.composition && v.designDirection && v.designDirection.color)).toBe(true);
   });
 
