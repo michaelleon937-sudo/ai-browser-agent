@@ -159,7 +159,7 @@ describe('Professional Creative Engine — Final Cross-Engine Certification', ()
     );
     const matrix = createVisualQAMatrix(evidence);
     const report = buildVisualQAReport({ name: 'Final Certification Campaign' }, evidence);
-    expect(Object.keys(matrix)).toEqual(Object.keys(VIEWPORTS));
+    expect(matrix.map((entry) => entry.viewport)).toEqual(Object.keys(VIEWPORTS));
     expect(report.passed).toBe(true);
     expect(report.failures).toEqual([]);
     expect(report.repairRequired).toBe(false);
