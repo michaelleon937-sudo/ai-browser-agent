@@ -3,8 +3,9 @@ import { buildGraphicProject, GRAPHIC_FORMATS, GRAPHIC_TYPES, validateGraphicDes
 import { build3DProject, THREE_D_TYPES, THREE_D_RENDER_MODES, validate3DDesign } from './three-d.js';
 import { createCreativeIntelligence, validateCreativeIntelligence } from './intelligence.js';
 import { buildBrandProject, BRAND_IDENTITY_TYPES, BRAND_COLOR_MODES, validateBrandIdentity } from './brand.js';
+import { buildDeliveryPackage, createDeliveryManifest, CREATIVE_DELIVERY_VERSION, DELIVERY_FORMATS, DELIVERY_PROFILES, validateDeliveryManifest } from './delivery.js';
 
-export const CREATIVE_ENGINE_VERSION='1.3.0';
+export const CREATIVE_ENGINE_VERSION='1.4.0';
 export const CREATIVE_CHANNELS=Object.freeze(['website','video','graphic','3d','brand']);
 export const CREATIVE_LIFECYCLE=Object.freeze(['BRIEF','ANALYSIS','ART_DIRECTION','STORYBOARD','DESIGN','RENDER_READY','QA','CLIENT_REVIEW','APPROVED','DELIVERY']);
 
@@ -39,5 +40,6 @@ export const creativeEngineCapabilities={
   graphic:{types:GRAPHIC_TYPES,formats:Object.keys(GRAPHIC_FORMATS),features:['art-direction','hierarchy','typography','composition','social-presets','print-specs','bleed','accessibility','asset-provenance','3d-product']},
   threeD:{types:THREE_D_TYPES,renderModes:THREE_D_RENDER_MODES,features:['PBR','real-world-scale','art-directed-lighting','camera-presets','photorealism','architectural-visualization','product-visualization']},
   brand:{types:BRAND_IDENTITY_TYPES,colorModes:BRAND_COLOR_MODES,features:['logo-system','color-system','typography-system','grid-and-spacing','iconography','imagery-direction','motion-language','brand-voice','asset-governance','digital-print-kits','accessibility','consistency-qa']},
+  delivery:{version:CREATIVE_DELIVERY_VERSION,formats:DELIVERY_FORMATS,profiles:DELIVERY_PROFILES,features:['export-manifests','format-resolution','naming','provenance-gate','qa-gate','checksum-package','client-approval-gate']},
   sharedIntelligence:['industry-analysis','audience','goal','brand-system','design-direction','accessibility','asset-policy','qa','revision-workflow']
 };
