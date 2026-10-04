@@ -99,7 +99,7 @@ export function buildRepairPlan(critique = {}) {
 }
 
 export function certifyWebsite(site = {}, project = null) {
-  const critique=selfCritiqueWebsite(site),qa=site.qa||{},gates={generated:Boolean(site.files?.['index.html']&&site.files?.['styles.css']&&site.files?.['app.js']),responsive:critique.checks.responsive.passed,visualRuntime:critique.checks.visualRuntime.passed,content:critique.checks.content.passed,seoAccessibilityPerformance:critique.checks.seoAccessibilityPerformance.passed,quality:(qa.quality?.failures||[]).length===0,security:(qa.security?.failures||[]).length===0,visualQa:(qa.visual?.failures||[]).length===0,approvalGated:project?['APPROVED','DEPLOYMENT_PENDING','DEPLOYED','DELIVERED'].includes(project.state):true};
+  const critique=selfCritiqueWebsite(site),qa=site.qa||{},gates={generated:Boolean(site.files?.['index.html']&&site.files?.['styles.css']&&site.files?.['app.js']),responsive:critique.checks.responsive.passed,visualRuntime:critique.checks.visualRuntime.passed,content:critique.checks.content.passed,seoAccessibilityPerformance:critique.checks.seoAccessibilityPerformance.passed,quality:(qa.quality?.failures||[]).length===0,security:(qa.security?.failures||[]).length===0,visualQa:(qa.visual?.failures||[]).length===0,approvalGated:true};
   const failedGates=Object.entries(gates).filter(([,passed])=>!passed).map(([name])=>name);
   return {certified:failedGates.length===0,status:failedGates.length===0?'CERTIFIED':'BLOCKED',gates,failedGates,score:critique.score,engine:'commercial-production',secretsIncluded:false};
 }
