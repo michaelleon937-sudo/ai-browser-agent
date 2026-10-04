@@ -47,9 +47,47 @@ const MODULES={ecommerce:['product discovery','filters','product gallery','produ
 const clean=v=>String(v??'').trim(),esc=v=>clean(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),slug=v=>clean(v||'project').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,60)||'project',digest=v=>crypto.createHash('sha256').update(JSON.stringify(v)).digest('hex').slice(0,12);
 export function analyzeBrief(input={}){const b=typeof input==='string'?{description:input}:{...input},text=[b.industry,b.description,b.goal,b.style,b.visualDirection].map(clean).join(' ').toLowerCase();let industry=clean(b.industry||b.businessType).toLowerCase();if(!industry)industry=Object.keys(MODULES).find(k=>text.includes(k))||'corporate';industry={'real-estate':'realestate','e-commerce':'ecommerce','interior-design':'architecture'}[industry]||industry;if(!MODULES[industry])industry='corporate';let style=clean(b.visualDirection||b.style).toLowerCase();const direction=resolveDesignDirection(style||text);style=Object.keys(STYLES).find(k=>style.includes(k))||(/luxury|premium|fashion|hotel/.test(text)?'luxury':/3d|future|ai|cyber|technology/.test(text)?'futuristic':/architect|property|interior/.test(text)?'architectural':/editorial|magazine/.test(text)?'editorial':/minimal|clean/.test(text)?'minimal':'corporate');return{industry,style,designDirection:direction.name,designDirectionCategory:direction.category,designDirectionRank:rankDesignDirections(b).slice(0,10),audience:clean(b.audience||'Prospective customers and decision-makers'),goal:clean(b.goal||b.conversionGoal||'Present the brand clearly and drive qualified enquiries'),brand:clean(b.brand||b.name||'Brand'),description:clean(b.description),brandPersonality:clean(b.brandPersonality||'confident, refined and clear'),positioning:clean(b.positioning||'Professional value with a distinctive visual identity'),location:clean(b.location),services:Array.isArray(b.services)?b.services.map(clean).filter(Boolean):[],products:Array.isArray(b.products)?b.products.map(clean).filter(Boolean):[],content:b.content&&typeof b.content==='object'?b.content:{},desiredPages:Array.isArray(b.desiredPages)?b.desiredPages.map(clean).filter(Boolean):[],use3D:b.use3D!==undefined?Boolean(b.use3D):/3d|viewer|architecture|interior|futuristic/.test(text),media:b.media||{},contact:b.contact||{}}}
 export function createDesignSpecification(input={}){const a=analyzeBrief(input),direction=resolveDesignDirection(a.designDirection),p=STYLES[a.style],pages=a.desiredPages.length?a.desiredPages:INDUSTRIES[a.industry]||INDUSTRIES.corporate;const composition=resolveComposition(direction);return{version:ENGINE_VERSION,id:'ds_'+digest(a),industry:a.industry,composition,audience:a.audience,brand:a.brand,brandPersonality:a.brandPersonality,positioning:a.positioning,primaryObjective:a.goal,visualDirection:direction.name,designDirection:direction,colorSystem:{background:direction.color.background||p.bg,foreground:direction.color.foreground||p.ink,accent:direction.color.accent||p.accent,muted:'#6b6b6b'},typography:{display:direction.typography.display||p.display,body:direction.typography.body||p.body,scale:'clamp(.9rem,.82rem + .35vw,1.15rem)',lineHeight:1.55},spacing:{unit:8,scale:[8,16,24,32,48,64,96,128]},grid:['luxury','editorial'].includes(a.style)?'asymmetric':a.style==='architectural'?'architectural':'structured',components:['Header','Navigation','MobileNavigation','Hero','CTA','Button','Card','ProductCard','PricingCard','Testimonial','Gallery','Feature','FAQ','Form','Footer','Modal','Drawer','Tabs','Accordion','Carousel','Timeline','Stats','Team','Blog','Portfolio','PropertyListing','ProductListing','ServiceListing','Contact'],motionLanguage:direction.motion||(['luxury','futuristic','architectural','editorial'].includes(a.style)?'controlled cinematic':'subtle purposeful'),artDirectionMatrix:buildArtDirectionMatrix(input,5),threeD:{required:a.use3D,strategy:a.use3D?'progressive WebGL / GLTF-ready fallback':'none',mobileFallback:'video or static image'},responsive:{mobile:'single-column',tablet:'adaptive',desktop:'grid',largeDesktop:'max-width'},accessibility:{semanticHTML:true,keyboard:true,focusVisible:true,altText:true,reducedMotion:true},performance:{lazyImages:true,lazyVideo:true,webglFallback:true,codeSplitting:true},industryModules:MODULES[a.industry],pages,contentArchitecture:{separateContentFromComponents:true,structuredPerPage:true},brandPreservation:true}}
-export function createDesignVariations(spec){return (spec.artDirectionMatrix||buildArtDirectionMatrix(spec,5)).map((d)=>({...spec,name:d.name,visualDirection:d.name,designDirection:d.visualSystem,threeD:{...spec.threeD,required:spec.threeD.required||d.visualSystem.depth==='3d'}}))}
-export function generateContent(input={},spec=createDesignSpecification(input)){const a=analyzeBrief(input),c=a.content||{},brand=a.brand;const out={home:{eyebrow:a.industry,title:c.heroTitle||brand,body:c.heroBody||a.description||`A professional digital experience for ${a.audience}.`,cta:c.cta||'Start a conversation'},about:{title:c.aboutTitle||`About ${brand}`,body:c.aboutBody||`${brand} is positioned around ${a.positioning}.`},services:{title:c.servicesTitle||'Services',body:c.servicesBody||`Focused solutions for ${a.audience}.`,items:a.services.length?a.services:MODULES[a.industry].slice(0,4)},contact:{title:c.contactTitle||'Start a conversation',body:c.contactBody||'Tell us what you are building and we will respond with the next practical step.'},...c};for(const page of spec.pages)if(!out[page])out[page]={title:page.replace(/-/g,' '),body:`Explore ${page.replace(/-/g,' ')} from ${brand}.`};return{brand,industry:a.industry,audience:a.audience,goal:a.goal,pages:out,source:'brief+structured-content',placeholderCopy:false}}
-export function generateMediaManifest(input={},spec=createDesignSpecification(input)){const a=analyzeBrief(input),m=a.media||{},images=Array.isArray(m.images)?m.images.map((x,i)=>({id:`image_${i+1}`,src:clean(x.src||x.url||x),alt:clean(x.alt||`${a.brand} visual ${i+1}`),width:x.width||1600,height:x.height||1000,focalPoint:x.focalPoint||'center'})).filter(x=>x.src):[],videos=Array.isArray(m.videos)?m.videos.map((x,i)=>({id:`video_${i+1}`,src:clean(x.src||x.url||x),poster:clean(x.poster),mobileSrc:clean(x.mobileSrc),type:x.type||'video/mp4'})).filter(x=>x.src):[];return{images,videos,policy:{noFakeFinalAssets:true,clientAssetsPreserved:true,lazyImages:true,lazyVideo:true,posterRequiredForAutoplay:true,mobileFallback:'poster-or-image'},threeD:{enabled:spec.threeD.required,loader:'GLTF-ready',fallback:spec.threeD.mobileFallback}}}
+export 
+function createDesignVariations(spec, brief = {}) {
+  const directions = Array.isArray(spec?.artDirection?.directions)
+    ? spec.artDirection.directions
+    : Array.isArray(spec?.directions)
+      ? spec.directions
+      : [];
+
+  return directions.map((direction, index) => {
+    const resolved = resolveDesignDirection(direction?.name || direction?.id || direction);
+    const artDirection = buildArtDirectionMatrix(resolved, brief);
+    const composition = resolveComposition(resolved?.grid || direction?.grid || spec?.grid);
+
+    return {
+      ...spec,
+      id: "${spec.id || "website"}-variation-" + (index + 1),
+      name: direction?.name || resolved?.name || "Variation " + (index + 1),
+      designDirection: resolved?.name || direction?.name || "Custom",
+      visualDirection: resolved?.visualDirection || direction?.visualDirection || direction?.description || "",
+      colorSystem: {
+        ...(spec.colorSystem || {}),
+        ...(resolved?.colorSystem || artDirection?.colorSystem || {}),
+      },
+      typography: {
+        ...(spec.typography || {}),
+        ...(resolved?.typography || artDirection?.typography || {}),
+      },
+      grid: resolved?.grid || direction?.grid || spec.grid,
+      motionLanguage: resolved?.motionLanguage || direction?.motionLanguage || spec.motionLanguage,
+      composition,
+      artDirection,
+      threeD: {
+        ...(spec.threeD || {}),
+        ...(resolved?.threeD || {}),
+        required: Boolean(resolved?.threeD?.required ?? spec.threeD?.required ?? direction?.use3D),
+      },
+      variationIndex: index + 1,
+    };
+  });
+}
+
 function mediaImage(asset,alt='Visual'){if(!asset?.src)return'';return`<img src="${esc(asset.src)}" alt="${esc(alt||asset.alt)}" width="${asset.width||1600}" height="${asset.height||1000}" loading="lazy" decoding="async">`}
 function mediaVideo(asset){if(!asset?.src)return'';return`<video controls preload="metadata" playsinline ${asset.poster?`poster="${esc(asset.poster)}"`:''}${asset.mobileSrc?` data-mobile-src="${esc(asset.mobileSrc)}"`:''}><source src="${esc(asset.src)}" type="${esc(asset.type||'video/mp4')}"></video>`}
 function threeMarkup(spec){return spec.threeD.required?'<div class="scene-wrap" data-3d="true"><canvas class="scene" aria-label="Interactive 3D visual"></canvas><div class="scene-fallback" hidden>Optimized visual fallback</div></div>':`<div class="visual-placeholder"><img src="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 1600 1000%27%3E%3C/svg%3E" alt="Decorative visual placeholder" width="1600" height="1000" loading="lazy" decoding="async"></div>`}
