@@ -62,7 +62,7 @@ function createDesignVariations(spec, brief = {}) {
 
     return {
       ...spec,
-      id: "${spec.id || "website"}-variation-" + (index + 1),
+      id: String(spec.id || "website") + "-variation-" + (index + 1),
       name: direction?.name || resolved?.name || "Variation " + (index + 1),
       designDirection: resolved?.name || direction?.name || "Custom",
       visualDirection: resolved?.visualDirection || direction?.visualDirection || direction?.description || "",
