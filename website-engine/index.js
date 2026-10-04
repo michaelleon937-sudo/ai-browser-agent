@@ -4,6 +4,18 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 export const ENGINE_VERSION='2.2.0';
 export const COMPOSITION_PROFILES={
+  'quiet editorial':{hero:'editorial-cover',section:'story-panels',cards:'premium',nav:'minimal-overlay',density:'airy'},
+  'spacious editorial':{hero:'centered-editorial',section:'airy-grid',cards:'premium',nav:'floating',density:'airy'},
+  'beauty grid':{hero:'beauty-feature',section:'product-grid',cards:'beauty',nav:'minimal-overlay',density:'airy'},
+  'poster grid':{hero:'poster-cover',section:'poster-grid',cards:'fashion',nav:'compact',density:'dense'},
+  'dynamic grid':{hero:'dynamic-feature',section:'dynamic-grid',cards:'performance',nav:'floating',density:'immersive'},
+  'airy resort':{hero:'immersive-image',section:'experience-panels',cards:'hospitality',nav:'floating',density:'immersive'},
+  'immersive':{hero:'immersive-image',section:'experience-panels',cards:'hospitality',nav:'floating',density:'immersive'},
+  'story commerce':{hero:'product-story',section:'story-panels',cards:'product',nav:'standard',density:'balanced'},
+  'content commerce':{hero:'creator-feature',section:'content-grid',cards:'creator',nav:'floating',density:'balanced'},
+  'data spatial':{hero:'metric-led',section:'data-grid',cards:'metric',nav:'floating',density:'immersive'},
+  'terminal grid':{hero:'terminal-cover',section:'data-grid',cards:'technical',nav:'compact',density:'dense'},
+  'beauty':{hero:'beauty-feature',section:'gallery-grid',cards:'beauty',nav:'minimal-overlay',density:'airy'},
   'asymmetric editorial':{hero:'split-editorial',section:'alternating',cards:'editorial',nav:'minimal-overlay',density:'airy'},
   'strict grid':{hero:'centered-product',section:'stacked-grid',cards:'minimal',nav:'compact',density:'airy'},
   spatial:{hero:'immersive-canvas',section:'depth-panels',cards:'floating',nav:'floating',density:'immersive'},
