@@ -13,6 +13,7 @@ import { githubTools } from './tools/github.js';
 import { renderTools } from './tools/render.js';
 import { repairTools } from './repair.js';
 import { websiteEngineTools } from './tools/website-engine.js';
+import { creativeEngineTools } from './tools/creative-engine.js';
 import { invokeControlTool } from './invoke.js';
 
 const TOOLS = {
@@ -22,6 +23,7 @@ const TOOLS = {
   ...renderTools,
   ...repairTools,
   ...websiteEngineTools,
+  ...creativeEngineTools,
 };
 
 export function listRegisteredTools() { return Object.keys(TOOLS); }
