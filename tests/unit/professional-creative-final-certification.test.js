@@ -15,8 +15,8 @@ import {
   validateRevisionSession,
   createVisualQAMatrix,
   buildVisualQAReport,
-  VIEWPORTS,
 } from '../../creative-engine/index.js';
+import { VIEWPORTS } from '../../creative-engine/visual-qa.js';
 
 const brief = {
   name: 'Final Certification Campaign',
@@ -73,10 +73,18 @@ describe('Professional Creative Engine — Final Cross-Engine Certification', ()
     expect(qa.passed).toBe(true);
     expect(qa.failures).toEqual([]);
 
-    expect(project.intelligence).toBeDefined();
-    expect(project.intelligence.rules.noInventedClaims).toBe(true);
-    expect(project.intelligence.rules.noUnlicensedAssets).toBe(true);
-    expect(project.intelligence.rules.accessibilityAware).toBe(true);
+    expect(project.spec).toBeDefined();
+
+    if (type === 'brand') {
+      expect(project.spec.strategy.audienceFirst).toBe(true);
+      expect(project.spec.strategy.noInventedClaims).toBe(true);
+      expect(project.spec.assets.provenanceRequired).toBe(true);
+    } else {
+      expect(project.spec.intelligence).toBeDefined();
+      expect(project.spec.intelligence.rules.noInventedClaims).toBe(true);
+      expect(project.spec.intelligence.rules.noUnlicensedAssets).toBe(true);
+      expect(project.spec.intelligence.rules.accessibilityAware).toBe(true);
+    }
   });
 
   it('keeps delivery, provenance and approval gates explicit', () => {
