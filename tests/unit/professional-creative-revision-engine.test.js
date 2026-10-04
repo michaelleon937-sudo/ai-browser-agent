@@ -1,0 +1,8 @@
+import { describe,expect,it } from 'vitest';
+import { applyRevisionAndQueueQA,approveCreativeRevision,createRevisionSession,normalizeRevisionRequest,requestCreativeRevision,validateRevisionSession } from '../../creative-engine/revision.js';
+describe('Professional Creative Revision Engine',()=>{
+it('creates a valid review session',()=>{const s=createRevisionSession({name:'Luxury Campaign',spec:{tone:'quiet'}});expect(validateRevisionSession(s).passed).toBe(true);expect(s.stage).toBe('CLIENT_REVIEW')});
+it('applies only allowlisted targeted changes',()=>{const s=createRevisionSession({name:'Campaign',spec:{tone:'cinematic',duration:15}});const r=applyRevisionAndQueueQA(s,{request:'Make it more cinematic',changes:[{field:'tone',value:'luxury-cinematic'},{field:'shell',value:'rm -rf'}]});expect(r.ok).toBe(true);expect(r.applied.applied).toEqual(['tone']);expect(r.applied.rejected).toBe(1);expect(r.session.currentSnapshot.tone).toBe('luxury-cinematic');expect(r.session.currentSnapshot.shell).toBeUndefined();expect(r.session.stage).toBe('QA')});
+it('blocks empty, approved, and excessive revisions',()=>{const s=createRevisionSession({name:'Campaign'},{maxRequests:1});expect(requestCreativeRevision(s,{}).code).toBe('EMPTY_REVISION_REQUEST');const r=applyRevisionAndQueueQA(s,{changes:[{field:'tone',value:'editorial'}]});expect(r.ok).toBe(true);const a=approveCreativeRevision(r.session);expect(a.ok).toBe(true);expect(requestCreativeRevision(a.session,{changes:[{field:'tone',value:'brutalist'}]}).code).toBe('ALREADY_APPROVED')});
+it('normalizes and caps client change payloads',()=>{const r=normalizeRevisionRequest({request:'Update',changes:Array.from({length:20},(_,i)=>({field:i%2?'tone':'layout',value:i}))});expect(r.changes).toHaveLength(12)});
+});
