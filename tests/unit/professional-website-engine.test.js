@@ -5,9 +5,9 @@ import{analyzeBrief,createDesignSpecification,createDesignVariations,generateDes
 describe("Professional Website & Design Engine",()=>{
 it("brief intelligence",()=>expect(analyzeBrief({description:"premium luxury hotel"}).style).toBe("luxury"));
 it("architecture intelligence",()=>expect(analyzeBrief({description:"architecture interior"}).industry).toBe("architecture"));
-it("3D intelligence",()=>expect(analyzeBrief({description:"futuristic 3d product"}).needs3D).toBe(true));
+it("3D intelligence",()=>{const a=analyzeBrief({description:"futuristic 3d product"});expect(a.use3D).toBe(true);});
 it("spec source of truth",()=>expect(createDesignSpecification({industry:"saas"})).toHaveProperty("typography"));
-it("three directions",()=>expect(createDesignVariations(createDesignSpecification({})).map(x=>x.name)).toEqual(["Luxury Editorial","Modern Minimal","Futuristic 3D"]));
+it("design library directions",()=>{const names=createDesignVariations(createDesignSpecification({})).map(x=>x.name);expect(names.slice(0,3)).toEqual(["Luxury Editorial","Modern Minimal","Futuristic 3D"]);expect(names.length).toBeGreaterThanOrEqual(5);});
 it("tokens",()=>expect(generateDesignSystem(createDesignSpecification({}))).toHaveProperty("tokens"));
 it("responsive",()=>{const p=buildWebsite({industry:"restaurant"});expect(p.files["styles.css"]).toContain("@media");expect(p.files["index.html"]).toContain("viewport")});
 it("alt and lazy images",()=>{const h=buildWebsite({}).files["index.html"];expect(h).toMatch(/alt="/);expect(h).toContain('loading="lazy"')});
