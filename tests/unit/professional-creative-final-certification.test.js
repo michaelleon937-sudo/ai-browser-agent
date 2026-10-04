@@ -50,7 +50,6 @@ describe('Professional Creative Engine — Final Cross-Engine Certification', ()
       'APPROVED',
       'DELIVERY',
     ]);
-
     expect(Object.keys(creativeEngineCapabilities)).toEqual(
       expect.arrayContaining(['video', 'graphic', 'threeD', 'brand', 'delivery', 'revision', 'visualQA', 'sharedIntelligence']),
     );
@@ -72,7 +71,6 @@ describe('Professional Creative Engine — Final Cross-Engine Certification', ()
     const qa = validateCreativeProject(project);
     expect(qa.passed).toBe(true);
     expect(qa.failures).toEqual([]);
-
     expect(project.spec).toBeDefined();
 
     if (type === 'brand') {
@@ -96,13 +94,11 @@ describe('Professional Creative Engine — Final Cross-Engine Certification', ()
       format: 'square',
       platform: 'instagram',
     });
-
     const manifest = createDeliveryManifest(project, {
       channel: 'graphic',
       formats: ['png', 'webp'],
       licensesAttached: true,
     });
-
     const manifestQA = validateDeliveryManifest(manifest);
     expect(manifestQA.passed).toBe(true);
     expect(manifest.assets.provenanceRequired).toBe(true);
@@ -121,31 +117,23 @@ describe('Professional Creative Engine — Final Cross-Engine Certification', ()
       format: 'square',
       platform: 'instagram',
     });
-
     const session = createRevisionSession(project, {
       sessionId: 'final-certification',
       snapshot: project.spec,
     });
-
     const requested = requestCreativeRevision(session, {
       requestedBy: 'client',
       request: 'Refine the headline and CTA copy.',
-      changes: [
-        { field: 'copy', value: 'Refined headline and CTA', reason: 'clarity' },
-      ],
+      changes: [{ field: 'copy', value: 'Refined headline and CTA', reason: 'clarity' }],
     });
-
     expect(requested.ok).toBe(true);
     expect(validateRevisionSession(requested.session).passed).toBe(true);
-
     const queued = applyRevisionAndQueueQA(requested.session, {
       changes: [{ field: 'copy', value: 'Refined headline and CTA' }],
     });
-
     expect(queued.ok).toBe(true);
     expect(queued.session.stage).toBe('QA');
     expect(queued.session.approved).toBe(false);
-
     const approved = approveCreativeRevision(queued.session);
     expect(approved.ok).toBe(true);
     expect(approved.session.approved).toBe(true);
@@ -169,13 +157,8 @@ describe('Professional Creative Engine — Final Cross-Engine Certification', ()
         },
       ]),
     );
-
     const matrix = createVisualQAMatrix(evidence);
-    const report = buildVisualQAReport(
-      { name: 'Final Certification Campaign' },
-      evidence,
-    );
-
+    const report = buildVisualQAReport({ name: 'Final Certification Campaign' }, evidence);
     expect(Object.keys(matrix)).toEqual(Object.keys(VIEWPORTS));
     expect(report.passed).toBe(true);
     expect(report.failures).toEqual([]);
