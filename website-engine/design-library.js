@@ -114,7 +114,7 @@ D('Travel Editorial','editorial','Playfair Display','Inter','#f5efe5','#25201b',
 D('Cultural Institution','editorial','Neue Montreal','Inter','#efeee9','#1e201f','#8a6b45','gallery editorial','curated reveal','layered'),
 D('Sports Performance','creative','Sora','Inter','#0e1217','#f2f6fa','#f04d3d','dynamic grid','kinetic','3d','small'),
 D('Fitness Premium','community','Manrope','Inter','#f1f4f2','#18231f','#65a66f','modular','energetic reveal','flat','medium'),
-D('Beauty Clinic','community','DM Sans','Inter','#fbf7f6','#2a2022','#c77d8c','airy editorial','soft reveal','glass','large')
+D('Beauty Clinic','community','DM Sans','Inter','#fbf7f6','#2a2022','#c77d8c','airy editorial','soft reveal','glass','large'),
 D('Old Money','luxury','Cormorant Garamond','Inter','#f4efe5','#24201a','#8f6f43','quiet editorial','measured reveal','layered','medium',['heritage','estate','classic','old money','private club']),
 D('Contemporary Luxury','luxury','Canela','Inter','#f9f7f2','#1c1b19','#a88b63','spacious editorial','silk transitions','layered','large',['modern luxury','premium lifestyle','high-end','refined']),
 D('Jewelry Atelier','fashion','Bodoni Moda','Inter','#fbfaf8','#211f1d','#bfa26a','gallery editorial','jewel reveal','3d','large',['jewelry','diamonds','atelier','fine jewelry','watches']),
