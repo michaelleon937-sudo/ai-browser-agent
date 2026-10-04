@@ -1,7 +1,7 @@
 import{describe,it,expect}from"vitest";
 import{listRegisteredTools}from"../../control/index.js";
 import{MCP_TOOL_DEFINITIONS}from"../../mcp/tools.js";
-import{analyzeBrief,createDesignSpecification,createDesignVariations,generateDesignSystem,buildWebsite,runQualityChecks,runSecurityChecks,runVisualQa,prepareDelivery,summarizeEngine}from"../../website-engine/index.js";
+import{analyzeBrief,createDesignSpecification,createDesignVariations,generateDesignSystem,buildWebsite,runQualityChecks,runSecurityChecks,runVisualQa,runRenderedVisualQa,prepareDelivery,summarizeEngine}from"../../website-engine/index.js";
 describe("Professional Website & Design Engine",()=>{
 it("brief intelligence",()=>expect(analyzeBrief({description:"premium luxury hotel"}).style).toBe("luxury"));
 it("architecture intelligence",()=>expect(analyzeBrief({description:"architecture interior"}).industry).toBe("architecture"));
@@ -18,6 +18,7 @@ it("pointer interaction",()=>expect(buildWebsite({use3D:true}).files["app.js"]).
 it("quality",()=>expect(runQualityChecks(buildWebsite({}),buildWebsite({}).spec).failures).toEqual([]));
 it("security",()=>expect(runSecurityChecks(buildWebsite({})).failures).toEqual([]));
 it("visual QA",()=>expect(runVisualQa(buildWebsite({})).failures).toEqual([]));
+it("rendered visual QA evidence",async()=>{const r=await runRenderedVisualQa(buildWebsite({}));expect(r.available).toBe(true);expect(r.passed).toBe(true);expect(r.viewportCount).toBe(3);expect(r.screenshotsGenerated).toBe(3);expect(r.viewports.every(v=>v.screenshot.sha256&&v.screenshot.bytes>0)).toBe(true)});
 it("delivery gate",()=>expect(prepareDelivery(buildWebsite({})).status).toBe("AWAITING_APPROVAL"));
 it("failed delivery blocked",()=>{const p=buildWebsite({});p.qa.security.failures=["x"];expect(prepareDelivery(p).status).toBe("BLOCKED")});
 it("ecommerce",()=>expect(buildWebsite({industry:"ecommerce"}).spec.industryModules).toContain("cart"));
