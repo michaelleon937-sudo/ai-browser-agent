@@ -100,7 +100,48 @@ export function generateDesignSystem(spec){return{tokens:{colors:spec.colorSyste
 export function runQualityChecks(p,spec){const files=Object.values(p.files||{}).join('\n'),h=p.files['pages/home/index.html']||p.files['index.html']||'',c=p.files['styles.css']||'',j=p.files['app.js']||'',x=[['semantic',/<header|<main|<footer/.test(h)],['viewport',/viewport/.test(h)],['alt',/<img[^>]+alt=/.test(files)||!/<img/.test(files)],['lazy',/loading="lazy"/.test(files)||!/<img/.test(files)],['focus',/:focus-visible/.test(c)],['reduced-motion',/prefers-reduced-motion/.test(c)],['responsive',/@media\(max-width/.test(c)],['motion',/matchMedia/.test(j)],['3d-webgl',!spec.threeD.required||/getContext\(['\"]webgl/.test(j)],['3d-fallback',!spec.threeD.required||/fallback\(\)/.test(j)],['forms',!/<form/.test(files)||/data-crm-form/.test(files)],['no-eval',!/\beval\s*\(/.test(files)]];return{checks:x,passed:x.every(a=>a[1]),total:x.length,failures:x.filter(a=>!a[1]).map(a=>a[0])}}
 export function runSecurityChecks(p){const a=Object.values(p.files||{}).join('\n'),x=[['no secrets',!/(OPENAI_API_KEY|ANTHROPIC_API_KEY|WHATSAPP_TOKEN|CONTROL_TOKEN|RENDER_API_KEY)/.test(a)],['no eval',!/\beval\s*\(/.test(a)],['no Function',!/new Function\s*\(/.test(a)],['no private key',!/PRIVATE KEY/.test(a)],['no javascript URL',!/\bjavascript:/i.test(a)]];return{checks:x,passed:x.every(a=>a[1]),total:x.length,failures:x.filter(a=>!a[1]).map(a=>a[0])}}
 export function runVisualQa(p){const h=Object.values(p.files||{}).join('\n'),c=p.files['styles.css']||'',x=[['heading hierarchy',/<h1[\s\S]*<h2/.test(h)],['button',/\.button/.test(c)],['mobile nav',/class="menu"/.test(h)],['mobile grid',/@media\(max-width:800px\)/.test(c)],['no fake placeholders',!/placeholder-\d+\.svg/.test(h)]];return{checks:x,passed:x.every(a=>a[1]),total:x.length,failures:x.filter(a=>!a[1]).map(a=>a[0])}}
-export async function runRenderedVisualQa(site){let chromium;try{({chromium}=await import('playwright'))}catch{return{passed:false,available:false,failures:['playwright-unavailable'],viewports:[]}}const dir=fs.mkdtempSync(path.join(process.env.TMPDIR||'/tmp','website-qa-'));exportWebsiteFiles(site,dir);const browser=await chromium.launch({headless:true});const results=[];try{for(const v of [{name:'mobile',width:390,height:844},{name:'tablet',width:768,height:1024},{name:'desktop',width:1440,height:900}]){const page=await browser.newPage({viewport:{width:v.width,height:v.height}}),errors=[];page.on('pageerror',e=>errors.push(e.message));await page.goto(`file://${path.join(dir,'index.html')}`,{waitUntil:'domcontentloaded'});const m=await page.evaluate(()=>({scrollWidth:document.documentElement.scrollWidth,clientWidth:document.documentElement.clientWidth}));results.push({...v,overflow:m.scrollWidth>m.clientWidth+2,errors});await page.close()}}finally{await browser.close()}const failures=results.flatMap(r=>r.overflow?[`${r.name}-horizontal-overflow`]:[]).concat(results.flatMap(r=>r.errors.map(e=>`${r.name}-pageerror:${e}`)));return{passed:failures.length===0,available:true,viewports:results,failures}}
+export async function runRenderedVisualQa(site){
+  let chromium;
+  try{({chromium}=await import('playwright'))}catch{return{passed:false,available:false,failures:['playwright-unavailable'],viewports:[]}}
+  const dir=fs.mkdtempSync(path.join(process.env.TMPDIR||'/tmp','website-qa-'));
+  const screenshotDir=path.join(dir,'screenshots');
+  fs.mkdirSync(screenshotDir,{recursive:true});
+  exportWebsiteFiles(site,dir);
+  const browser=await chromium.launch({headless:true});
+  const results=[];
+  try{
+    for(const v of [{name:'mobile',width:390,height:844},{name:'tablet',width:768,height:1024},{name:'desktop',width:1440,height:900}]){
+      const page=await browser.newPage({viewport:{width:v.width,height:v.height}});
+      const errors=[];
+      page.on('pageerror',e=>errors.push(e.message));
+      await page.goto('file://'+path.join(dir,'index.html'),{waitUntil:'domcontentloaded'});
+      const metrics=await page.evaluate(()=>({
+        scrollWidth:document.documentElement.scrollWidth,
+        clientWidth:document.documentElement.clientWidth,
+        bodyHeight:document.body?.scrollHeight||0,
+        h1Count:document.querySelectorAll('h1').length,
+        navCount:document.querySelectorAll('nav').length,
+        formCount:document.querySelectorAll('form').length,
+        imageCount:document.querySelectorAll('img').length,
+        canvasCount:document.querySelectorAll('canvas').length,
+        fontStatus:document.fonts?.status||'unknown'
+      }));
+      const screenshotPath=path.join(screenshotDir,v.name+'.png');
+      let screenshotSha256=null,screenshotBytes=0,screenshotError=null;
+      try{
+        const buffer=await page.screenshot({path:screenshotPath,fullPage:true,animations:'disabled',scale:'css'});
+        screenshotBytes=buffer.length;
+        screenshotSha256=crypto.createHash('sha256').update(buffer).digest('hex');
+      }catch(error){screenshotError=error.message}
+      results.push({...v,...metrics,overflow:metrics.scrollWidth>metrics.clientWidth+2,errors,screenshot:{path:screenshotPath,bytes:screenshotBytes,sha256:screenshotSha256,error:screenshotError}});
+      await page.close();
+    }
+  }finally{await browser.close()}
+  const failures=results.flatMap(r=>r.overflow?[r.name+'-horizontal-overflow']:[])
+    .concat(results.flatMap(r=>r.errors.map(e=>r.name+'-pageerror:'+e)))
+    .concat(results.flatMap(r=>r.screenshot.error?[r.name+'-screenshot-error:'+r.screenshot.error]:[]));
+  return{passed:failures.length===0,available:true,viewportCount:results.length,screenshotsGenerated:results.filter(r=>Boolean(r.screenshot.sha256)).length,viewports:results,failures};
+}
 function exportWebsiteFiles(p,out){for(const[k,v]of Object.entries(p.files||{})){const t=path.resolve(out,k);if(!t.startsWith(path.resolve(out)+path.sep))throw Error('unsafe path');fs.mkdirSync(path.dirname(t),{recursive:true});fs.writeFileSync(t,v,'utf8')}}
 export function buildWebsite(brief={},options={}){const spec0=createDesignSpecification(brief),vars=createDesignVariations(spec0),sel=vars[Math.min(vars.length-1,Math.max(0,Number(options.variationIndex||0)))],content=generateContent(brief,sel),media=generateMediaManifest(brief,sel),files={};for(const page of sel.pages)files[page==='home'?'index.html':`pages/${page}/index.html`]=pageHtml(page,sel,content,media);files['styles.css']=styles(sel);files['app.js']=script(sel);files['robots.txt']='User-agent: *\nAllow: /\nSitemap: /sitemap.xml\n';files['sitemap.xml']=`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${sel.pages.map(p=>`<url><loc>/${p==='home'?'':p}</loc></url>`).join('')}</urlset>`;files['README.md']='Generated website artifact. Client assets and production credentials are never embedded.';const p={id:'site_'+slug(brief.name||brief.brand||sel.industry)+'_'+digest(sel),spec:sel,version:ENGINE_VERSION,content,media,designSystem:generateDesignSystem(sel),files,audit:[{event:'brief.analyzed',at:new Date().toISOString()},{event:'design.specification',id:sel.id},{event:'content.generated',pages:sel.pages.length},{event:'media.manifest',images:media.images.length,videos:media.videos.length},{event:'pages.generated',pages:sel.pages.length}]};p.qa={quality:runQualityChecks(p,sel),security:runSecurityChecks(p),visual:runVisualQa(p)};p.audit.push({event:'qa.complete',quality:p.qa.quality,security:p.qa.security,visual:p.qa.visual});return p}
 export function prepareDelivery(p){const blocked=!p?.qa||p.qa.quality.failures.length||p.qa.security.failures.length||p.qa.visual.failures.length;return blocked?{ok:false,status:'BLOCKED',reason:'QA/security gates are not satisfied',projectId:p?.id||null}:{ok:true,status:'AWAITING_APPROVAL',projectId:p.id,files:Object.keys(p.files),deployment:'approval-gated'}}
