@@ -33,3 +33,24 @@ it("no secret",()=>expect(JSON.stringify(buildWebsite({}).files)).not.toMatch(/C
 
 it("exact website control lifecycle is registered",()=>{const names=listRegisteredTools();expect(names).toEqual(expect.arrayContaining(["website.create_design_spec","website.preview","website.revise","website.visual_qa","website.prepare_deployment","website.deploy","website.rollback","website.status","website.delivery"]));});
 it("exact website MCP lifecycle is exposed",()=>{const names=MCP_TOOL_DEFINITIONS.map(x=>x.controlName);expect(names).toEqual(expect.arrayContaining(["website.create_design_spec","website.preview","website.revise","website.visual_qa","website.prepare_deployment","website.deploy","website.rollback","website.status","website.delivery"]));});
+
+import { createDesignSpecification, buildWebsite } from '../../website-engine/index.js';
+import { DESIGN_DIRECTIONS } from '../../website-engine/design-library.js';
+
+describe('design composition engine',()=>{
+  it('maps materially different directions to composition profiles',()=>{
+    const luxury=createDesignSpecification({industry:'fashion',visualDirection:'Luxury Fashion'});
+    const brutal=createDesignSpecification({industry:'agency',visualDirection:'Brutalist'});
+    const spatial=createDesignSpecification({industry:'technology',visualDirection:'Futuristic 3D',use3D:true});
+    expect(luxury.composition.hero).not.toBe(brutal.composition.hero);
+    expect(spatial.composition.hero).not.toBe(luxury.composition.hero);
+    expect(DESIGN_DIRECTIONS.length).toBeGreaterThanOrEqual(50);
+  });
+  it('emits composition data attributes into generated pages',()=>{
+    const site=buildWebsite({industry:'restaurant',visualDirection:'Fine Dining'});
+    const html=site.files['index.html'];
+    expect(html).toMatch(/data-composition=/);
+    expect(html).toMatch(/data-section-style=/);
+    expect(html).toMatch(/data-card-style=/);
+  });
+});
