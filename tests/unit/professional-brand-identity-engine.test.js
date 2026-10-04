@@ -1,4 +1,4 @@
-
+import { describe, expect, it } from 'vitest';
 import { buildBrandProject, createBrandIdentitySpec, validateBrandIdentity } from '../../creative-engine/brand.js';
 
 describe('Professional Brand Identity Engine', () => {
