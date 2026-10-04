@@ -72,7 +72,7 @@ D('Solar Minimal','minimal','DM Sans','Inter','#fbfaf4','#172019','#7a9b4a','ope
 D('Luxury Real Estate Light','realestate','Manrope','Inter','#f8f5ef','#1b1b1a','#ad8755','gallery property','cinematic reveal','layered'),
 D('Hospitality Editorial','hospitality','Playfair Display','Inter','#f6f0e7','#2a211b','#b36b43','editorial hospitality','slow reveal','layered'),
 D('Product Gallery','commerce','Inter','Inter','#f7f7f5','#161616','#303030','gallery commerce','image choreography','flat','small'),
-D('Future Commerce','commerce','Space Grotesk','Inter','#080b12','#eef5ff','#8cf0ff','spatial commerce','scroll + 3d','3d','large')
+D('Future Commerce','commerce','Space Grotesk','Inter','#080b12','#eef5ff','#8cf0ff','spatial commerce','scroll + 3d','3d','large'),
 D('Quiet Luxury','luxury','Canela','Inter','#fbf8f3','#211f1c','#bda06a','quiet editorial','soft cinematic','layered','medium'),
 D('Editorial Luxe Light','luxury','Cormorant Garamond','Inter','#fffdf8','#191817','#b89a6a','asymmetric editorial','slow reveal','layered'),
 D('Pearl Minimal','minimal','Manrope','Inter','#f8f7f4','#202225','#c6c2ba','strict grid','whisper motion','flat','small'),
