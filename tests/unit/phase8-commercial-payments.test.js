@@ -201,11 +201,11 @@ describe('control policy and MCP registration', () => {
     expect(TOOLS_REQUIRING_APPROVAL.has('commercial.process_refund')).toBe(true);
   });
 
-  it('registers 18 commercial MCP tools for a total of 104', async () => {
+  it('registers 18 commercial MCP tools for a total of 129', async () => {
     const { MCP_TOOL_DEFINITIONS } = await import('../../mcp/tools.js');
     const commercial = MCP_TOOL_DEFINITIONS.filter((d) => d.mcpName.startsWith('commercial_'));
     expect(commercial).toHaveLength(18);
-    expect(MCP_TOOL_DEFINITIONS).toHaveLength(104);
+    expect(MCP_TOOL_DEFINITIONS).toHaveLength(129);
     expect(commercial.map((d) => d.controlName)).toContain('commercial.create_quote');
     expect(commercial.map((d) => d.controlName)).not.toContain('payment.charge');
   });
@@ -222,6 +222,6 @@ describe('control policy and MCP registration', () => {
     ]) {
       expect(src).toContain(route);
     }
-    expect(src).not.toMatch(/app\.post\('\/api\/commercial/);
+    expect(src).not.toContain("app.post('/api/commercial");
   });
 });

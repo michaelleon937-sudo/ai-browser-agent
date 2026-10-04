@@ -29,6 +29,7 @@ import { createControlRouter } from '../control/index.js';
 import { mountMcp } from '../mcp/server.js';
 import { mountPaymentWebhooks } from '../integrations/payments/webhooks.js';
 import { isValidSampleId, resolveSampleDir } from '../integrations/website-gen.js';
+import { ingestWebsiteLead } from '../integrations/website-leads.js';
 
 
 let server = null;
@@ -155,6 +156,16 @@ export async function startDashboard() {
     res.json(notifications.listRecent({ limit: Number(req.query.limit) || 50 }));
   });
 
+
+
+  app.post('/api/website/leads', (req, res) => {
+    try {
+      const result = ingestWebsiteLead(req.body || {});
+      res.status(result.ok ? 201 : 400).json(result);
+    } catch (err) {
+      res.status(Number(err.status) || 400).json({ ok: false, error: String(err.message || err) });
+    }
+  });
 
   app.get('/api/website-samples', (req, res) => {
     res.json(websiteSamples.list({ limit: Number(req.query.limit) || 50 }));
