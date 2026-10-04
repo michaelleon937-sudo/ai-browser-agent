@@ -7,12 +7,12 @@ const scenarios = [
   ['SaaS','B2B AI SaaS platform for enterprise teams with dashboard-heavy product storytelling, technical credibility and conversion-focused pricing.',['saas','futuristic'],['AI SaaS Premium','AI / Technology','Data Editorial']],
   ['Luxury Automotive','Premium electric vehicle brand website with cinematic product presentation, interactive 3D vehicle exploration and sophisticated editorial storytelling.',['automotive','futuristic'],['Electric Mobility','Automotive Luxury','Luxury Automotive Light']],
   ['Real Estate','Luxury real estate developer presenting high-end residences with interactive floorplans, architectural visualization and lead generation.',['realestate','architecture'],['Luxury Property','Interactive Floorplan','Developer Luxury']],
-  ['Church','Modern church website focused on services, sermons, ministries, events, community and online giving.',['community'],['Church Modern','Modern Ministry','Digital Ministry']],
-  ['Restaurant','Premium fine dining restaurant with reservation conversion, menu storytelling, chef profile and immersive food photography.',['hospitality'],['Fine Dining','Restaurant Editorial','Chef Portfolio']],
+  ['Church','Modern church website focused on services, sermons, ministries, events, community and online giving.',['church','community'],['Church Modern','Modern Ministry','Digital Ministry']],
+  ['Restaurant','Premium fine dining restaurant with reservation conversion, menu storytelling, chef profile and immersive food photography.',['restaurant','hospitality'],['Fine Dining','Restaurant Editorial','Chef Portfolio']],
   ['Fashion','Luxury fashion brand with runway collection, editorial lookbook and premium commerce experience.',['fashion','luxury'],['Luxury Fashion','Fashion Lookbook','Runway Black']],
-  ['Healthcare','Modern healthcare clinic focused on patient trust, services, accessibility and appointment conversion.',['community'],['Healthcare Premium','Healthcare']],
-  ['Education','Modern education platform for students with structured learning content and accessible navigation.',['community'],['Education','Learning Lab']],
-  ['Creative Agency','Creative design agency showcasing art direction, case studies, motion work and experimental portfolio pieces.',['creative'],['Creative Studio','Art Direction','Motion First Studio']],
+  ['Healthcare','Modern healthcare clinic focused on patient trust, services, accessibility and appointment conversion.',['healthcare','community'],['Healthcare Premium','Healthcare']],
+  ['Education','Modern education platform for students with structured learning content and accessible navigation.',['education','community'],['Education','Learning Lab']],
+  ['Creative Agency','Creative design agency showcasing art direction, case studies, motion work and experimental portfolio pieces.',['agency','creative'],['Creative Studio','Art Direction','Motion First Studio']],
 ];
 
 describe('Phase B design intelligence pipeline',()=>{
