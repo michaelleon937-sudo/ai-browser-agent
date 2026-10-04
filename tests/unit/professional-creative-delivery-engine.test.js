@@ -1,0 +1,7 @@
+import { describe,expect,it } from 'vitest';
+import { buildDeliveryPackage,createDeliveryManifest,resolveDeliveryProfile,validateDeliveryManifest } from '../../creative-engine/delivery.js';
+import { createCreativeProject } from '../../creative-engine/index.js';
+describe('Professional Creative Delivery Engine',()=>{
+it('resolves delivery profiles and safe formats',()=>{expect(resolveDeliveryProfile({profile:'print'}).quality).toBe('press');const m=createDeliveryManifest({type:'graphic',name:'Luxury Poster'},{profile:'print',formats:['pdf','exe']});expect(m.formats).toEqual(['pdf']);expect(m.naming.filenamePattern).toContain('luxury-poster')});
+it('blocks delivery when provenance evidence is missing',()=>{const result=validateDeliveryManifest(createDeliveryManifest({type:'graphic',name:'Campaign'},{profile:'digital'}));expect(result.passed).toBe(false);expect(result.failures).toContain('license/provenance evidence is not attached')});
+it('builds a delivery package only after creative QA',()=>{const project=createCreativeProject({type:'video',genre:'luxury-commercial',description:'Luxury watch campaign',duration:15,industry:'luxury'});const result=buildDeliveryPackage(project,{name:'Luxury Watch Campaign',profile:'social',formats:['mp4','webm'],licensesAttached:true});expect(result.status).toBe('READY_FOR_EXPORT');expect(result.creativeQA.passed).toBe(true);expect(result.manifest.formats).toEqual(['mp4','webm']);expect(result.checklist.checksumRequired).toBe(true)})});
