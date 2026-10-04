@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { buildWebsite, createDesignSpecification, runQualityChecks, runSecurityChecks, runVisualQa, runRenderedVisualQa, prepareDelivery } from './index.js';
 import { createReviewSession, addReviewComment, recordReviewDecision, compareWebsiteVersions } from './review.js';
+import { selfCritiqueWebsite, buildRepairPlan, certifyWebsite, buildCommercialManifest, createRevisionPatch, summarizeRevisionImpact } from './advanced.js';
 import { triggerRenderDeploy, listRenderDeploys, waitForRenderDeploy, rollbackRenderDeploy, deploymentCapabilities } from './deployment.js';
 
 export const WEBSITE_ENGINE_VERSION = '2.0.0';
@@ -62,20 +63,20 @@ export function applyTargetedRevision(project, request = {}) {
 
 export function runProductionQa(project) {
   if (!project?.site) throw new Error('website project is required');
-  const quality = runQualityChecks(project.site, project.designSpecification); const security = runSecurityChecks(project.site); const visual = runVisualQa(project.site);
+  const quality = runQualityChecks(project.site, project.designSpecification); const security = runSecurityChecks(project.site); const visual = runVisualQa(project.site); const critique = selfCritiqueWebsite(project.site); const certification = certifyWebsite(project.site, project);
   const seo = Boolean(project.seo?.title && project.seo?.description && Array.isArray(project.seo?.keywords));
-  return { quality, security, visual, seo: { passed: seo, total: 1, failures: seo ? [] : ['seo-metadata'] }, passed: quality.failures.length === 0 && security.failures.length === 0 && visual.failures.length === 0 && seo };
+  return { quality, security, visual, critique, certification, seo: { passed: seo, total: 1, failures: seo ? [] : ['seo-metadata'] }, passed: quality.failures.length === 0 && security.failures.length === 0 && visual.failures.length === 0 && critique.passed && certification.certified && seo };
 }
 
 export function selfRepair(project, maxRepairs = 2) {
   if (!project?.site) throw new Error('website project is required'); const limit = Math.max(0, Math.min(5, Number(maxRepairs) || 0)); let current = project; const repairs = [];
-  for (let attempt = 0; attempt < limit; attempt += 1) { const qa = runProductionQa(current); if (qa.passed) break; const failures = [...qa.quality.failures, ...qa.security.failures, ...qa.visual.failures, ...qa.seo.failures]; if (failures.some(f => ['no secrets','no eval','no Function'].includes(f))) break; const next = requestRevision(current, { type: 'qa', instruction: `QA repair: ${failures.join(', ')}`, target: 'automated' }); current = applyTargetedRevision(next, { instruction: next.revisions.at(-1).instruction, value: current.clientBrief.content?.heroTitle || 'Refined digital experience' }); repairs.push({ attempt: attempt + 1, failures, at: now() }); }
+  for (let attempt = 0; attempt < limit; attempt += 1) { const qa = runProductionQa(current); if (qa.passed) break; const failures = [...qa.quality.failures, ...qa.security.failures, ...qa.visual.failures, ...qa.seo.failures, ...(qa.critique?.failures || [])]; if (failures.some(f => ['no secrets','no eval','no Function','dynamic-code-execution'].includes(f))) break; const plan = buildRepairPlan(qa.critique || { failures }); const repair = plan.repairs[0]; if (!repair) break; const patch = createRevisionPatch({ type: 'qa', target: repair.failure, instruction: repair.instruction }); const next = requestRevision(current, { type: patch.type, instruction: patch.instruction, target: patch.target }); current = applyTargetedRevision(next, { instruction: patch.instruction, value: current.clientBrief.content?.heroTitle || 'Refined digital experience' }); repairs.push({ attempt: attempt + 1, failures, plan, patch, impact: summarizeRevisionImpact(current.versions.at(-2)?.site, current.site), at: now() }); }
   return { project: current, repairs, qa: runProductionQa(current), repairLimit: limit };
 }
 
 export function gateForApproval(project) { const qa = runProductionQa(project); return qa.passed ? { ok: true, status: 'READY_FOR_APPROVAL', qa } : { ok: false, status: 'BLOCKED', qa }; }
 export function approveWebsite(project, actor = 'client') { const gate = gateForApproval(project); if (!gate.ok) return { ...project, gate }; const approval = { approvalId: id('approval', project.projectId), actor: clean(actor) || 'client', at: now(), status: 'APPROVED' }; return { ...project, state: 'APPROVED', updatedAt: approval.at, approvals: [...project.approvals, approval], audit: [...project.audit, { event: 'approval.granted', approvalId: approval.approvalId, at: approval.at }] }; }
-export function prepareProduction(project) { const gate = gateForApproval(project); if (!gate.ok) return { ok: false, status: 'BLOCKED', projectId: project?.projectId || null, gate }; if (project.state !== 'APPROVED') return { ok: false, status: 'APPROVAL_REQUIRED', projectId: project.projectId, gate }; const delivery = prepareDelivery(project.site); if (!delivery.ok) return { ok: false, status: 'BLOCKED', projectId: project.projectId, delivery }; return { ok: true, status: 'DEPLOYMENT_PENDING', projectId: project.projectId, version: project.versions.at(-1)?.version || 1, files: Object.keys(project.site.files), seo: project.seo, delivery }; }
+export function prepareProduction(project) { const gate = gateForApproval(project); if (!gate.ok) return { ok: false, status: 'BLOCKED', projectId: project?.projectId || null, gate }; const certification = certifyWebsite(project.site, project); if (!certification.certified) return { ok: false, status: 'CERTIFICATION_REQUIRED', projectId: project.projectId, certification }; if (project.state !== 'APPROVED') return { ok: false, status: 'APPROVAL_REQUIRED', projectId: project.projectId, gate }; const delivery = prepareDelivery(project.site); if (!delivery.ok) return { ok: false, status: 'BLOCKED', projectId: project.projectId, delivery }; return { ok: true, status: 'DEPLOYMENT_PENDING', projectId: project.projectId, version: project.versions.at(-1)?.version || 1, files: Object.keys(project.site.files), seo: project.seo, delivery }; }
 
 export function createDesignSpecProject(brief = {}) {
   const normalized = normalizeClientBrief(brief);
@@ -100,4 +101,4 @@ export async function deployWebsite(project, options = {}) {
 export async function websiteStatus(options = {}) { return { ok: true, deploys: await listRenderDeploys(options), capabilities: deploymentCapabilities() }; }
 export async function rollbackWebsite(options = {}) { return { ok: true, deploy: await rollbackRenderDeploy(options) }; }
 
-export function buildDeliveryManifest(project) { if (!project?.projectId) throw new Error('website project is required'); return { projectId: project.projectId, engineVersion: project.engineVersion, version: project.versions.at(-1)?.version || 1, state: project.state, source: ['index.html','styles.css','app.js'], artifacts: Object.keys(project.site.files), seo: project.seo, approvalCount: project.approvals.length, revisionCount: project.revisions.length, generatedAt: now(), secretsIncluded: false }; }
+export function buildDeliveryManifest(project) { if (!project?.projectId) throw new Error('website project is required'); return { projectId: project.projectId, engineVersion: project.engineVersion, version: project.versions.at(-1)?.version || 1, state: project.state, source: ['index.html','styles.css','app.js'], artifacts: Object.keys(project.site.files), seo: project.seo, approvalCount: project.approvals.length, revisionCount: project.revisions.length, certification: certifyWebsite(project.site, project), commercialManifest: buildCommercialManifest(project.site, project), generatedAt: now(), secretsIncluded: false }; }
