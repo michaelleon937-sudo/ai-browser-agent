@@ -100,7 +100,7 @@ describe('professional website design library', () => {
       'Jewelry Atelier',
     ]);
     expect(new Set(variations.map(v => v.grid)).size).toBeGreaterThan(1);
-    expect(variations.every(v => v.composition && v.designDirection && v.designDirection.color)).toBe(true);
+    expect(variations.every(v => v.composition && v.designDirection && v.colorSystem && v.typography)).toBe(true);
   });
 
   it('returns defensive copies from getDesignDirections', () => {
