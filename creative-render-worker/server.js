@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { timingSafeEqual } from 'node:crypto';
 import { renderLocal3D } from '../creative-engine/local.js';
 
 const port = Number(process.env.RENDER_WORKER_PORT || 8090);
@@ -11,7 +12,9 @@ function json(res, status, body) {
 
 function authorized(req) {
   if (!token) return false;
-  return String(req.headers.authorization || '') === 'Bearer ' + token;
+  const expected = Buffer.from('Bearer ' + token);
+  const received = Buffer.from(String(req.headers.authorization || ''));
+  return received.length === expected.length && timingSafeEqual(received, expected);
 }
 
 async function readBody(req) {
@@ -36,13 +39,15 @@ const server = createServer(async (req, res) => {
     const payload = await readBody(req);
     const result = await renderLocal3D({
       project: payload.project || {},
-      outputDir: payload.outputDir || process.env.RENDER_OUTPUT_DIR || '/data/renders',
+      outputDir: process.env.RENDER_OUTPUT_DIR || '/data/renders',
       filename: payload.filename,
-      binary: payload.blenderBinary || process.env.BLENDER_BIN
+      binary: process.env.BLENDER_BIN
     });
     return json(res, 200, { ok: true, result });
   } catch (error) {
-    return json(res, 500, { ok: false, error: error instanceof Error ? error.message : String(error) });
+    const message = error instanceof Error ? error.message : String(error);
+    const status = message === 'request body too large' ? 413 : error instanceof SyntaxError ? 400 : 500;
+    return json(res, status, { ok: false, error: message });
   }
 });
 
