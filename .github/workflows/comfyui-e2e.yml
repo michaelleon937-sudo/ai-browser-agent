@@ -1,0 +1,94 @@
+name: ComfyUI Free Local E2E
+
+on:
+  push:
+    branches:
+      - feature/professional-website-design-engine
+  workflow_dispatch:
+
+jobs:
+  comfyui-e2e:
+    name: Live self-hosted ComfyUI inference
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Record exact commit
+        run: |
+          echo "GITHUB_SHA=$GITHUB_SHA"
+          git rev-parse HEAD
+      - name: Install ComfyUI system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-venv python3-pip wget curl
+      - name: Install ComfyUI
+        run: |
+          git clone --depth 1 https://github.com/Comfy-Org/ComfyUI.git "$RUNNER_TEMP/ComfyUI"
+          python3 -m venv "$RUNNER_TEMP/comfy-venv"
+          "$RUNNER_TEMP/comfy-venv/bin/pip" install --upgrade pip
+          "$RUNNER_TEMP/comfy-venv/bin/pip" install -r "$RUNNER_TEMP/ComfyUI/requirements.txt"
+      - name: Download free SD1.5 checkpoint
+        working-directory: ${{ runner.temp }}/ComfyUI
+        run: |
+          mkdir -p models/checkpoints
+          wget -q --show-progress -O models/checkpoints/v1-5-pruned-emaonly-fp16.safetensors https://huggingface.co/Comfy-Org/stable-diffusion-v1-5-archive/resolve/main/v1-5-pruned-emaonly-fp16.safetensors
+          echo "e9476a13728cd75d8279f6ec8bad753a66a1957ca375a1464dc63b37db6e3916  models/checkpoints/v1-5-pruned-emaonly-fp16.safetensors" | sha256sum -c -
+      - name: Start self-hosted ComfyUI CPU server
+        working-directory: ${{ runner.temp }}/ComfyUI
+        run: |
+          nohup "$RUNNER_TEMP/comfy-venv/bin/python" main.py --cpu --listen 127.0.0.1 --port 8188 > "$RUNNER_TEMP/comfyui.log" 2>&1 &
+          for i in $(seq 1 90); do
+            if curl -fsS http://127.0.0.1:8188/system_stats > /dev/null; then echo "ComfyUI is live"; exit 0; fi
+            sleep 2
+          done
+          cat "$RUNNER_TEMP/comfyui.log"
+          exit 1
+      - name: Queue real text-to-image inference
+        run: |
+          cat > "$RUNNER_TEMP/prompt.json" <<'JSON'
+          {
+            "3":{"class_type":"KSampler","inputs":{"cfg":5,"denoise":1,"latent_image":["5",0],"model":["4",0],"negative":["7",0],"positive":["6",0],"sampler_name":"euler","scheduler":"normal","seed":424242,"steps":4}},
+            "4":{"class_type":"CheckpointLoaderSimple","inputs":{"ckpt_name":"v1-5-pruned-emaonly-fp16.safetensors"}},
+            "5":{"class_type":"EmptyLatentImage","inputs":{"batch_size":1,"height":256,"width":256}},
+            "6":{"class_type":"CLIPTextEncode","inputs":{"clip":["4",1],"text":"luxury product photography, premium glass perfume bottle on a marble pedestal, soft studio lighting, elegant composition, photorealistic"}},
+            "7":{"class_type":"CLIPTextEncode","inputs":{"clip":["4",1],"text":"blurry, distorted, low quality, watermark, text"}},
+            "8":{"class_type":"VAEDecode","inputs":{"samples":["3",0],"vae":["4",2]}},
+            "9":{"class_type":"SaveImage","inputs":{"filename_prefix":"creative-comfyui-e2e","images":["8",0]}}
+          }
+          JSON
+          python3 -c 'import json; p=json.load(open("'$RUNNER_TEMP'/prompt.json")); json.dump({"prompt":p},open("'$RUNNER_TEMP'/payload.json","w"))'
+          RESPONSE=$(curl -sS -X POST http://127.0.0.1:8188/prompt -H 'Content-Type: application/json' --data-binary @"$RUNNER_TEMP/payload.json" -w '\nHTTP=%{http_code}')
+          printf '%s\n' "$RESPONSE" | tee "$RUNNER_TEMP/queue.raw"
+          sed -n '1p' "$RUNNER_TEMP/queue.raw" > "$RUNNER_TEMP/queue.json"
+          grep -q '"prompt_id"' "$RUNNER_TEMP/queue.json"
+      - name: Poll history and verify rendered output
+        run: |
+          PROMPT_ID=$(python3 -c 'import json; print(json.load(open("'$RUNNER_TEMP'/queue.json"))["prompt_id"])')
+          echo "prompt_id=$PROMPT_ID"
+          for i in $(seq 1 900); do
+            BODY=$(curl -fsS "http://127.0.0.1:8188/history/$PROMPT_ID")
+            if echo "$BODY" | grep -q '"status_str": "error"'; then echo "$BODY"; exit 1; fi
+            if echo "$BODY" | grep -q '"images"'; then echo "$BODY" > "$RUNNER_TEMP/history.json"; break; fi
+            sleep 2
+          done
+          test -s "$RUNNER_TEMP/history.json"
+          FILENAME=$(python3 -c 'import json; h=json.load(open("'$RUNNER_TEMP'/history.json")); o=next(iter(h.values()))["outputs"]; print(next(v for n in o.values() for v in n.get("images", []))["filename"])')
+          echo "rendered filename=$FILENAME"
+          curl -fsS "http://127.0.0.1:8188/view?filename=$(python3 -c 'import urllib.parse; print(urllib.parse.quote("'$FILENAME'"))')&type=output" -o "$RUNNER_TEMP/comfyui-render.png"
+          test -s "$RUNNER_TEMP/comfyui-render.png"
+          file "$RUNNER_TEMP/comfyui-render.png"
+          "$RUNNER_TEMP/comfy-venv/bin/python" -c 'from PIL import Image; image=Image.open("'$RUNNER_TEMP'/comfyui-render.png"); print("actual image:", image.size, image.mode); assert image.width > 0 and image.height > 0'
+      - name: Upload actual ComfyUI render evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: comfyui-live-e2e-evidence
+          path: |
+            ${{ runner.temp }}/comfyui-render.png
+            ${{ runner.temp }}/queue.json
+            ${{ runner.temp }}/history.json
+            ${{ runner.temp }}/comfyui.log
+          if-no-files-found: warn

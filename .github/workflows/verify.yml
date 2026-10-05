@@ -40,7 +40,7 @@ jobs:
       - name: Install system build deps (better-sqlite3 / Playwright)
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential python3
+          sudo apt-get install -y build-essential python3 python3-numpy ffmpeg libegl1 libgl1
 
       - name: Install npm dependencies
         run: npm ci
@@ -48,10 +48,19 @@ jobs:
       - name: Install Playwright Chromium (for integration tests)
         run: npx playwright install --with-deps chromium
 
+      - name: Install Blender for actual 3D render tests
+        run: sudo apt-get install -y blender
+
+      - name: Verify Blender glTF Python dependencies
+        run: |
+          PYTHONPATH=/usr/lib/python3/dist-packages blender --background --python-expr "import numpy; print('Blender numpy', numpy.__version__)"
+
       - name: Run unit tests (npm test)
         run: npm test
 
       - name: Run integration tests (npm run test:integration)
+        env:
+          PYTHONPATH: /usr/lib/python3/dist-packages
         run: npm run test:integration
 
       - name: Run full suite (npm run test:all)
