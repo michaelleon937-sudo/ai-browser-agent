@@ -59,8 +59,8 @@ jobs:
             "9":{"class_type":"SaveImage","inputs":{"filename_prefix":"creative-comfyui-e2e","images":["8",0]}}
           }
           JSON
-          curl -fsS -X POST http://127.0.0.1:8188/prompt -H 'Content-Type: application/json' --data-binary @"$RUNNER_TEMP/prompt.json" | tee "$RUNNER_TEMP/queue.json"
-          test -s "$RUNNER_TEMP/queue.json"
+          RESPONSE=$(curl -sS -X POST http://127.0.0.1:8188/prompt -H 'Content-Type: application/json' --data-binary @"$RUNNER_TEMP/prompt.json" -w '\nHTTP=%{http_code}')
+          printf '%s\n' "$RESPONSE" | tee "$RUNNER_TEMP/queue.json"
           grep -q '"prompt_id"' "$RUNNER_TEMP/queue.json"
       - name: Poll history and verify rendered output
         run: |
