@@ -36,8 +36,8 @@ describe('A6 Website Engine Slice 2 browser E2E', () => {
     }
 
     expect(runtime.ready, runtime.error || 'A6 runtime did not become ready within 30 seconds').toBe(true);
-    expect(runtime.three).toBe(true);
-    expect(runtime.gltf).toBe(true);
+    expect(runtime.three, runtime.error || 'Three.js runtime did not initialize').toBe(true);
+    expect(runtime.gltf, runtime.error || 'GLTFLoader did not initialize').toBe(true);
     expect(runtime.error).toBeNull();
     expect(runtime.width).toBeLessThanOrEqual(runtime.clientWidth + 1);
     const qa = evaluateWebsiteRuntimeQa({ overflow: runtime.width > runtime.clientWidth + 1, missingAlt: runtime.missingAlt, missingLabels: runtime.missingLabels, contrastPass: true, motionPass: true, threeDPass: runtime.threeReady, lcpMs: 2000, cls: 0.05 });
