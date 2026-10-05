@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   FREE_RENDER_VERSION, FREE_RENDER_MODES, localCreativeCapabilities,
-  resolveLocalRenderConfig, renderComfyUI
+  resolveLocalRenderConfig, renderComfyUI, buildProceduralBlenderScript
 } from '../../creative-engine/local.js';
 import { renderCapabilityMatrix } from '../../creative-engine/render.js';
 
