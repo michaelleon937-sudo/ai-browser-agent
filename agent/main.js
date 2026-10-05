@@ -14,56 +14,6 @@ import { installCloudMailinOutboundEventsWebhook } from '../integrations/cloudma
 import { authenticateControlRequest } from '../control/auth.js';
 import { invokeControlTool } from '../control/invoke.js';
 
-async function runProductionOrchestrationSelfTest() {
-  if (process.env.PRODUCTION_ORCHESTRATION_VERIFY !== '1') return;
-
-  const token = process.env.CONTROL_TOKEN || '';
-  const idempotencyKey = `prod-orch-selftest-${Date.now()}`;
-  const requestId = `prod-orch-selftest-${Date.now()}`;
-
-  try {
-    const auth = authenticateControlRequest({
-      headers: {
-        authorization: `Bearer ${token}`,
-        'x-operator-id': 'production-self-test',
-      },
-    });
-
-    const result = await invokeControlTool({
-      toolName: 'supervisor.run_journey',
-      args: {
-        subject: 'Production orchestration verification',
-        body: 'Please classify this safe production test and prepare the workflow without sending anything.',
-        goal: 'logo design',
-        approved: false,
-        maxRepairAttempts: 3,
-      },
-      operatorId: auth.operatorId,
-      idempotencyKey,
-      requestId,
-      source: 'production-self-test',
-    });
-
-    console.log('[production-self-test]', JSON.stringify({
-      authenticated: auth.authenticated === true,
-      tool: 'supervisor.run_journey',
-      ok: result?.ok === true,
-      status: result?.status,
-      sent: result?.body?.result?.sent ?? result?.body?.sent ?? null,
-      externalSideEffect: result?.body?.result?.externalSideEffect ?? result?.body?.externalSideEffect ?? null,
-      requiresHumanApproval: result?.body?.result?.requiresHumanApproval ?? result?.body?.requiresHumanApproval ?? null,
-      requestId,
-    }));
-  } catch (error) {
-    console.error('[production-self-test] FAILED', JSON.stringify({
-      authenticated: false,
-      tool: 'supervisor.run_journey',
-      error: error?.message || String(error),
-      requestId,
-    }));
-  }
-}
-
 async function main() {
   ensureDirs();
   migrate();
@@ -72,8 +22,6 @@ async function main() {
   installInboundEmailWebhook(server);
   installCloudMailinOutboundEventsWebhook(server);
   startScheduler();
-
-  await runProductionOrchestrationSelfTest();
 
   const heartbeat = setInterval(() => {
     notify({
