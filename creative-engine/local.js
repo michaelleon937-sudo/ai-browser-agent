@@ -135,7 +135,7 @@ export function buildProceduralBlenderScript(project = {}, outputDir = "/data", 
     "bpy.ops.object.camera_add(location=(5.8,-5.8,3.8))","camera = bpy.context.object","point_at(camera,target)","camera.data.lens = 58","bpy.context.scene.camera = camera",
     "scene = bpy.context.scene","try: scene.render.engine = 'BLENDER_EEVEE_NEXT'","except: scene.render.engine = 'BLENDER_EEVEE'","scene.render.resolution_x = 1024","scene.render.resolution_y = 1024","scene.render.resolution_percentage = 100","scene.render.image_settings.file_format = 'PNG'","scene.render.filepath = os.path.join(OUTPUT_DIR,NAME+'.png')","scene.render.film_transparent = False",
     "world = scene.world or bpy.data.worlds.new('World')","scene.world = world","world.use_nodes = True","world.node_tree.nodes['Background'].inputs['Color'].default_value = (0.015,0.015,0.02,1.0)","world.node_tree.nodes['Background'].inputs['Strength'].default_value = 0.18",
-    "scene['creative_description'] = DESCRIPTION","bpy.ops.wm.save_as_mainfile(filepath=os.path.join(OUTPUT_DIR,NAME+'.blend'))","bpy.ops.render.render(write_still=True)","bpy.ops.export_scene.gltf(filepath=os.path.join(OUTPUT_DIR,NAME+'.glb'),export_format='GLB')"
+    "scene['creative_description'] = DESCRIPTION","bpy.ops.wm.save_as_mainfile(filepath=os.path.join(OUTPUT_DIR,NAME+'.blend'))","bpy.ops.render.render(write_still=True)","try: bpy.ops.preferences.addon_enable(module='io_scene_gltf2')","except Exception: pass","bpy.ops.export_scene.gltf(filepath=os.path.join(OUTPUT_DIR,NAME+'.glb'),export_format='GLB',use_selection=False)"
   ].join("\n");
 }
 export async function renderLocal3D({ project = {}, outputDir = resolveLocalRenderConfig().outputDir, filename, binary = process.env.BLENDER_BIN } = {}) {
@@ -145,7 +145,10 @@ export async function renderLocal3D({ project = {}, outputDir = resolveLocalRend
   await writeFile(scriptPath,buildProceduralBlenderScript(project,dir,base),"utf8");
   const result=await exec(binary,["--background","--python",scriptPath]);
   const files=[path.join(dir,base+".png"),path.join(dir,base+".glb"),path.join(dir,base+".blend")];
-  return {provider:"free-local-blender",mode:"blender",format:"png+glb",path:files[0],files,scriptPath,stdout:result.out.slice(-1000)};
+  const missing=[];
+  for(const file of files){try{const info=await (await import("node:fs/promises")).stat(file);if(!info.isFile()||info.size<=0) missing.push(file)}catch{missing.push(file)}}
+  if(missing.length) throw Object.assign(new Error("Blender render completed without required outputs: "+missing.join(", ")),{out:result.out,err:result.err,missing});
+  return {provider:"free-local-blender",mode:"blender",format:"png+glb",path:files[0],files,scriptPath,stdout:result.out.slice(-1000),stderr:result.err.slice(-1000)};
 }
 
 export async function renderFreeFirst({project={},options={}}={}) {
