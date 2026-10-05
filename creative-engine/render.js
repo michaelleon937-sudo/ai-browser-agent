@@ -10,24 +10,33 @@ export async function renderCreativeProject(project = {}, options = {}) {
 
   if (strategy === 'free-first' || strategy === 'local' || strategy === 'self-hosted') {
     if (strategy === 'self-hosted' && options.comfyuiPrompt) {
-      return renderComfyUI({ prompt: options.comfyuiPrompt, workflow: options.comfyuiWorkflow, outputDir: options.outputDir });
+      return renderComfyUI({
+        prompt: options.comfyuiPrompt,
+        workflow: options.comfyuiWorkflow,
+        outputDir: options.outputDir,
+        baseUrl: options.comfyuiBaseUrl
+      });
     }
     try {
       return await renderFreeFirst({ project, options });
     } catch (error) {
       if (options.allowPaidFallback === true) return renderPaidProject(project, options);
-      error.fallback = { available: 'self-hosted-comfyui', paid: ['runway', 'meshy', 'shotstack'], message: 'Free/local renderer failed; paid fallback was not enabled.' };
+      error.fallback = {
+        available: 'self-hosted-comfyui',
+        paid: ['runway', 'meshy', 'shotstack'],
+        message: 'Free/local renderer failed; paid fallback was not enabled.'
+      };
       throw error;
     }
   }
 
-  return renderPaidProject(project, options);
+  if (strategy === 'paid') return renderPaidProject(project, options);
+  throw new Error('unsupported creative render strategy: ' + strategy);
 }
 
 async function renderPaidProject(project, options = {}) {
   const type = String(project.type || '').toLowerCase();
   const spec = project.spec || {};
-
   if (type === 'video') {
     const p = options.videoProvider || new RunwayProvider(options.runway);
     const generation = await p.generateVideo({
@@ -43,7 +52,6 @@ async function renderPaidProject(project, options = {}) {
     }
     return { generation };
   }
-
   if (type === 'graphic' || type === 'image') {
     return {
       generation: await (options.imageProvider || new RunwayProvider(options.runway)).generateImage({
@@ -54,7 +62,6 @@ async function renderPaidProject(project, options = {}) {
       })
     };
   }
-
   if (type === '3d' || type === 'three-d') {
     const generation = await (options.threeDProvider || new MeshyProvider(options.meshy)).generateTextTo3D({
       prompt: spec.brief?.description || 'professional 3D asset',
@@ -71,13 +78,12 @@ async function renderPaidProject(project, options = {}) {
           sceneFile: options.blenderSceneFile,
           outputDir: options.outputDir || '/data',
           frame: options.frame || 1,
-          binary: options.blenderBin
+          binary: options.blenderBinary
         })
       };
     }
     return { generation };
   }
-
   throw new Error('unsupported creative render type: ' + type);
 }
 
@@ -86,10 +92,10 @@ export function renderCapabilityMatrix(env = process.env) {
     ...localCreativeCapabilities(env),
     paidFallback: {
       strategy: 'explicit-opt-in',
-      image: !!env.RUNWAY_API_KEY,
-      video: !!env.RUNWAY_API_KEY,
-      threeD: !!env.MESHY_API_KEY,
-      compositor: !!env.SHOTSTACK_API_KEY
+      image: Boolean(env.RUNWAY_API_KEY),
+      video: Boolean(env.RUNWAY_API_KEY),
+      threeD: Boolean(env.MESHY_API_KEY),
+      compositor: Boolean(env.SHOTSTACK_API_KEY)
     }
   };
 }
