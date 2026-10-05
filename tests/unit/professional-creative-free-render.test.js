@@ -3,7 +3,7 @@ import {
   FREE_RENDER_VERSION, FREE_RENDER_MODES, localCreativeCapabilities,
   resolveLocalRenderConfig, renderComfyUI, buildProceduralBlenderScript
 } from '../../creative-engine/local.js';
-import { renderCapabilityMatrix } from '../../creative-engine/render.js';
+import { renderCapabilityMatrix, renderSelfHosted3DWorker } from '../../creative-engine/render.js';
 
 describe('professional creative free/local renderer', () => {
   it('supports free local image and video generation without paid credentials', () => {
@@ -79,5 +79,15 @@ describe('professional creative free/local renderer', () => {
       fetchImpl,
       timeoutMs: 100
     })).rejects.toThrow('prompt_id');
+  });
+  it('routes 3D rendering through the authenticated self-hosted worker', async () => {
+    const fetchImpl = async (url, init) => {
+      expect(url).toBe('http://blender-worker:8090/render/3d');
+      expect(init.headers.authorization).toBe('Bearer test-token');
+      return new Response(JSON.stringify({ ok: true, path: '/data/renders/hero.png', glb: '/data/renders/hero.glb' }), { status: 200 });
+    };
+    const result = await renderSelfHosted3DWorker({ project: { type: '3d' }, workerUrl: 'http://blender-worker:8090/', workerToken: 'test-token', fetchImpl });
+    expect(result.provider).toBe('self-hosted-blender-worker');
+    expect(result.path).toContain('hero.png');
   });
 });
