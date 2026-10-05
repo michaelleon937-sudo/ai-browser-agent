@@ -92,7 +92,7 @@ export async function renderSelfHosted3DWorker({ project = {}, workerUrl, worker
   if (!workerUrl) throw new Error('renderWorkerUrl is required for self-hosted 3D rendering');
   if (!workerToken) throw new Error('renderWorkerToken is required for self-hosted 3D rendering');
   if (typeof fetchImpl !== 'function') throw new Error('fetch implementation is required');
-  const base = String(workerUrl).replace(/\\/$/, '');
+  const base = String(workerUrl).replace(/\/$/, '');
   const response = await fetchImpl(base + '/render/3d', { method: 'POST', headers: { authorization: 'Bearer ' + workerToken, 'content-type': 'application/json' }, body: JSON.stringify({ project, outputDir, filename }) });
   const body = await response.json().catch(() => ({}));
   if (!response.ok || body.ok === false) throw new Error(body.error || ('self-hosted 3D worker failed: ' + response.status));
