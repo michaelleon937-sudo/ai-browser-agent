@@ -51,15 +51,16 @@ jobs:
       - name: Install Blender for actual 3D render tests
         run: sudo apt-get install -y blender
 
-      - name: Install numpy into Blender embedded Python (for glTF export)
+      - name: Verify Blender glTF Python dependencies
         run: |
-          blender --background --python-expr "import ensurepip; ensurepip.bootstrap()"
-          blender --background --python-expr "import subprocess,sys; subprocess.check_call([sys.executable,'-m','pip','install','numpy==1.26.4'])"
+          PYTHONPATH=/usr/lib/python3/dist-packages blender --background --python-expr "import numpy; print('Blender numpy', numpy.__version__)"
 
       - name: Run unit tests (npm test)
         run: npm test
 
       - name: Run integration tests (npm run test:integration)
+        env:
+          PYTHONPATH: /usr/lib/python3/dist-packages
         run: npm run test:integration
 
       - name: Run full suite (npm run test:all)
