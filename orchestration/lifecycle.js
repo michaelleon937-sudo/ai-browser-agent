@@ -1,0 +1,84 @@
+// orchestration/lifecycle.js
+// Client / project lifecycle state machine. Reuses existing domain language.
+
+export const LIFECYCLE_STATES = Object.freeze({
+  LEAD: 'LEAD',
+  CLIENT: 'CLIENT',
+  PROJECT: 'PROJECT',
+  BRIEF: 'BRIEF',
+  TASKS: 'TASKS',
+  ASSETS: 'ASSETS',
+  VERSIONS: 'VERSIONS',
+  REVIEW: 'REVIEW',
+  APPROVAL: 'APPROVAL',
+  DELIVERY: 'DELIVERY',
+  REVISION: 'REVISION',
+  COMPLETION: 'COMPLETION',
+});
+
+const TRANSITIONS = Object.freeze({
+  [LIFECYCLE_STATES.LEAD]: [LIFECYCLE_STATES.CLIENT, LIFECYCLE_STATES.BRIEF],
+  [LIFECYCLE_STATES.CLIENT]: [LIFECYCLE_STATES.PROJECT, LIFECYCLE_STATES.BRIEF],
+  [LIFECYCLE_STATES.PROJECT]: [LIFECYCLE_STATES.BRIEF, LIFECYCLE_STATES.TASKS],
+  [LIFECYCLE_STATES.BRIEF]: [LIFECYCLE_STATES.TASKS, LIFECYCLE_STATES.ASSETS],
+  [LIFECYCLE_STATES.TASKS]: [LIFECYCLE_STATES.ASSETS, LIFECYCLE_STATES.VERSIONS],
+  [LIFECYCLE_STATES.ASSETS]: [LIFECYCLE_STATES.VERSIONS, LIFECYCLE_STATES.REVIEW],
+  [LIFECYCLE_STATES.VERSIONS]: [LIFECYCLE_STATES.REVIEW, LIFECYCLE_STATES.REVISION],
+  [LIFECYCLE_STATES.REVIEW]: [LIFECYCLE_STATES.APPROVAL, LIFECYCLE_STATES.REVISION],
+  [LIFECYCLE_STATES.APPROVAL]: [LIFECYCLE_STATES.DELIVERY, LIFECYCLE_STATES.REVISION],
+  [LIFECYCLE_STATES.DELIVERY]: [LIFECYCLE_STATES.REVISION, LIFECYCLE_STATES.COMPLETION],
+  [LIFECYCLE_STATES.REVISION]: [LIFECYCLE_STATES.ASSETS, LIFECYCLE_STATES.VERSIONS, LIFECYCLE_STATES.REVIEW],
+  [LIFECYCLE_STATES.COMPLETION]: [],
+});
+
+export function canTransition(from, to) {
+  const allowed = TRANSITIONS[from] || [];
+  return allowed.includes(to);
+}
+
+export function assertTransition(from, to) {
+  if (!canTransition(from, to)) {
+    const err = new Error(`Invalid lifecycle transition: ${from} -> ${to}`);
+    err.code = 'INVALID_LIFECYCLE_TRANSITION';
+    err.status = 400;
+    throw err;
+  }
+  return true;
+}
+
+export function advanceLifecycle(current, target) {
+  assertTransition(current, target);
+  return {
+    from: current,
+    to: target,
+    at: new Date().toISOString(),
+  };
+}
+
+export function defaultPathForService(service = '') {
+  const s = String(service).toLowerCase();
+  if (/website|landing/.test(s)) {
+    return [
+      LIFECYCLE_STATES.LEAD,
+      LIFECYCLE_STATES.CLIENT,
+      LIFECYCLE_STATES.PROJECT,
+      LIFECYCLE_STATES.BRIEF,
+      LIFECYCLE_STATES.ASSETS,
+      LIFECYCLE_STATES.VERSIONS,
+      LIFECYCLE_STATES.REVIEW,
+      LIFECYCLE_STATES.APPROVAL,
+      LIFECYCLE_STATES.DELIVERY,
+      LIFECYCLE_STATES.COMPLETION,
+    ];
+  }
+  return [
+    LIFECYCLE_STATES.LEAD,
+    LIFECYCLE_STATES.BRIEF,
+    LIFECYCLE_STATES.TASKS,
+    LIFECYCLE_STATES.ASSETS,
+    LIFECYCLE_STATES.REVIEW,
+    LIFECYCLE_STATES.APPROVAL,
+    LIFECYCLE_STATES.DELIVERY,
+    LIFECYCLE_STATES.COMPLETION,
+  ];
+}
