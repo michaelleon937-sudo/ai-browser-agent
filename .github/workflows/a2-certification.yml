@@ -27,9 +27,10 @@ jobs:
       - name: Install system dependencies required by repository integration tests
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg blender
+          sudo apt-get install -y ffmpeg blender libegl1 libgl1 libglx-mesa0 libgbm1
           command -v ffmpeg
           command -v blender
+          ldconfig -p | grep -E 'libEGL.so.1|libGL.so.1|libgbm.so.1'
       - name: Install dependencies
         run: npm ci
       - name: CloudMailin inbound unit tests
