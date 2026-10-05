@@ -29,7 +29,7 @@ describe('professional creative actual render E2E', () => {
   });
   it('requires a rendered output for delivery/export verification', async () => {
     const project=createCreativeProject({type:'graphic',name:'Delivery',description:'test',industry:'corporate'});
-    const blocked=await buildDeliveryPackage(project,{licensesAttached:true,formats:['png']}); expect(blocked.status).toBe('BLOCKED');
+    const blocked=await buildDeliveryPackage(project,{licensesAttached:true,formats:['png']}); expect(blocked.exportVerification.passed).toBe(false);
     const dir=await mkdtemp(path.join(tmpdir(),'creative-delivery-')); const rendered=await renderCreativeProject(project,{outputDir:dir});
     const ready=await buildDeliveryPackage(project,{licensesAttached:true,formats:['png'],renderResult:rendered});
     expect(ready.status).toBe('READY_FOR_EXPORT'); expect(ready.exportVerification.passed).toBe(true);
