@@ -2,9 +2,10 @@
 // Phase A2 — authenticated CloudMailin inbound email webhook.
 import { ingestA2InboundMessage } from './a2-safe-ingestion.js';
 import { normalizeCloudMailinInbound, verifyCloudMailinAuthorization } from './inbound-cloudmailin.js';
+import { queueEmailReplyDraft } from './email-reply-workflow.js';
 
 // The deployed CloudMailin configuration uses this existing callback path.
-// Keep the URL stable while removing all Resend/Svix provider logic.
+// Keep the URL stable while removing all Resend/Swiv provider logic.
 const ROUTE = '/api/inbound/email/resend.json';
 const MAX_BODY_BYTES = 1024 * 1024;
 const installedServers = new WeakSet();
@@ -55,13 +56,18 @@ export function installInboundEmailWebhook(server, { route = ROUTE } = {}) {
 
       const rawBody = await readBody(req, MAX_BODY_BYTES);
       let payload;
-      try { payload = JSON.parse(rawBody); }
-      catch { return json(res, 400, { ok: false, error: 'invalid JSON payload' }); }
+      try {
+        payload = JSON.parse(rawBody);
+      } catch {
+        return json(res, 400, { ok: false, error: 'invalid JSON payload' });
+      }
 
       const normalized = normalizeCloudMailinInbound(payload);
       const result = ingestA2InboundMessage({ normalized });
 
-      return json(res, 200, {
+      // Acknowledge CloudMailin immediately. Drafting is deliberately asynchronous
+      // so a slow AI provider cannot cause webhook retries/duplicate ingestion.
+      json(res, 200, {
         ok: true,
         duplicate: Boolean(result.duplicate),
         messageId: result.message?.id || null,
@@ -71,11 +77,19 @@ export function installInboundEmailWebhook(server, { route = ROUTE } = {}) {
         unresolved: !result.contact && !result.company && !result.prospect,
         externalSideEffect: false,
       });
+
+      if (!result.duplicate && result.message?.id) {
+        setImmediate(() => {
+          queueEmailReplyDraft(result).catch((err) => {
+            console.error('[email-reply] draft queue failed:', err?.message || err);
+          });
+        });
+      }
     } catch (err) {
       const status = Number(err?.status) || 500;
       return json(res, status, {
         ok: false,
-        error: status >= 500 ? 'inbound processing failed' : err.message,
+        error: status >= 500 ? 'inbound processing failed' : (err?.message || 'inbound processing failed'),
       });
     }
   });
