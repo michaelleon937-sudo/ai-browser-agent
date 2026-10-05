@@ -9,13 +9,14 @@ export async function renderCreativeProject(project = {}, options = {}) {
   const strategy = String(options.strategy || process.env.CREATIVE_RENDER_STRATEGY || 'free-first').toLowerCase();
 
   if (strategy === 'free-first' || strategy === 'local' || strategy === 'self-hosted') {
-    if (strategy === 'self-hosted' && options.comfyuiPrompt) {
-      return renderComfyUI({
-        prompt: options.comfyuiPrompt,
-        workflow: options.comfyuiWorkflow,
-        outputDir: options.outputDir,
-        baseUrl: options.comfyuiBaseUrl
-      });
+    if (strategy === 'self-hosted') {
+      const type = String(project.type || '').toLowerCase();
+      if ((type === 'graphic' || type === 'image' || type === 'video') && (options.comfyuiWorkflow || options.comfyuiPrompt)) {
+        return renderComfyUI({ prompt: options.comfyuiPrompt, workflow: options.comfyuiWorkflow, outputDir: options.outputDir, baseUrl: options.comfyuiBaseUrl });
+      }
+      if ((type === '3d' || type === 'three-d') && options.renderWorkerUrl) {
+        return renderSelfHosted3DWorker({ project, workerUrl: options.renderWorkerUrl, workerToken: options.renderWorkerToken, outputDir: options.outputDir, filename: options.filename });
+      }
     }
     try {
       return await renderFreeFirst({ project, options });
@@ -85,6 +86,17 @@ async function renderPaidProject(project, options = {}) {
     return { generation };
   }
   throw new Error('unsupported creative render type: ' + type);
+}
+
+export async function renderSelfHosted3DWorker({ project = {}, workerUrl, workerToken, outputDir, filename, fetchImpl = globalThis.fetch } = {}) {
+  if (!workerUrl) throw new Error('renderWorkerUrl is required for self-hosted 3D rendering');
+  if (!workerToken) throw new Error('renderWorkerToken is required for self-hosted 3D rendering');
+  if (typeof fetchImpl !== 'function') throw new Error('fetch implementation is required');
+  const base = String(workerUrl).replace(/\\/$/, '');
+  const response = await fetchImpl(base + '/render/3d', { method: 'POST', headers: { authorization: 'Bearer ' + workerToken, 'content-type': 'application/json' }, body: JSON.stringify({ project, outputDir, filename }) });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.ok === false) throw new Error(body.error || ('self-hosted 3D worker failed: ' + response.status));
+  return { provider: 'self-hosted-blender-worker', mode: 'blender', ...body };
 }
 
 export function renderCapabilityMatrix(env = process.env) {
