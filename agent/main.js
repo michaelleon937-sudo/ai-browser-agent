@@ -10,7 +10,7 @@ import { startScheduler, stopScheduler } from '../scheduler/index.js';
 import { notify } from '../notifications/index.js';
 import browser from '../browser/index.js';
 import { installInboundEmailWebhook } from '../integrations/inbound-webhook.js';
-import { installCloudMailinOutboundEventsWebhook } from '../integrations/cloudmailin-outbound-events-webhook.js';
+import { installCloudMailinOutboundEventsWebhook } from '../integrations/cloudmailin-events-webhook.js';
 import { authenticateControlRequest } from '../control/auth.js';
 import { invokeControlTool } from '../control/invoke.js';
 
