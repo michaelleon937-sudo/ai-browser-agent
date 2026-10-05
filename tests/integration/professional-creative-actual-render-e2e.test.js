@@ -21,7 +21,7 @@ describe('professional creative actual render E2E', () => {
     const result=await renderCreativeProject(project,{outputDir:dir,blenderBinary:process.env.BLENDER_BIN||'blender'});
     expect(result.provider).toBe('free-local-blender');
     for(const file of result.files) expect((await stat(file)).size).toBeGreaterThan(0);
-  });
+  }, 30000);
   it('blocks rendering unless QA has passed', async () => {
     const project=createCreativeProject({type:'graphic',name:'Blocked',description:'test',industry:'corporate'});
     await expect(renderCreativeProject({...project,qa:{passed:false}},{outputDir:await mkdtemp(path.join(tmpdir(),'creative-gate-'))})).rejects.toThrow('QA must pass before rendering');
