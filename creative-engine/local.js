@@ -124,6 +124,6 @@ export async function renderFreeFirst({project={},options={}}={}) {
   const type=String(project.type||'graphic').toLowerCase();
   if(type==='video') return renderLocalVideo({project,outputDir:options.outputDir,filename:options.filename,fps:options.fps,scenes:options.scenes||6});
   if(type==='graphic'||type==='image') return renderLocalImage({project,outputDir:options.outputDir,filename:options.filename});
-  if(type==='3d'||type==='three-d') throw new Error('Free 3D requires a Blender scene or self-hosted Blender worker');
+  if(type==='3d'||type==='three-d') return renderLocal3D({project,outputDir:options.outputDir,filename:options.filename,binary:options.blenderBinary||process.env.BLENDER_BIN});
   throw new Error('Unsupported free render type: '+type);
 }
