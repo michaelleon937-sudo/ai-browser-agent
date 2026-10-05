@@ -80,7 +80,7 @@ jobs:
           curl -fsS "http://127.0.0.1:8188/view?filename=$(python3 -c 'import urllib.parse; print(urllib.parse.quote("'$FILENAME'"))')&type=output" -o "$RUNNER_TEMP/comfyui-render.png"
           test -s "$RUNNER_TEMP/comfyui-render.png"
           file "$RUNNER_TEMP/comfyui-render.png"
-          python3 -c 'from PIL import Image; image=Image.open("'$RUNNER_TEMP'/comfyui-render.png"); print("actual image:", image.size, image.mode); assert image.width > 0 and image.height > 0'
+          "$RUNNER_TEMP/comfy-venv/bin/python" -c 'from PIL import Image; image=Image.open("'$RUNNER_TEMP'/comfyui-render.png"); print("actual image:", image.size, image.mode); assert image.width > 0 and image.height > 0'
       - name: Upload actual ComfyUI render evidence
         if: always()
         uses: actions/upload-artifact@v4
