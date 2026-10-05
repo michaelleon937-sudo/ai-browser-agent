@@ -9,6 +9,7 @@ import { notify } from '../notifications/index.js';
 import browser from '../browser/index.js';
 import { installInboundEmailWebhook } from '../integrations/inbound-webhook.js';
 import { installCloudMailinOutboundEventsWebhook } from '../integrations/cloudmailin-events-webhook.js';
+import { processApprovedEmailReplies } from '../integrations/email-reply-workflow.js';
 import { authenticateControlRequest } from '../control/auth.js';
 import { invokeControlTool } from '../control/invoke.js';
 
@@ -20,6 +21,12 @@ async function main() {
   installInboundEmailWebhook(server);
   installCloudMailinOutboundEventsWebhook(server);
   startScheduler();
+
+  const emailApprovalPoller = setInterval(() => {
+    processApprovedEmailReplies().catch((err) => {
+      console.error('[email-reply] approval poll failed:', err?.message || err);
+    });
+  }, 15_000);
 
   const heartbeat = setInterval(() => {
     notify({
@@ -34,6 +41,7 @@ async function main() {
   const shutdown = async (signal) => {
     console.log(`\n[main] received ${signal}, shutting down…`);
     clearInterval(heartbeat);
+    clearInterval(emailApprovalPoller);
     stopScheduler();
     try { await browser.close(); } catch {}
     try { closeDb(); } catch {}
