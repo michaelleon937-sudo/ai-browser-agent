@@ -15,6 +15,7 @@ jobs:
     env:
       DATA_DIR: ${{ github.workspace }}/.test-data
       NODE_ENV: test
+      PYTHONPATH: /usr/lib/python3/dist-packages
     steps:
       - name: Checkout exact commit
         uses: actions/checkout@v4
@@ -24,6 +25,12 @@ jobs:
         with:
           node-version: 20
           cache: npm
+
+      - name: Install rendering runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential python3 python3-numpy ffmpeg libegl1 libgl1 blender
+          PYTHONPATH=/usr/lib/python3/dist-packages blender --background --python-expr "import bpy; import numpy; print('BLENDER_RUNTIME_OK', bpy.app.version_string, numpy.__version__)"
 
       - name: Install dependencies
         run: npm ci
