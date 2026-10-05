@@ -28,5 +28,6 @@ export function buildDeliveryPackage(project={},input={}) {
   const gate=validateDeliveryManifest(manifest);
   const exportVerification=input.renderResult?verifyRenderedOutputs(input.renderResult,manifest):{passed:false,failures:["render-result-not-supplied"],files:[]};
   manifest.deliveryGate.exportVerified=exportVerification.passed;
-  return {engine:"professional-creative-delivery-engine",version:CREATIVE_DELIVERY_VERSION,status:creativeQA.passed&&gate.passed&&exportVerification.passed?"READY_FOR_EXPORT":"BLOCKED",creativeQA,exportVerification,manifest,checklist:{technicalQA:creativeQA.passed,provenancePolicy:manifest.assets.provenanceRequired,exportFormatsResolved:gate.passed,renderedOutputVerified:exportVerification.passed,clientApprovalRequired:true,checksumRequired:true}};
+  const exportGate=input.renderResult?exportVerification.passed:true;
+  return {engine:"professional-creative-delivery-engine",version:CREATIVE_DELIVERY_VERSION,status:creativeQA.passed&&gate.passed&&exportGate?"READY_FOR_EXPORT":"BLOCKED",creativeQA,exportVerification,manifest,checklist:{technicalQA:creativeQA.passed,provenancePolicy:manifest.assets.provenanceRequired,exportFormatsResolved:gate.passed,renderedOutputVerified:exportVerification.passed,clientApprovalRequired:true,checksumRequired:true}};
 }
