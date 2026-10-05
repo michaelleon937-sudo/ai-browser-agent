@@ -39,12 +39,12 @@ export function describeCapability(name) {
   const map = {
     [CAPABILITIES.RESEARCH]: { module: 'integrations/web-search + prospecting', sideEffects: false },
     [CAPABILITIES.BROWSER]: { module: 'browser + control/tools/browser', sideEffects: false },
-    [CAPABILITIES.CREATIVE]: { module: 'creative-engine', sideEffects: false until approved render },
-    [CAPABILITIES.WEBSITE]: { module: 'website-engine', sideEffects: false until approved deploy },
+    [CAPABILITIES.CREATIVE]: { module: 'creative-engine', sideEffects: 'none until approved render' },
+    [CAPABILITIES.WEBSITE]: { module: 'website-engine', sideEffects: 'none until approved deploy' },
     [CAPABILITIES.RELATIONSHIP]: { module: 'relationship-engine + follow-up-engine', sideEffects: false },
     [CAPABILITIES.SALES]: { module: 'opportunity-intelligence + proposal-generation', sideEffects: false },
     [CAPABILITIES.QA]: { module: 'visual-qa + production QA', sideEffects: false },
-    [CAPABILITIES.DELIVERY]: { module: 'client-delivery (approval-gated)', sideEffects: false until send_approved },
+    [CAPABILITIES.DELIVERY]: { module: 'client-delivery (approval-gated)', sideEffects: 'none until send_approved' },
     [CAPABILITIES.CRM]: { module: 'message-classification + CRM stores', sideEffects: false },
     [CAPABILITIES.REPAIR]: { module: 'control/repair + website selfRepair', sideEffects: false, maxAttempts: 3 },
   };

@@ -24,6 +24,8 @@ import { biTools } from './tools/bi.js';
 import { commercialTools } from './tools/commercial.js';
 import { clientDeliveryTools } from './tools/client-delivery.js';
 import { websiteEngineTools } from './tools/website-engine.js';
+import { creativeEngineTools } from './tools/creative-engine.js';
+import { supervisorTools } from './tools/supervisor.js';
 
 const TOOLS = {
   ...agentTools,
@@ -38,6 +40,8 @@ const TOOLS = {
   ...commercialTools,
   ...clientDeliveryTools,
   ...websiteEngineTools,
+  ...creativeEngineTools,
+  ...supervisorTools,
 };
 
 async function runTool(toolName, args, ctx) {
