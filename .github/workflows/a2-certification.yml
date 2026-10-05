@@ -6,55 +6,31 @@ on:
   push:
     branches:
       - feature/phase-a2-inbound-provider-finalization
+      - feature/email-cloudmailin-production-fix
       - master
 
 jobs:
   a2-regression:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       DATA_DIR: ${{ github.workspace }}/.test-data
       NODE_ENV: test
-      PYTHONPATH: /usr/lib/python3/dist-packages
     steps:
       - name: Checkout exact commit
         uses: actions/checkout@v4
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
-
-      - name: Install rendering runtime dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential python3 python3-numpy ffmpeg libegl1 libgl1 blender
-          PYTHONPATH=/usr/lib/python3/dist-packages blender --background --python-expr "import bpy; import numpy; print('BLENDER_RUNTIME_OK', bpy.app.version_string, numpy.__version__)"
-
       - name: Install dependencies
         run: npm ci
-
-      - name: Unit tests
-        run: |
-          set +e
-          npm test
-          ec=$?
-          echo "A2_UNIT_EXIT_CODE=$ec"
-          exit $ec
-
-      - name: Integration tests
-        run: |
-          set +e
-          npm run test:integration
-          ec=$?
-          echo "A2_INTEGRATION_EXIT_CODE=$ec"
-          exit $ec
-
+      - name: CloudMailin inbound unit tests
+        run: npx vitest run tests/unit/phase-a2-inbound-webhook.test.js --reporter=verbose
+      - name: Full unit regression
+        run: npm test
+      - name: Integration regression
+        run: npm run test:integration
       - name: Full regression
-        run: |
-          set +e
-          npm run test:all
-          ec=$?
-          echo "A2_FULL_EXIT_CODE=$ec"
-          exit $ec
+        run: npm run test:all
