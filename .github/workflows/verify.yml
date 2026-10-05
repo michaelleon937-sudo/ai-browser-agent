@@ -48,6 +48,9 @@ jobs:
       - name: Install Playwright Chromium (for integration tests)
         run: npx playwright install --with-deps chromium
 
+      - name: Install Blender for actual 3D render tests
+        run: sudo apt-get install -y blender
+
       - name: Run unit tests (npm test)
         run: npm test
 

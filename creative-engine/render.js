@@ -2,8 +2,8 @@ import { RunwayProvider, MeshyProvider, ShotstackProvider, runBlenderRender } fr
 import { renderFreeFirst, localCreativeCapabilities, renderComfyUI } from './local.js';
 
 export async function renderCreativeProject(project = {}, options = {}) {
-  if (project?.qa && project.qa.passed === false) {
-    throw new Error('not render-ready: creative project QA has not passed');
+  if (project?.qa?.passed !== true) {
+    throw new Error('not render-ready: creative project QA must pass before rendering');
   }
 
   const strategy = String(options.strategy || process.env.CREATIVE_RENDER_STRATEGY || 'free-first').toLowerCase();

@@ -120,6 +120,34 @@ export async function renderComfyUI({prompt,workflow,baseUrl=resolveLocalRenderC
   throw new Error('ComfyUI render timed out after '+timeoutMs+'ms');
 }
 
+export function buildProceduralBlenderScript(project = {}, outputDir = "/data", filename = "creative-3d") {
+  const safeFile = safe(filename).replace(/\.png$/i, "").replace(/\.glb$/i, "");
+  const description = clean(project?.spec?.brief?.description || project?.brief?.description || project?.description || "professional 3D hero object");
+  return [
+    "import bpy","import os","OUTPUT_DIR = " + JSON.stringify(outputDir),"NAME = " + JSON.stringify(safeFile),"DESCRIPTION = " + JSON.stringify(description),
+    "os.makedirs(OUTPUT_DIR, exist_ok=True)","bpy.ops.wm.read_factory_settings(use_empty=True)",
+    "bpy.ops.mesh.primitive_uv_sphere_add(segments=96, ring_count=64, location=(0, 0, 1.25))","hero = bpy.context.object","hero.name = 'HeroObject'","hero.scale = (1.15,1.15,1.15)","bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)",
+    "mat = bpy.data.materials.new('HeroMaterial')","mat.use_nodes = True","bsdf = mat.node_tree.nodes.get('Principled BSDF')","bsdf.inputs['Base Color'].default_value = (0.72,0.55,0.20,1.0)","bsdf.inputs['Metallic'].default_value = 0.72","bsdf.inputs['Roughness'].default_value = 0.2","hero.data.materials.append(mat)",
+    "bpy.ops.mesh.primitive_cylinder_add(vertices=96, radius=2.25, depth=0.18, location=(0,0,0.08))","base = bpy.context.object","base.name = 'HeroBase'","bpy.ops.mesh.primitive_plane_add(size=20, location=(0,0,-0.02))","floor = bpy.context.object","floor.name = 'Floor'",
+    "def area(name, location, energy, size):","    bpy.ops.object.light_add(type='AREA', location=location)","    lamp = bpy.context.object","    lamp.name = name","    lamp.data.energy = energy","    lamp.data.shape = 'DISK'","    lamp.data.size = size","    return lamp",
+    "def point_at(obj, target):","    direction = target - obj.location","    obj.rotation_euler = direction.to_track_quat('-Z','Y').to_euler()","target = hero.location",
+    "for lamp in (area('Key',(4,-4,6),1100,4), area('Fill',(-4,-1,3.5),650,5), area('Rim',(2,4,5),900,3)):","    point_at(lamp,target)",
+    "bpy.ops.object.camera_add(location=(5.8,-5.8,3.8))","camera = bpy.context.object","point_at(camera,target)","camera.data.lens = 58","bpy.context.scene.camera = camera",
+    "scene = bpy.context.scene","scene.render.engine = 'BLENDER_EEVEE_NEXT'","scene.render.resolution_x = 1024","scene.render.resolution_y = 1024","scene.render.resolution_percentage = 100","scene.render.image_settings.file_format = 'PNG'","scene.render.filepath = os.path.join(OUTPUT_DIR,NAME+'.png')","scene.render.film_transparent = False",
+    "world = scene.world or bpy.data.worlds.new('World')","scene.world = world","world.use_nodes = True","world.node_tree.nodes['Background'].inputs['Color'].default_value = (0.015,0.015,0.02,1.0)","world.node_tree.nodes['Background'].inputs['Strength'].default_value = 0.18",
+    "scene['creative_description'] = DESCRIPTION","bpy.ops.wm.save_as_mainfile(filepath=os.path.join(OUTPUT_DIR,NAME+'.blend'))","bpy.ops.render.render(write_still=True)","bpy.ops.export_scene.gltf(filepath=os.path.join(OUTPUT_DIR,NAME+'.glb'),export_format='GLB')"
+  ].join("\n");
+}
+export async function renderLocal3D({ project = {}, outputDir = resolveLocalRenderConfig().outputDir, filename, binary = process.env.BLENDER_BIN } = {}) {
+  if (!clean(binary)) throw new Error("BLENDER_BIN is required for local 3D rendering");
+  const dir=path.resolve(outputDir); const base=safe(filename||project.name||project.type||"creative-3d");
+  await mkdir(dir,{recursive:true}); const scriptPath=path.join(dir,base+"-scene.py");
+  await writeFile(scriptPath,buildProceduralBlenderScript(project,dir,base),"utf8");
+  const result=await exec(binary,["--background","--python",scriptPath]);
+  const files=[path.join(dir,base+".png"),path.join(dir,base+".glb"),path.join(dir,base+".blend")];
+  return {provider:"free-local-blender",mode:"blender",format:"png+glb",path:files[0],files,scriptPath,stdout:result.out.slice(-1000)};
+}
+
 export async function renderFreeFirst({project={},options={}}={}) {
   const type=String(project.type||'graphic').toLowerCase();
   if(type==='video') return renderLocalVideo({project,outputDir:options.outputDir,filename:options.filename,fps:options.fps,scenes:options.scenes||6});
