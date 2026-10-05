@@ -61,7 +61,8 @@ jobs:
           JSON
           python3 -c 'import json; p=json.load(open("'$RUNNER_TEMP'/prompt.json")); json.dump({"prompt":p},open("'$RUNNER_TEMP'/payload.json","w"))'
           RESPONSE=$(curl -sS -X POST http://127.0.0.1:8188/prompt -H 'Content-Type: application/json' --data-binary @"$RUNNER_TEMP/payload.json" -w '\nHTTP=%{http_code}')
-          printf '%s\n' "$RESPONSE" | tee "$RUNNER_TEMP/queue.json"
+          printf '%s\n' "$RESPONSE" | tee "$RUNNER_TEMP/queue.raw"
+          sed -n '1p' "$RUNNER_TEMP/queue.raw" > "$RUNNER_TEMP/queue.json"
           grep -q '"prompt_id"' "$RUNNER_TEMP/queue.json"
       - name: Poll history and verify rendered output
         run: |
