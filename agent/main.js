@@ -1,8 +1,6 @@
 #!/usr/bin/env node
 // agent/main.js
-// Top-level entrypoint. Boots the dashboard, scheduler, and optional browser
-// session. SIGTERM / SIGINT trigger a clean shutdown.
-
+// Top-level entrypoint. Boots the dashboard, scheduler, and optional browser session.
 import { ensureDirs, config } from '../config/index.js';
 import { migrate, closeDb } from '../database/index.js';
 import { startDashboard } from '../monitoring/dashboard.js';
@@ -41,16 +39,17 @@ async function main() {
     try { closeDb(); } catch {}
     process.exit(0);
   };
+
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
 
   process.on('uncaughtException', (err) => {
     console.error('[main] uncaughtException:', err);
-    notify({ level: 'fatal', subject: 'uncaughtException', body: err.message });
+    notify({ level: 'fatal', subject: 'uncaughtException', body: err.message }).catch(() => {});
   });
   process.on('unhandledRejection', (reason) => {
     console.error('[main] unhandledRejection:', reason);
-    notify({ level: 'fatal', subject: 'unhandledRejection', body: String(reason) });
+    notify({ level: 'fatal', subject: 'unhandledRejection', body: String(reason) }).catch(() => {});
   });
 }
 
