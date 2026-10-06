@@ -8,7 +8,25 @@
 //     issuing the exact same successful-but-non-progressing action
 //     repeatedly.
 import { describe, it, expect } from 'vitest';
-import { classifyError, detectStuckLoop, actionSignature } from '../../agent/index.js';
+import { classifyError, detectStuckLoop, actionSignature, resolveAgentMaxSteps } from '../../agent/index.js';
+
+describe('agent/index.js — adaptive step budget', () => {
+  it('keeps the configured base step limit for ordinary tasks', () => {
+    expect(resolveAgentMaxSteps(null, 'Research one business')).toBe(40);
+  });
+
+  it('derives a larger bounded budget from an explicit Maximum Results goal', () => {
+    expect(resolveAgentMaxSteps(null, 'Find 30 legitimate businesses. Maximum Results: 30.')).toBe(170);
+  });
+
+  it('prefers task metadata maximumResults over the goal text', () => {
+    expect(resolveAgentMaxSteps({ metadata: { maximumResults: 12 } }, 'Maximum Results: 30')).toBe(80);
+  });
+
+  it('never exceeds the hard adaptive ceiling', () => {
+    expect(resolveAgentMaxSteps(null, 'Maximum Results: 1000')).toBe(200);
+  });
+});
 
 describe('agent/index.js — classifyError', () => {
   it('classifies DNS resolution failures as permanent', () => {
