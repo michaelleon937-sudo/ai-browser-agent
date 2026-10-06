@@ -342,10 +342,10 @@ import { extractCloudflareErrorCode, isRetryableCloudflareResponse, fetchWithTra
 
 it('recognizes Cloudflare Workers AI transient internal error 3030', () => {
   const body = JSON.stringify({ errors: [{ message: 'AiError: Internal Server Error (test)', code: 3030 }] });
-  assert.equal(extractCloudflareErrorCode(body), 3030);
-  assert.equal(isRetryableCloudflareResponse(400, body), true);
-  assert.equal(isRetryableCloudflareResponse(400, JSON.stringify({ errors: [{ code: 5007 }] })), false);
-  assert.equal(isRetryableCloudflareResponse(500, body), false);
+  expect(extractCloudflareErrorCode(body)).toBe(3030);
+  expect(isRetryableCloudflareResponse(400, body)).toBe(true);
+  expect(isRetryableCloudflareResponse(400, JSON.stringify({ errors: [{ code: 5007 }] }))).toBe(false);
+  expect(isRetryableCloudflareResponse(500, body)).toBe(false);
 });
 
 it('retries Cloudflare 3030 and returns the first eventual success', async () => {
@@ -357,7 +357,7 @@ it('retries Cloudflare 3030 and returns the first eventual success', async () =>
     fetchImpl: async () => (++calls < 3 ? transient() : success()),
     sleepImpl: async (ms) => waits.push(ms),
   });
-  assert.equal(res.status, 200);
-  assert.equal(calls, 3);
-  assert.deepEqual(waits, [1000, 2500]);
+  expect(res.status).toBe(200);
+  expect(calls).toBe(3);
+  expect(waits).toEqual([1000, 2500]);
 });
