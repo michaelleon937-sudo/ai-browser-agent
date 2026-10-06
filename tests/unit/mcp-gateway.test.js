@@ -135,8 +135,8 @@ describe('Remote MCP Gateway', () => {
     ({ MCP_TOOL_DEFINITIONS, createMcpServerInstance, mountMcp } = await import('../../mcp/server.js'));
   });
 
-  it('exposes exactly 129 MCP definitions', () => {
-    expect(MCP_TOOL_DEFINITIONS).toHaveLength(129);
+  it('exposes exactly 136 MCP definitions', () => {
+    expect(MCP_TOOL_DEFINITIONS).toHaveLength(136);
   });
 
   it('uses the exact MCP to Control mapping', () => {
@@ -186,7 +186,7 @@ describe('Remote MCP Gateway', () => {
   it('registers all MCP definitions with the MCP server', () => {
     createMcpServerInstance();
 
-    expect(registeredTools).toHaveLength(129);
+    expect(registeredTools).toHaveLength(136);
     expect(registeredTools.map((tool) => tool.name))
       .toEqual(MCP_TOOL_DEFINITIONS.map((definition) => definition.mcpName));
   });
@@ -228,7 +228,7 @@ describe('Remote MCP Gateway', () => {
         service: 'mcp-gateway',
         transport: 'streamable-http',
         path: '/mcp',
-        toolCount: 129,
+        toolCount: 136,
       });
 
       const unauthorized = await fetch(`http://127.0.0.1:${port}/mcp`, {

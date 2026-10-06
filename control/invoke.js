@@ -26,6 +26,7 @@ import { clientDeliveryTools } from './tools/client-delivery.js';
 import { websiteEngineTools } from './tools/website-engine.js';
 import { creativeEngineTools } from './tools/creative-engine.js';
 import { supervisorTools } from './tools/supervisor.js';
+import { businessGrowthTools } from '../integrations/business-growth.js';
 
 const TOOLS = {
   ...agentTools,
@@ -42,6 +43,7 @@ const TOOLS = {
   ...websiteEngineTools,
   ...creativeEngineTools,
   ...supervisorTools,
+  ...businessGrowthTools,
 };
 
 async function runTool(toolName, args, ctx) {
