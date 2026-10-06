@@ -337,3 +337,27 @@ describe('production gpt-oss response shape (regression)', () => {
   });
 
 });
+
+import { extractCloudflareErrorCode, isRetryableCloudflareResponse, fetchWithTransientRetry } from '../../agent/ai/cloudflare.js';
+
+it('recognizes Cloudflare Workers AI transient internal error 3030', () => {
+  const body = JSON.stringify({ errors: [{ message: 'AiError: Internal Server Error (test)', code: 3030 }] });
+  expect(extractCloudflareErrorCode(body)).toBe(3030);
+  expect(isRetryableCloudflareResponse(400, body)).toBe(true);
+  expect(isRetryableCloudflareResponse(400, JSON.stringify({ errors: [{ code: 5007 }] }))).toBe(false);
+  expect(isRetryableCloudflareResponse(500, body)).toBe(false);
+});
+
+it('retries Cloudflare 3030 and returns the first eventual success', async () => {
+  let calls = 0;
+  const waits = [];
+  const transient = () => new Response(JSON.stringify({ errors: [{ code: 3030, message: 'Internal Server Error' }] }), { status: 400 });
+  const success = () => new Response(JSON.stringify({ success: true, result: { response: '{}' } }), { status: 200 });
+  const res = await fetchWithTransientRetry('https://example.invalid', 'redacted', { messages: [] }, {
+    fetchImpl: async () => (++calls < 3 ? transient() : success()),
+    sleepImpl: async (ms) => waits.push(ms),
+  });
+  expect(res.status).toBe(200);
+  expect(calls).toBe(3);
+  expect(waits).toEqual([1000, 2500]);
+});

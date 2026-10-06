@@ -43,23 +43,21 @@ export function cloudflareProvider({ config }) {
         { role: 'user', content: buildUserPrompt({ goal, history, observation }) },
       ];
 
-      const res = await fetch(baseUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          messages,
-          tools,
-          tool_choice: 'required',
-          max_tokens: 2048,
-        }),
-      });
+      const requestBody = {
+        messages,
+        tools,
+        tool_choice: 'required',
+        max_tokens: 2048,
+      };
+
+      const res = await fetchWithTransientRetry(baseUrl, apiToken, requestBody);
 
       if (!res.ok) {
         const body = await res.text();
-        throw new Error(`Cloudflare AI HTTP ${res.status}: ${body.slice(0, 500)}`);
+        const code = extractCloudflareErrorCode(body);
+        throw new Error(
+          `Cloudflare AI HTTP ${res.status}${code ? ` code=${code}` : ''}: ${body.slice(0, 500)}`,
+        );
       }
 
       const json = await res.json();
@@ -168,6 +166,55 @@ export function cloudflareProvider({ config }) {
       );
     },
   };
+}
+
+const TRANSIENT_INTERNAL_ERROR_CODE = 3030;
+const TRANSIENT_RETRY_DELAYS_MS = [1000, 2500, 5000];
+
+export function extractCloudflareErrorCode(body) {
+  try {
+    const json = JSON.parse(String(body || ''));
+    const code = json?.errors?.[0]?.code;
+    return Number.isFinite(Number(code)) ? Number(code) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function isRetryableCloudflareResponse(status, body) {
+  return Number(status) === 400 && extractCloudflareErrorCode(body) === TRANSIENT_INTERNAL_ERROR_CODE;
+}
+
+export async function fetchWithTransientRetry(url, apiToken, requestBody, {
+  fetchImpl = fetch,
+  sleepImpl = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+} = {}) {
+  for (let attempt = 0; ; attempt++) {
+    let res;
+    try {
+      res = await fetchImpl(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+      });
+    } catch (err) {
+      throw err;
+    }
+
+    if (res.ok) return res;
+
+    const body = await res.clone().text().catch(() => '');
+    if (!isRetryableCloudflareResponse(res.status, body) || attempt >= TRANSIENT_RETRY_DELAYS_MS.length) {
+      return res;
+    }
+
+    const delayMs = TRANSIENT_RETRY_DELAYS_MS[attempt];
+    console.warn(`[cloudflare] transient Workers AI internal error code=3030; retrying attempt=${attempt + 2} in ${delayMs}ms`);
+    await sleepImpl(delayMs);
+  }
 }
 
 /** Safe, redacted description of CF response shape for diagnostics (no secrets). */
