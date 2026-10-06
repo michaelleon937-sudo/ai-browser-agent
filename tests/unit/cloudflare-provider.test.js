@@ -340,7 +340,7 @@ describe('production gpt-oss response shape (regression)', () => {
 
 import { extractCloudflareErrorCode, isRetryableCloudflareResponse, fetchWithTransientRetry } from '../../agent/ai/cloudflare.js';
 
-test('recognizes Cloudflare Workers AI transient internal error 3030', () => {
+it('recognizes Cloudflare Workers AI transient internal error 3030', () => {
   const body = JSON.stringify({ errors: [{ message: 'AiError: Internal Server Error (test)', code: 3030 }] });
   assert.equal(extractCloudflareErrorCode(body), 3030);
   assert.equal(isRetryableCloudflareResponse(400, body), true);
@@ -348,7 +348,7 @@ test('recognizes Cloudflare Workers AI transient internal error 3030', () => {
   assert.equal(isRetryableCloudflareResponse(500, body), false);
 });
 
-test('retries Cloudflare 3030 and returns the first eventual success', async () => {
+it('retries Cloudflare 3030 and returns the first eventual success', async () => {
   let calls = 0;
   const waits = [];
   const transient = () => new Response(JSON.stringify({ errors: [{ code: 3030, message: 'Internal Server Error' }] }), { status: 400 });
