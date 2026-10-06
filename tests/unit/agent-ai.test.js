@@ -1,6 +1,7 @@
 // tests/unit/agent-ai.test.js
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { isKnownTool, ACTION_TOOLS, isSensitive, getProvider } from '../../agent/ai/index.js';
+import { resolveLikelyClickTarget } from '../../agent/ai/cloudflare.js';
 
 describe('agent/ai', () => {
   const originalEnv = { ...process.env };
@@ -15,6 +16,16 @@ describe('agent/ai', () => {
     expect(isKnownTool('task_complete')).toBe(true);
     expect(isKnownTool('task_fail')).toBe(true);
     expect(isKnownTool('not_a_real_tool')).toBe(false);
+  });
+
+  it('recovers a bare anchor CSS selector as browser_click', () => {
+    const action = resolveLikelyClickTarget({ target: "a[href*='contact']" }, ACTION_TOOLS);
+    expect(action?.name).toBe('browser_click');
+  });
+
+  it('does not guess a tool for an arbitrary target/ref', () => {
+    expect(resolveLikelyClickTarget({ target: 'e12' }, ACTION_TOOLS)).toBeNull();
+    expect(resolveLikelyClickTarget({ target: 'input[name=email]' }, ACTION_TOOLS)).toBeNull();
   });
 
   it('exposes ACTION_TOOLS with name and parameters', () => {

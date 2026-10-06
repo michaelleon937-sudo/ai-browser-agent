@@ -136,6 +136,13 @@ export function cloudflareProvider({ config }) {
               };
             }
           }
+          const likelyClick = resolveLikelyClickTarget(direct, availableTools);
+          if (likelyClick) {
+            return {
+              action: { tool: likelyClick.name, args: direct, reasoning: 'Recovered bare anchor selector as browser_click from gpt-oss content.' },
+              done: false,
+            };
+          }
           const matched = matchUniqueTool(direct, availableTools);
           if (matched) {
             return {
@@ -367,6 +374,19 @@ function resolveHttpUrlNavigate(obj, availableTools) {
   if (!/^https?:\/\//i.test(url)) return null;
   if (!Array.isArray(availableTools)) return null;
   return availableTools.find((t) => t.name === 'browser_navigate') || null;
+}
+
+export function resolveLikelyClickTarget(obj, availableTools) {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+  if (Object.keys(obj).length !== 1 || !Object.prototype.hasOwnProperty.call(obj, 'target')) return null;
+  const target = String(obj.target || '').trim();
+  if (!target || !Array.isArray(availableTools)) return null;
+
+  // gpt-oss can emit bare selector arguments instead of a function call.
+  // Anchor CSS selectors are deterministic navigation intent in this workflow.
+  const isAnchorSelector = /^a(?:\[[^\]]+\])?$/i.test(target);
+  if (!isAnchorSelector) return null;
+  return availableTools.find((tool) => tool.name === 'browser_click') || null;
 }
 
 function matchUniqueTool(obj, availableTools) {
