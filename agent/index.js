@@ -34,6 +34,7 @@ export async function runAgent({ taskId, goal: providedGoal, onEvent, runId: pro
   const event = typeof onEvent === 'function' ? onEvent : () => {};
   const startedAt = Date.now();
   const provider = getProvider();
+  const maxSteps = resolveAgentMaxSteps(task, goal);
 
   const state = {
     runId: run.id, taskId: task?.id, goal, steps: [], observations: [],
@@ -48,7 +49,7 @@ export async function runAgent({ taskId, goal: providedGoal, onEvent, runId: pro
     while (true) {
       const elapsed = Date.now() - startedAt;
       if (elapsed > config.agent.totalTimeoutMs) throw new Error(`Total timeout exceeded (${config.agent.totalTimeoutMs} ms)`);
-      if (state.steps.length >= config.agent.maxSteps) throw new Error(`Max steps exceeded (${config.agent.maxSteps})`);
+      if (state.steps.length >= maxSteps) throw new Error(`Max steps exceeded (${maxSteps})`);
       if (state.retriesTotal >= config.agent.maxRetriesTotal) throw new Error(`Total retries exceeded (${config.agent.maxRetriesTotal})`);
 
       let observation;
@@ -224,6 +225,23 @@ async function observeLight() {
   } catch (err) {
     return { url: '', title: '', error: err.message };
   }
+}
+
+export const MAX_ADAPTIVE_AGENT_STEPS = 200;
+export const STEPS_PER_REQUESTED_RESULT = 5;
+export const ADAPTIVE_STEP_BUDGET_BUFFER = 20;
+
+export function resolveAgentMaxSteps(task, goal) {
+  const base = Number(config.agent.maxSteps) || 40;
+  const source = task?.metadata?.maximumResults ?? task?.metadata?.maxResults;
+  const fromMetadata = Number(source);
+  const goalMatch = String(goal || '').match(/Maximum Results\s*:\s*(\d+)/i);
+  const requestedResults = Number.isFinite(fromMetadata) && fromMetadata > 0
+    ? fromMetadata
+    : goalMatch ? Number(goalMatch[1]) : 0;
+  if (!Number.isFinite(requestedResults) || requestedResults <= 0) return base;
+  const derived = requestedResults * STEPS_PER_REQUESTED_RESULT + ADAPTIVE_STEP_BUDGET_BUFFER;
+  return Math.min(MAX_ADAPTIVE_AGENT_STEPS, Math.max(base, derived));
 }
 
 export function goalRequiresProspectAndOpportunity(goal) {
