@@ -778,3 +778,18 @@ CREATE TABLE IF NOT EXISTS client_delivery_events (
 );
 CREATE INDEX IF NOT EXISTS idx_client_delivery_events_delivery ON client_delivery_events (delivery_id);
 CREATE INDEX IF NOT EXISTS idx_client_delivery_events_provider_message ON client_delivery_events (provider_message_id);
+
+
+-- Phase 9 — Deep CRM ecosystem + durable autonomous business loops
+CREATE TABLE IF NOT EXISTS external_integrations (id TEXT PRIMARY KEY, system TEXT NOT NULL, provider TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'PLANNED', capabilities_json TEXT NOT NULL DEFAULT '[]', config_json TEXT, last_sync_at TEXT, last_error TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_external_integrations_system_provider ON external_integrations(system, provider);
+CREATE INDEX IF NOT EXISTS idx_external_integrations_status ON external_integrations(status);
+CREATE TABLE IF NOT EXISTS crm_sync_events (id TEXT PRIMARY KEY, integration_id TEXT, entity_type TEXT NOT NULL, entity_id TEXT, direction TEXT NOT NULL, action TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'QUEUED', external_id TEXT, payload_json TEXT, error_message TEXT, occurred_at TEXT NOT NULL, created_at TEXT NOT NULL, FOREIGN KEY (integration_id) REFERENCES external_integrations(id));
+CREATE INDEX IF NOT EXISTS idx_crm_sync_events_status ON crm_sync_events(status);
+CREATE INDEX IF NOT EXISTS idx_crm_sync_events_entity ON crm_sync_events(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_crm_sync_events_integration ON crm_sync_events(integration_id);
+CREATE TABLE IF NOT EXISTS autonomous_loops (id TEXT PRIMARY KEY, name TEXT NOT NULL, goal TEXT NOT NULL, mode TEXT NOT NULL DEFAULT 'BOUNDED_AUTONOMOUS', status TEXT NOT NULL DEFAULT 'ACTIVE', started_at TEXT NOT NULL, ends_at TEXT, cadence TEXT, timezone TEXT, success_metrics_json TEXT NOT NULL DEFAULT '[]', allowed_actions_json TEXT NOT NULL DEFAULT '[]', exception_policy_json TEXT NOT NULL DEFAULT '{}', strategy_json TEXT NOT NULL DEFAULT '{}', strategy_version INTEGER NOT NULL DEFAULT 1, checkpoint_count INTEGER NOT NULL DEFAULT 0, last_checkpoint_at TEXT, last_outcome_json TEXT, task_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, FOREIGN KEY (task_id) REFERENCES tasks(id));
+CREATE INDEX IF NOT EXISTS idx_autonomous_loops_status ON autonomous_loops(status);
+CREATE TABLE IF NOT EXISTS autonomous_loop_checkpoints (id TEXT PRIMARY KEY, loop_id TEXT NOT NULL, checkpoint_no INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'RUNNING', snapshot_json TEXT, outcome_json TEXT, strategy_before_json TEXT, strategy_after_json TEXT, exceptions_json TEXT, actions_json TEXT, started_at TEXT NOT NULL, finished_at TEXT, FOREIGN KEY (loop_id) REFERENCES autonomous_loops(id) ON DELETE CASCADE);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_loop_checkpoint_no ON autonomous_loop_checkpoints(loop_id, checkpoint_no);
+CREATE INDEX IF NOT EXISTS idx_loop_checkpoints_status ON autonomous_loop_checkpoints(status);
