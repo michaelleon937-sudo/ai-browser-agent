@@ -2,7 +2,8 @@
 // Existing production modules are reused; this layer never sends, charges, deploys, or bypasses approval.
 import { nanoid } from 'nanoid';
 import { qualifyClient, buildWhatsAppPresentation, revenueIntelligence } from '../integrations/client-revenue-intelligence.js';
-import { getCustomer360, getFollowUps, runOpportunityRadar } from '../integrations/business-growth.js';
+import { getFollowUps, runOpportunityRadar } from '../integrations/business-growth.js';
+import { getClientIntelligence } from '../integrations/client-intelligence.js';
 import { generateBusinessAnalystBrief } from '../integrations/client-intelligence.js';
 import { generateWebsite } from '../integrations/website-gen.js';
 import { createCreativeProject, validateCreativeProject } from '../creative-engine/index.js';
@@ -12,7 +13,7 @@ const defs={
  'client.intelligence':{capability:'client_intelligence',run:qualifyClient},
  'client.whatsapp_presentation':{capability:'presentation',run:buildWhatsAppPresentation},
  'revenue.intelligence':{capability:'revenue_intelligence',run:revenueIntelligence},
- 'crm.customer_360':{capability:'customer_360',run:getCustomer360},
+ 'crm.customer_360':{capability:'customer_360',run:getClientIntelligence},
  'growth.opportunity_radar':{capability:'opportunity_radar',run:runOpportunityRadar},
  'growth.follow_ups':{capability:'follow_up',run:getFollowUps},
  'bi.analyst_brief':{capability:'business_analysis',run:generateBusinessAnalystBrief},
