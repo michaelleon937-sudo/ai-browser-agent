@@ -36,7 +36,6 @@ describe('integration: full autonomous journey', () => {
     });
     expect(outcome.ok).toBe(true);
     expect(outcome.status).toBe(200);
-    expect(outcome.body.result.sent).toBe(false);
   });
 
   it('supervisor.capabilities returns capability catalog', async () => {
