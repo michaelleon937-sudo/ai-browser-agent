@@ -16,6 +16,7 @@ import { websiteEngineTools } from './tools/website-engine.js';
 import { creativeEngineTools } from './tools/creative-engine.js';
 import { supervisorTools } from './tools/supervisor.js';
 import { businessGrowthTools } from '../integrations/business-growth.js';
+import { composioTools } from './tools/composio.js';
 import { invokeControlTool } from './invoke.js';
 
 const TOOLS = {
@@ -28,6 +29,7 @@ const TOOLS = {
   ...creativeEngineTools,
   ...supervisorTools,
   ...businessGrowthTools,
+  ...composioTools,
 };
 
 export function listRegisteredTools() { return Object.keys(TOOLS); }
