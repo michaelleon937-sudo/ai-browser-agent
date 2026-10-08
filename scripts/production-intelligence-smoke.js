@@ -52,13 +52,17 @@ export async function runProductionIntelligenceSmoke() {
   const presentation = await run('client.whatsapp_presentation', { prospectId: prospect.id, maxSamples: 3 });
   const revenue = await run('revenue.intelligence', { days: 30 });
 
-  const clientPass = client.status === 200 && client.body?.ok === true && Boolean(client.body?.qualification && client.body?.client);
-  const presentationPass = presentation.status === 200 && presentation.body?.ok === true && Boolean(presentation.body?.formattedMessage);
-  const revenuePass = revenue.status === 200 && revenue.body?.ok === true && Boolean(revenue.body?.funnel);
+  const clientResult = client.body?.result;
+  const presentationResult = presentation.body?.result;
+  const revenueResult = revenue.body?.result;
+
+  const clientPass = client.status === 200 && client.body?.ok === true && clientResult?.ok === true && Boolean(clientResult?.qualification && clientResult?.client);
+  const presentationPass = presentation.status === 200 && presentation.body?.ok === true && presentationResult?.ok === true && Boolean(presentationResult?.formattedMessage);
+  const revenuePass = revenue.status === 200 && revenue.body?.ok === true && revenueResult?.ok === true && Boolean(revenueResult?.funnel);
 
   console.log('[cert-smoke] production intelligence HTTP certification', JSON.stringify({
     client: { status: client.status, pass: clientPass },
-    presentation: { status: presentation.status, pass: presentationPass, externalSideEffect: presentation.body?.externalSideEffect },
+    presentation: { status: presentation.status, pass: presentationPass, externalSideEffect: presentationResult?.externalSideEffect },
     revenue: { status: revenue.status, pass: revenuePass },
     prospectFound: true,
     allPass: clientPass && presentationPass && revenuePass,
