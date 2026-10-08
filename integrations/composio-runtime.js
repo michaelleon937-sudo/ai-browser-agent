@@ -56,22 +56,18 @@ function getConfig(provider, operation) {
     throw err;
   }
   const accountId = process.env[config.accountEnv];
-  if (!accountId) {
-    throw configurationError(`${config.accountEnv} is not configured`);
-  }
+  if (!accountId) throw configurationError(`${config.accountEnv} is not configured`);
   return { toolSlug, accountId };
 }
 
 export function composioRuntimeStatus() {
   return {
     configured: Boolean(process.env.COMPOSIO_API_KEY),
+    userConfigured: Boolean(process.env.COMPOSIO_USER_ID),
     providers: Object.fromEntries(
       Object.entries(PROVIDER_CONFIG).map(([provider, config]) => [
         provider,
-        {
-          accountConfigured: Boolean(process.env[config.accountEnv]),
-          operations: Object.keys(config.tools),
-        },
+        { accountConfigured: Boolean(process.env[config.accountEnv]), operations: Object.keys(config.tools) },
       ]),
     ),
   };
@@ -80,48 +76,35 @@ export function composioRuntimeStatus() {
 export async function executeComposioOperation({ provider, operation, args = {}, requestId = null } = {}) {
   const apiKey = process.env.COMPOSIO_API_KEY;
   if (!apiKey) throw configurationError('COMPOSIO_API_KEY is not configured');
+  const userId = process.env.COMPOSIO_USER_ID;
+  if (!userId) throw configurationError('COMPOSIO_USER_ID is not configured');
 
   const { toolSlug, accountId } = getConfig(provider, operation);
   const url = `${BASE_URL}/api/v3.1/tools/execute/${encodeURIComponent(toolSlug)}`;
 
   const response = await fetch(url, {
     method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': apiKey,
-    },
+    headers: { 'content-type': 'application/json', 'x-api-key': apiKey },
     body: JSON.stringify({
       connected_account_id: accountId,
+      user_id: userId,
       version: 'latest',
       arguments: args,
     }),
   });
 
   let payload = null;
-  try {
-    payload = await response.json();
-  } catch {
-    payload = { error: 'non-json response' };
-  }
+  try { payload = await response.json(); } catch { payload = { error: 'non-json response' }; }
 
   if (!response.ok || payload?.successful === false) {
-    const err = new Error(
-      payload?.error?.message ||
-      payload?.error ||
-      payload?.message ||
-      `Composio tool execution failed with HTTP ${response.status}`,
-    );
+    const err = new Error(payload?.error?.message || payload?.error || payload?.message || `Composio tool execution failed with HTTP ${response.status}`);
     err.status = response.status || 502;
     err.code = payload?.error?.code || 'COMPOSIO_TOOL_EXECUTION_FAILED';
     throw err;
   }
 
   return {
-    ok: true,
-    provider,
-    operation,
-    toolSlug,
-    requestId,
+    ok: true, provider, operation, toolSlug, requestId,
     logId: payload?.log_id || null,
     data: payload?.data ?? payload,
   };
