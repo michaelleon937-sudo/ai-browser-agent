@@ -1,6 +1,6 @@
 // control/invoke.js
 // Shared Control tool invocation used by HTTP router and MCP gateway.
-// Enforces policy, audit, and idempotency — never bypass.
+// Enforces policy, audit, and idempotency â never bypass.
 
 import { nanoid } from 'nanoid';
 import { evaluatePolicy, isMutatingTool, isForbiddenTool } from './policy.js';
@@ -29,6 +29,7 @@ import { creativeEngineTools } from './tools/creative-engine.js';
 import { supervisorTools } from './tools/supervisor.js';
 import { businessGrowthTools } from '../integrations/business-growth.js';
 import { deepBusinessAutopilotTools } from '../integrations/deep-business-autopilot.js';
+import { clientRevenueIntelligenceTools } from '../integrations/client-revenue-intelligence.js';
 
 const TOOLS = {
   ...agentTools,
@@ -48,6 +49,7 @@ const TOOLS = {
   ...supervisorTools,
   ...businessGrowthTools,
   ...deepBusinessAutopilotTools,
+  ...clientRevenueIntelligenceTools,
 };
 
 async function runTool(toolName, args, ctx) {
