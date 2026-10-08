@@ -18,7 +18,7 @@ export const composioTools = {
 };
 
 async function status() {
-  return { ok: true, runtime: composioRuntimeStatus() };
+  return { ok: true, runtime: await composioRuntimeStatus() };
 }
 
 async function execute(provider, operation, args, ctx) {
