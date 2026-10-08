@@ -34,6 +34,18 @@ describe('dashboard HTTP API (integration)', () => {
     expect(body.ok).toBe(true);
   });
 
+
+  it('GET /api/dashboard/summary returns a read-only operating snapshot', async () => {
+    const res = await fetch(`${baseUrl}/api/dashboard/summary`);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.agent.status).toBe('online');
+    expect(body).toHaveProperty('pipeline');
+    expect(body).toHaveProperty('commercial');
+    expect(body).toHaveProperty('creative');
+    expect(body).toHaveProperty('approvals');
+  });
+
   it('POST /api/tasks creates a task and GET /api/tasks lists it', async () => {
     const created = await fetch(`${baseUrl}/api/tasks`, {
       method: 'POST',
@@ -122,6 +134,8 @@ describe('dashboard home page UI', () => {
     const res = await fetch(`${baseUrl}/`);
     expect(res.status).toBe(200);
     const html = await res.text();
+    expect(html).toContain('AI Business OS');
+    expect(html).toContain('Command Center');
     expect(html).toContain('Create New Task');
     expect(html).toContain('id="name"');
     expect(html).toContain('id="goal"');
@@ -131,7 +145,10 @@ describe('dashboard home page UI', () => {
     expect(html).toContain('Opportunities');
     expect(html).toContain('Pending Approvals');
     expect(html).toContain('Samples (Phase 4)');
-    expect(html).toContain('Proposals (Phase 4)');
+    expect(html).toContain('Proposals');
+    expect(html).toContain('Revenue & Commercial');
+    expect(html).toContain('Governance, Reliability & Audit');
+    expect(html).toContain('Clients & Pipeline Intelligence');
     expect(html).toContain('createTask');
     expect(html).toContain('runTask');
   });
