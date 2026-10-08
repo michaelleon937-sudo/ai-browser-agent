@@ -14,8 +14,10 @@ export async function runProductionIntelligenceSmoke() {
   const marker = '/data/.production-intelligence-smoke-complete';
   try {
     await fs.access(marker);
-    console.log('[cert-smoke] already completed; skipping');
-    return;
+    if (process.env.PRODUCTION_OBJECTIVE_SMOKE !== 'true') {
+      console.log('[cert-smoke] already completed; skipping');
+      return;
+    }
   } catch {}
 
   const token = getControlToken();
@@ -33,13 +35,14 @@ export async function runProductionIntelligenceSmoke() {
 
   await sleep(1000);
 
-  const run = async (toolName, args) => {
+  const run = async (toolName, args, extra = {}) => {
     const response = await fetch(`${base}/${encodeURIComponent(toolName)}`, {
       method: 'POST',
       headers: {
         authorization: `Bearer ${token}`,
         'content-type': 'application/json',
         'x-request-id': `cert-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        ...(extra.idempotencyKey ? { 'idempotency-key': extra.idempotencyKey } : {}),
       },
       body: JSON.stringify(args),
     });
@@ -77,14 +80,15 @@ export async function runProductionIntelligenceSmoke() {
     }), 'utf8');
     console.log('[cert-smoke] PASS');
 
-  const objectivePlanResponse = await post('supervisor.plan', {
+  if (process.env.PRODUCTION_OBJECTIVE_SMOKE === 'true') {
+  const objectivePlanResponse = await run('supervisor.plan', {
     objectiveDriven: true,
     objective: 'qualify this prospect and present the best offer',
     prospectId: prospect.id,
   });
   const objectivePlan = objectivePlanResponse.body?.result ?? objectivePlanResponse.body;
   const objectivePlanPass = objectivePlanResponse.status === 200 && objectivePlan?.objectiveDriven === true && objectivePlan?.plan?.planner === 'OBJECTIVE_DRIVEN_ORCHESTRATOR' && objectivePlan?.plan?.steps?.map((s) => s.tool).join(',') === 'client.intelligence,client.whatsapp_presentation,revenue.intelligence';
-  const objectiveRunResponse = await post('supervisor.run_journey', {
+  const objectiveRunResponse = await run('supervisor.run_journey', {
     objectiveDriven: true,
     objective: 'qualify this prospect and present the best offer',
     prospectId: prospect.id,
@@ -95,6 +99,7 @@ export async function runProductionIntelligenceSmoke() {
   console.log('[cert-objective]', JSON.stringify({ plan: { status: objectivePlanResponse.status, pass: objectivePlanPass }, execute: { status: objectiveRunResponse.status, pass: objectiveRunPass }, prospectFound: true, completedSteps: objectiveRun?.completedSteps ?? 0, externalSideEffect: objectiveRun?.externalSideEffect ?? null, allPass: objectiveAllPass }));
   if (!objectiveAllPass) throw new Error('Production objective orchestration certification failed');
   console.log('[cert-objective] PASS');
+  }
   } else {
     console.error('[cert-smoke] FAIL');
   }
