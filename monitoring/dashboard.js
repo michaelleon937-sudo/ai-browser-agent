@@ -528,7 +528,7 @@ export function stopDashboard() {
 
 
 function renderHomePage() {
-  return \`<!doctype html>
+  return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f5f7fb">
@@ -589,7 +589,7 @@ async function createTask(){const name=document.getElementById('name').value.tri
 async function runTask(id){try{await api('/api/tasks/'+encodeURIComponent(id)+'/run',{method:'POST'});setTimeout(loadDashboard,400)}catch(err){alert(err.message)}}
 async function decideApproval(id,decision){try{await api('/api/approvals/'+encodeURIComponent(id),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({decision})});setTimeout(loadDashboard,300)}catch(err){alert(err.message)}}
 loadDashboard();setInterval(loadDashboard,30000);
-</script></body></html>\`;
+</script></body></html>`;
 }
 
 function escapeHtml(s) {
