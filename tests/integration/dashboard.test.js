@@ -153,7 +153,7 @@ describe('dashboard home page UI', () => {
     expect(html).toContain('Active Tasks');
     expect(html).toContain('Opportunities');
     expect(html).toContain('Approval Center');
-    expect(html).toContain('Samples (Phase 4)');
+    expect(html).toContain('Creative & Websites');
     expect(html).toContain('Proposals');
     expect(html).toContain('Revenue & Commercial');
     expect(html).toContain('Governance, Reliability & Audit');
