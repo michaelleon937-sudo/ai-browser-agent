@@ -62,7 +62,7 @@ async function calendarDeleteEvent(args = {}, ctx) {
   return execute('googlecalendar', 'delete_event', args, ctx);
 }
 
-async function xeroCreateDraftInvoice(args = {}, ctx) {
+export async function xeroCreateDraftInvoice(args = {}, ctx) {
   if (String(args.Status || 'DRAFT').toUpperCase() !== 'DRAFT') {
     const err = new Error('Xero runtime only permits DRAFT invoice creation');
     err.status = 403;
