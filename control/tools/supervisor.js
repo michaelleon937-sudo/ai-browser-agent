@@ -10,6 +10,7 @@ import {
 } from '../../orchestration/supervisor.js';
 import { selectCapabilities } from '../../orchestration/capabilities.js';
 import { classifyInboundMessage } from '../../integrations/message-classification.js';
+import { planObjective, validateObjectivePlan } from '../../orchestration/objective-engine.js';
 
 export const supervisorTools = {
   async 'supervisor.classify'(args = {}) {
@@ -20,6 +21,12 @@ export const supervisorTools = {
     return { ok: true, ...result };
   },
   async 'supervisor.plan'(args = {}) {
+    if (args.objectiveDriven === true || args.objective) {
+      const plan = planObjective({ objective: args.objective || args.goal || args.body, prospectId: args.prospectId, businessName: args.businessName, maxSteps: args.maxSteps });
+      const validation = validateObjectivePlan(plan);
+      if (!validation.ok) throw new Error(validation.reason);
+      return { ok: true, objectiveDriven: true, plan, validation };
+    }
     const classification = args.classification
       ? { classification: args.classification, extracted: args.extracted || {} }
       : classifyInboundMessage({ subject: args.subject || '', body: args.body || args.goal || '' });
