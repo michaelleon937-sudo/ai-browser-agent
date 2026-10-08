@@ -76,6 +76,25 @@ export async function runProductionIntelligenceSmoke() {
       revenueStatus: revenue.status,
     }), 'utf8');
     console.log('[cert-smoke] PASS');
+
+  const objectivePlanResponse = await post('supervisor.plan', {
+    objectiveDriven: true,
+    objective: 'qualify this prospect and present the best offer',
+    prospectId: prospect.id,
+  });
+  const objectivePlan = objectivePlanResponse.body?.result ?? objectivePlanResponse.body;
+  const objectivePlanPass = objectivePlanResponse.status === 200 && objectivePlan?.objectiveDriven === true && objectivePlan?.plan?.planner === 'OBJECTIVE_DRIVEN_ORCHESTRATOR' && objectivePlan?.plan?.steps?.map((s) => s.tool).join(',') === 'client.intelligence,client.whatsapp_presentation,revenue.intelligence';
+  const objectiveRunResponse = await post('supervisor.run_journey', {
+    objectiveDriven: true,
+    objective: 'qualify this prospect and present the best offer',
+    prospectId: prospect.id,
+  }, { idempotencyKey: 'cert-objective-' + prospect.id });
+  const objectiveRun = objectiveRunResponse.body?.result ?? objectiveRunResponse.body;
+  const objectiveRunPass = objectiveRunResponse.status === 200 && objectiveRun?.ok === true && objectiveRun?.status === 'COMPLETED' && objectiveRun?.completedSteps === 3 && objectiveRun?.externalSideEffect === false && objectiveRun?.results?.every((s) => s.status === 'success');
+  const objectiveAllPass = objectivePlanPass && objectiveRunPass;
+  console.log('[cert-objective]', JSON.stringify({ plan: { status: objectivePlanResponse.status, pass: objectivePlanPass }, execute: { status: objectiveRunResponse.status, pass: objectiveRunPass }, prospectFound: true, completedSteps: objectiveRun?.completedSteps ?? 0, externalSideEffect: objectiveRun?.externalSideEffect ?? null, allPass: objectiveAllPass }));
+  if (!objectiveAllPass) throw new Error('Production objective orchestration certification failed');
+  console.log('[cert-objective] PASS');
   } else {
     console.error('[cert-smoke] FAIL');
   }

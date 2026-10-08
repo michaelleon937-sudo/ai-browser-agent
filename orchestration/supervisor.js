@@ -7,6 +7,7 @@
 import { nanoid } from 'nanoid';
 import { classifyInboundMessage } from '../integrations/message-classification.js';
 import { recommendNextAction } from '../integrations/next-action.js';
+import { planObjective, runObjective, validateObjectivePlan } from './objective-engine.js';
 import { CAPABILITIES, selectCapabilities, describeCapability } from './capabilities.js';
 import {
   LIFECYCLE_STATES,
@@ -186,6 +187,7 @@ export async function boundedRepair({ websiteProject, maxAttempts } = {}) {
  * @param {object} options - { executors, maxRepairAttempts, autoApprove }
  */
 export async function runAutonomousJourney(input = {}, options = {}) {
+  if (input.objectiveDriven === true || input.objective) return runObjective(input, options);
   const audit = [];
   const journeyId = nanoid(12);
   let state = SUPERVISOR_STATES.RECEIVED;
@@ -368,4 +370,4 @@ export function commandCenterQuestions() {
   ];
 }
 
-export { CAPABILITIES, LIFECYCLE_STATES, MAX_REPAIR, REPAIR_STATES, createRepairSession, repairCanRetry, incrementAttempt, setRepairState };
+export { CAPABILITIES, LIFECYCLE_STATES, MAX_REPAIR, REPAIR_STATES, createRepairSession, repairCanRetry, incrementAttempt, setRepairState, planObjective, validateObjectivePlan };
