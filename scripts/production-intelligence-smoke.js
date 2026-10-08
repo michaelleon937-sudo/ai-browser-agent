@@ -92,7 +92,7 @@ export async function runProductionIntelligenceSmoke() {
     objectiveDriven: true,
     objective: 'qualify this prospect and present the best offer',
     prospectId: prospect.id,
-  }, { idempotencyKey: 'cert-objective-' + prospect.id });
+  }, { idempotencyKey: 'cert-objective-' + prospect.id + '-' + Date.now() });
   const objectiveRun = objectiveRunResponse.body?.result ?? objectiveRunResponse.body;
   const objectiveRunPass = objectiveRunResponse.status === 200 && objectiveRun?.ok === true && objectiveRun?.status === 'COMPLETED' && objectiveRun?.completedSteps === 3 && objectiveRun?.externalSideEffect === false && objectiveRun?.results?.every((s) => s.status === 'success');
   const objectiveAllPass = objectivePlanPass && objectiveRunPass;
