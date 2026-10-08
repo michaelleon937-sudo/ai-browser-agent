@@ -6,6 +6,7 @@ describe('Composio runtime adapter', () => {
 
   beforeEach(() => {
     process.env.COMPOSIO_API_KEY = 'test-key';
+    process.env.COMPOSIO_USER_ID = 'test-user';
     process.env.COMPOSIO_HUBSPOT_ACCOUNT_ID = 'hubspot-test';
     process.env.COMPOSIO_GOOGLECALENDAR_ACCOUNT_ID = 'calendar-test';
     process.env.COMPOSIO_XERO_ACCOUNT_ID = 'xero-test';
