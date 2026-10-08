@@ -45,6 +45,10 @@ export const supervisorTools = {
         body: args.body || args.goal,
         goal: args.goal,
         approved: Boolean(args.approved),
+        objectiveDriven: args.objectiveDriven === true,
+        objective: args.objective || args.goal || args.body,
+        prospectId: args.prospectId,
+        businessName: args.businessName,
       },
       { maxRepairAttempts: args.maxRepairAttempts },
     );
