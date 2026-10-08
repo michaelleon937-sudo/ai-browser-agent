@@ -152,7 +152,7 @@ describe('dashboard home page UI', () => {
     expect(html).toContain('id="timezone"');
     expect(html).toContain('Active Tasks');
     expect(html).toContain('Opportunities');
-    expect(html).toContain('Pending Approvals');
+    expect(html).toContain('Approval Center');
     expect(html).toContain('Samples (Phase 4)');
     expect(html).toContain('Proposals');
     expect(html).toContain('Revenue & Commercial');
@@ -209,7 +209,7 @@ describe('Create Task form submission path', () => {
     const script = match[1];
     expect(script).not.toMatch(/finalGoal \+= "\n/);
     expect(script).toContain('async function createTask');
-    expect(script).toContain('window.location.reload');
+    expect(script).toContain('loadDashboard');
     expect(script).toContain('targetLocation');
     expect(() => new Function(script)).not.toThrow();
   });
