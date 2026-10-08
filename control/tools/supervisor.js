@@ -42,8 +42,13 @@ export const supervisorTools = {
     const result = await runAutonomousJourney(
       {
         subject: args.subject,
-        body: args.body || args.goal,
-        goal: args.goal,
+        body: args.body || args.goal || args.objective,
+        goal: args.goal || args.objective,
+        objective: args.objective,
+        objectiveDriven: args.objectiveDriven === true,
+        prospectId: args.prospectId,
+        businessName: args.businessName,
+        maxSteps: args.maxSteps,
         approved: Boolean(args.approved),
       },
       { maxRepairAttempts: args.maxRepairAttempts },
