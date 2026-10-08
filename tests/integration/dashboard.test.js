@@ -44,6 +44,15 @@ describe('dashboard HTTP API (integration)', () => {
     expect(body).toHaveProperty('commercial');
     expect(body).toHaveProperty('creative');
     expect(body).toHaveProperty('approvals');
+    expect(body).toHaveProperty('control');
+    expect(body).toHaveProperty('business');
+    expect(body).toHaveProperty('observability');
+    expect(body.control).toHaveProperty('policyBlocks');
+    expect(body.control).toHaveProperty('lowConfidence');
+    expect(body.observability).toHaveProperty('toolExecution');
+    expect(body.observability).toHaveProperty('audit');
+    expect(body.observability).toHaveProperty('idempotency');
+    expect(body.observability).toHaveProperty('performance');
   });
 
   it('POST /api/tasks creates a task and GET /api/tasks lists it', async () => {
@@ -148,6 +157,25 @@ describe('dashboard home page UI', () => {
     expect(html).toContain('Proposals');
     expect(html).toContain('Revenue & Commercial');
     expect(html).toContain('Governance, Reliability & Audit');
+    expect(html).toContain('LEVEL 1');
+    expect(html).toContain('CONTROL');
+    expect(html).toContain('Approvals');
+    expect(html).toContain('Failed runs');
+    expect(html).toContain('Policy blocks');
+    expect(html).toContain('Low-confidence decisions');
+    expect(html).toContain('LEVEL 2');
+    expect(html).toContain('BUSINESS');
+    expect(html).toContain('Prospects');
+    expect(html).toContain('Revenue');
+    expect(html).toContain('Communications');
+    expect(html).toContain('Projects');
+    expect(html).toContain('LEVEL 3');
+    expect(html).toContain('OBSERVABILITY');
+    expect(html).toContain('Tool execution');
+    expect(html).toContain('Audit trail');
+    expect(html).toContain('Idempotency');
+    expect(html).toContain('Performance');
+    expect(html).toContain('History');
     expect(html).toContain('Clients & Pipeline Intelligence');
     expect(html).toContain('createTask');
     expect(html).toContain('runTask');
