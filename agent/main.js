@@ -10,8 +10,7 @@ import browser from '../browser/index.js';
 import { installInboundEmailWebhook } from '../integrations/inbound-webhook.js';
 import { installCloudMailinOutboundEventsWebhook } from '../integrations/cloudmailin-events-webhook.js';
 import { processApprovedEmailReplies } from '../integrations/email-reply-workflow.js';
-import { authenticateControlRequest } from '../control/auth.js';
-import { invokeControlTool } from '../control/invoke.js';
+import { runProductionIntelligenceSmoke } from '../scripts/production-intelligence-smoke.js';
 
 async function main() {
   ensureDirs();
@@ -21,6 +20,9 @@ async function main() {
   installInboundEmailWebhook(server);
   installCloudMailinOutboundEventsWebhook(server);
   startScheduler();
+  runProductionIntelligenceSmoke().catch((err) => {
+    console.error('[cert-smoke] unexpected failure:', err?.message || err);
+  });
 
   const emailApprovalPoller = setInterval(() => {
     processApprovedEmailReplies().catch((err) => {
