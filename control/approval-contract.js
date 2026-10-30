@@ -2,6 +2,7 @@ import { getDb } from '../database/index.js';
 import { hashRequest } from './idempotency.js';
 import { verifyClaims } from './tenant-auth.js';
 export function verifyAndConsumeApprovalContract(token,{tenantId,operatorId,toolName,args,secret:secretOverride}) {
+  if (typeof token !== 'string' || !token.trim()) throw Object.assign(new Error('A signed Nexora approval contract is required'),{status:403,code:'approval_contract_required'});
   const p=verifyClaims(token,'approval','ai-browser-agent',300,secretOverride);
   if(p.tenantId!==tenantId||p.sub!==operatorId||p.toolName!==toolName||p.oneTime!==true||typeof p.approvalId!=='string'||typeof p.jti!=='string'||!p.jti||p.argsHash!==hashRequest(toolName,args)) throw Object.assign(new Error('Approval contract does not authorize this tenant, tool, or exact payload'),{status:403,code:'approval_contract_mismatch'});
   const db=getDb(); db.exec('CREATE TABLE IF NOT EXISTS approval_contract_uses (jti TEXT PRIMARY KEY, approval_id TEXT NOT NULL, tenant_id TEXT NOT NULL, tool_name TEXT NOT NULL, consumed_at TEXT NOT NULL, expires_at INTEGER NOT NULL)');
