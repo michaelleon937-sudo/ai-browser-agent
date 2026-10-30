@@ -15,4 +15,4 @@ export function verifyClaims(token, expectedType, audience, maxTtlSeconds) {
   return p;
 }
 export function authenticateTenantToken(req) { const token=req.headers['x-nexora-tenant-token']; const claims=verifyClaims(token,'tenant',AUDIENCE,600); return {tenantId:claims.tenantId,operatorId:claims.sub||claims.tenantId}; }
-export function tenantContextMiddleware(req,res,next) { try { const identity=req.nexoraTenant || authenticateTenantToken(req); req.nexoraTenant=identity; return runWithTenantContext(identity,()=>next()); } catch(err) { return res.status(err.status||401).json({ok:false,error:err.message||'Tenant authentication failed'}); } }
+export function tenantContextMiddleware(req,res,next) { try { const identity=req.nexoraTenant || authenticateTenantToken(req); req.nexoraTenant=identity; if(!identity.tenantId)return next(); return runWithTenantContext(identity,()=>next()); } catch(err) { return res.status(err.status||401).json({ok:false,error:err.message||'Tenant authentication failed'}); } }

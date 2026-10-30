@@ -101,6 +101,7 @@ export async function invokeControlTool(opts = {}) {
   }
 
   try {
+    let approvalVerified = false;
     if (isMutatingTool(toolName)) {
       if (!idempotencyKey) {
         recordAudit({
@@ -128,7 +129,6 @@ export async function invokeControlTool(opts = {}) {
         recordAudit({ ...auditBase, status: 'replayed', details: { ...auditBase.details, idempotencyId: existing.id } });
         return { ok: true, status: 200, body: { ok: true, replayed: true, tool: toolName, requestId, result: parsed.result } };
       }
-      let approvalVerified = false;
       if (requiresApproval(toolName)) {
         verifyAndConsumeApprovalContract(opts.approvalContract, { tenantId: tenantContext, operatorId, toolName, args });
         approvalVerified = true;
@@ -136,7 +136,7 @@ export async function invokeControlTool(opts = {}) {
       beginIdempotency({ idempotencyKey, operatorId, toolName, requestHash });
     }
 
-    const result = await runTool(toolName, args, { operatorId, requestId, source }, requiresApproval(toolName));
+    const result = await runTool(toolName, args, { operatorId, requestId, source }, approvalVerified);
     if (isMutatingTool(toolName) && idempotencyKey) {
       completeIdempotency(idempotencyKey, operatorId, { status: 'completed', result });
     }

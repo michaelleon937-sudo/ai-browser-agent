@@ -8,6 +8,8 @@ export const composioTools = {
   'composio.hubspot.search_contacts': hubspotSearchContacts,
   'composio.hubspot.create_contact': hubspotCreateContact,
   'composio.hubspot.update_contact': hubspotUpdateContact,
+  'composio.hubspot.create_company': hubspotCreateCompany,
+  'composio.hubspot.update_company': hubspotUpdateCompany,
   'composio.hubspot.read_contact': hubspotReadContact,
   'composio.calendar.create_event': calendarCreateEvent,
   'composio.calendar.get_event': calendarGetEvent,
@@ -40,6 +42,14 @@ async function hubspotCreateContact(args = {}, ctx) {
 
 async function hubspotUpdateContact(args = {}, ctx) {
   return execute('hubspot', 'update_contact', args, ctx);
+}
+
+async function hubspotCreateCompany(args = {}, ctx) {
+  return execute('hubspot', 'create_company', args, ctx);
+}
+
+async function hubspotUpdateCompany(args = {}, ctx) {
+  return execute('hubspot', 'update_company', args, ctx);
 }
 
 async function hubspotReadContact(args = {}, ctx) {
