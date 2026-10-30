@@ -11,8 +11,7 @@
     "run-task": "node scripts/run-task.js",
     "test": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
-    "test:all": "vitest run",
-    "postinstall": "playwright install --with-deps chromium"
+    "test:all": "vitest run"
   },
   "dependencies": {
     "@modelcontextprotocol/express": "^2.0.0",
