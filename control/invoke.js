@@ -136,7 +136,7 @@ export async function invokeControlTool(opts = {}) {
       beginIdempotency({ idempotencyKey, operatorId, toolName, requestHash });
     }
 
-    const result = await runTool(toolName, args, { operatorId, requestId, source }, approvalVerified);
+    const result = await runTool(toolName, args, { operatorId, tenantId: tenantContext, requestId, source }, approvalVerified);
     if (isMutatingTool(toolName) && idempotencyKey) {
       completeIdempotency(idempotencyKey, operatorId, { status: 'completed', result });
     }

@@ -20,9 +20,27 @@ function getConfig(provider, operation) {
   if (!config) { const err = new Error(`Unsupported Composio provider: ${provider}`); err.status = 403; err.code = 'COMPOSIO_PROVIDER_NOT_ALLOWED'; throw err; }
   const toolSlug = config.tools[operation];
   if (!toolSlug) { const err = new Error(`Unsupported Composio operation: ${provider}.${operation}`); err.status = 403; err.code = 'COMPOSIO_OPERATION_NOT_ALLOWED'; throw err; }
-  const accountId = process.env[config.accountEnv];
-  if (!accountId) throw configurationError(`${config.accountEnv} is not configured`);
-  return { toolSlug, accountId };
+  const configuredAccountId = process.env[config.accountEnv] || null;
+  return { toolSlug, configuredAccountId };
+}
+
+async function resolveTenantConnectedAccount(apiKey, userId, provider, configuredAccountId = null) {
+  const response = await fetch(`${BASE_URL}/api/v3.1/connected_accounts?limit=100&account_type=ALL`, { headers: { 'x-api-key': apiKey, accept: 'application/json' }, cache: 'no-store', signal: AbortSignal.timeout(12000) });
+  if (!response.ok) throw configurationError(`Unable to resolve the ${provider} account for this tenant (HTTP ${response.status})`);
+  const payload = await response.json().catch(() => ({}));
+  const root = payload?.data && typeof payload.data === 'object' ? payload.data : payload;
+  const items = Array.isArray(root?.items) ? root.items : Array.isArray(payload?.items) ? payload.items : [];
+  const expectedToolkit = provider === 'googlecalendar' ? 'googlecalendar' : provider;
+  let matches = items.filter((item) => {
+    const slug = String(item?.toolkit?.slug || item?.toolkit_slug || '').toLowerCase().replace(/[_-]/g, '');
+    return item?.user_id === userId && slug === expectedToolkit && String(item?.status || '').toUpperCase() === 'ACTIVE';
+  });
+  if (configuredAccountId) matches = matches.filter((item) => item?.id === configuredAccountId);
+  if (matches.length !== 1 || typeof matches[0]?.id !== 'string') {
+    const err = new Error(matches.length > 1 ? `Multiple active ${provider} accounts exist for this tenant; select one explicitly` : `No active ${provider} connected account belongs to this tenant`);
+    err.status = matches.length > 1 ? 409 : 403; err.code = 'COMPOSIO_TENANT_ACCOUNT_NOT_RESOLVED'; throw err;
+  }
+  return matches[0].id;
 }
 
 export async function migrateComposioConnectionsToShared() {
@@ -66,12 +84,13 @@ export async function composioRuntimeStatus() {
   return status;
 }
 
-export async function executeComposioOperation({ provider, operation, args = {}, requestId = null } = {}) {
+export async function executeComposioOperation({ provider, operation, args = {}, requestId = null, tenantId = null } = {}) {
   const apiKey = process.env.COMPOSIO_API_KEY;
   if (!apiKey) throw configurationError('COMPOSIO_API_KEY is not configured');
-  const userId = process.env.COMPOSIO_USER_ID;
-  if (!userId) throw configurationError('COMPOSIO_USER_ID is not configured');
-  const { toolSlug, accountId } = getConfig(provider, operation);
+  const userId = tenantId ? `nexora-tenant-${tenantId}` : process.env.COMPOSIO_USER_ID;
+  if (!userId) throw configurationError('Verified tenant identity or COMPOSIO_USER_ID is required');
+  const { toolSlug, configuredAccountId } = getConfig(provider, operation);
+  const accountId = await resolveTenantConnectedAccount(apiKey, userId, provider, configuredAccountId);
   const url = `${BASE_URL}/api/v3.1/tools/execute/${encodeURIComponent(toolSlug)}`;
   const response = await fetch(url, {
     method: 'POST',

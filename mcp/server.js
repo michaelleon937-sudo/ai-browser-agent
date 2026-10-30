@@ -10,6 +10,7 @@ import { mcpBearerAuth, isMcpTokenConfigured } from './auth.js';
 import { invokeControlTool } from '../control/invoke.js';
 import { config } from '../config/index.js';
 import { getTenantContext } from '../control/tenant-context.js';
+import { tenantContextMiddleware } from '../control/tenant-auth.js';
 
 function buildAllowedHosts() {
   const hosts = new Set([
@@ -157,9 +158,9 @@ export function mountMcp(app) {
   };
 
   // Authenticated MCP endpoint (POST/GET/DELETE for Streamable HTTP)
-  app.post('/mcp', hostMw, mcpBearerAuth, handler);
-  app.get('/mcp', hostMw, mcpBearerAuth, handler);
-  app.delete('/mcp', hostMw, mcpBearerAuth, handler);
+  app.post('/mcp', hostMw, mcpBearerAuth, tenantContextMiddleware, handler);
+  app.get('/mcp', hostMw, mcpBearerAuth, tenantContextMiddleware, handler);
+  app.delete('/mcp', hostMw, mcpBearerAuth, tenantContextMiddleware, handler);
 }
 
 export { MCP_TOOL_DEFINITIONS, createMcpServerInstance };

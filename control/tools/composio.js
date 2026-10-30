@@ -29,6 +29,7 @@ async function execute(provider, operation, args, ctx) {
     operation,
     args,
     requestId: ctx?.requestId || null,
+    tenantId: ctx?.tenantId || null,
   });
 }
 
