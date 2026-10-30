@@ -5,7 +5,7 @@ import{fileURLToPath}from'node:url';
 import{nanoid}from'nanoid';
 import{config}from'../config/index.js';
 import crypto from'node:crypto';
-import{getTenantId}from'./tenant-context.js';
+import{getTenantId}from'../control/tenant-context.js';
 let db=null;const tenantDbs=new Map();
 function openDatabase(dbPath){fs.mkdirSync(path.dirname(dbPath),{recursive:true});const connection=new Database(dbPath);connection.pragma('journal_mode = WAL');connection.pragma('foreign_keys = ON');return connection;}
 function initializeTenantDatabase(connection){const schemaPath=fileURLToPath(new URL('./schema.sql',import.meta.url));connection.exec(fs.readFileSync(schemaPath,'utf8'));connection.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_control_idempotency_operator_key ON control_idempotency(operator_id,idempotency_key)');const now=new Date().toISOString();connection.prepare("INSERT OR IGNORE INTO tasks(id,name,goal,status,created_at,updated_at)VALUES('ad-hoc','Ad-hoc run','(ad-hoc — goal supplied at run time)','idle',?,?)").run(now,now);}
