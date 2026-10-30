@@ -111,31 +111,26 @@ export async function invokeControlTool(opts = {}) {
           body: { ok: false, error: 'Idempotency-Key header is required for mutating tools', requestId },
         };
       }
-      const existing = lookupIdempotency(idempotencyKey);
+      const requestHash = hashRequest(toolName, args);
+      const existing = lookupIdempotency(idempotencyKey, operatorId);
       if (existing) {
+        if (existing.request_hash !== requestHash || existing.tool_name !== toolName) {
+          recordAudit({ ...auditBase, status: 'rejected', details: { ...auditBase.details, reason: 'idempotency_payload_mismatch', idempotencyId: existing.id } });
+          return { ok: false, status: 409, body: { ok: false, error: 'Idempotency key was already used for a different request', code: 'idempotency_payload_mismatch', requestId } };
+        }
+        if (existing.status === 'started') {
+          return { ok: false, status: 409, body: { ok: false, error: 'A request with this idempotency key is still in progress', code: 'idempotency_in_progress', requestId } };
+        }
         const parsed = parseStoredResult(existing);
-        recordAudit({
-          ...auditBase,
-          status: 'replayed',
-          details: { ...auditBase.details, idempotencyId: existing.id },
-        });
-        return {
-          ok: true,
-          status: 200,
-          body: { ok: true, replayed: true, tool: toolName, requestId, result: parsed.result },
-        };
+        recordAudit({ ...auditBase, status: 'replayed', details: { ...auditBase.details, idempotencyId: existing.id } });
+        return { ok: true, status: 200, body: { ok: true, replayed: true, tool: toolName, requestId, result: parsed.result } };
       }
-      beginIdempotency({
-        idempotencyKey,
-        operatorId,
-        toolName,
-        requestHash: hashRequest(toolName, args),
-      });
+      beginIdempotency({ idempotencyKey, operatorId, toolName, requestHash });
     }
 
     const result = await runTool(toolName, args, { operatorId, requestId, source });
     if (isMutatingTool(toolName) && idempotencyKey) {
-      completeIdempotency(idempotencyKey, { status: 'completed', result });
+      completeIdempotency(idempotencyKey, operatorId, { status: 'completed', result });
     }
     recordAudit({
       ...auditBase,
@@ -149,8 +144,8 @@ export async function invokeControlTool(opts = {}) {
       body: { ok: true, tool: toolName, requestId, result },
     };
   } catch (err) {
-    if (isMutatingTool(toolName) && idempotencyKey && lookupIdempotency(idempotencyKey)) {
-      completeIdempotency(idempotencyKey, { status: 'failed', result: { error: err.message } });
+    if (isMutatingTool(toolName) && idempotencyKey && lookupIdempotency(idempotencyKey, operatorId)) {
+      completeIdempotency(idempotencyKey, operatorId, { status: 'failed', result: { error: err.message } });
     }
     const status = err.status || 500;
     recordAudit({

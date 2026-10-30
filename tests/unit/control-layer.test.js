@@ -129,6 +129,27 @@ describe('forbidden and idempotency', () => {
     expect(second.json.result.task.id).toBe(first.json.result.task.id);
     expect(controlIdempotency.getByKey(key)).toBeTruthy();
   });
+  it('rejects reuse of the same key with a different payload', async () => {
+    const key = `mismatch-${Date.now()}`;
+    const first = await request('POST', '/api/control/v1/tools/agent.create_task', {
+      headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': key },
+      body: { name: 'Original task', goal: 'original' },
+    });
+    expect(first.status).toBe(200);
+    const second = await request('POST', '/api/control/v1/tools/agent.create_task', {
+      headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': key },
+      body: { name: 'Changed task', goal: 'different' },
+    });
+    expect(second.status).toBe(409);
+    expect(second.json.code).toBe('idempotency_payload_mismatch');
+  });
+  it('scopes idempotency keys to operator identity', () => {
+    const key = `operator-scope-${Date.now()}`;
+    controlIdempotency.create({ idempotencyKey: key, operatorId: 'tenant-a-user-a', toolName: 'agent.create_task', requestHash: 'a'.repeat(64), status: 'completed', result: { ok: true } });
+    controlIdempotency.create({ idempotencyKey: key, operatorId: 'tenant-a-user-b', toolName: 'agent.create_task', requestHash: 'b'.repeat(64), status: 'completed', result: { ok: true } });
+    expect(controlIdempotency.getByKey(key, 'tenant-a-user-a').request_hash).toBe('a'.repeat(64));
+    expect(controlIdempotency.getByKey(key, 'tenant-a-user-b').request_hash).toBe('b'.repeat(64));
+  });
 });
 
 describe('agent + audit + repair', () => {

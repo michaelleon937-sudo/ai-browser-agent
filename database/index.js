@@ -36,6 +36,29 @@ export function migrate() {
   const sql = fs.readFileSync(schemaPath, 'utf8');
   getDb().exec(sql);
 
+  // Upgrade the legacy globally-unique key to an operator-scoped unique key.
+  // Existing rows are retained and remain associated with their original operator.
+  const tableSql = getDb().prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'control_idempotency'").get()?.sql || '';
+  if (/idempotency_key\s+TEXT\s+NOT\s+NULL\s+UNIQUE/i.test(tableSql)) {
+    getDb().exec(`
+      BEGIN IMMEDIATE;
+      DROP INDEX IF EXISTS idx_control_idempotency_tool;
+      ALTER TABLE control_idempotency RENAME TO control_idempotency_legacy;
+      CREATE TABLE control_idempotency (
+        id TEXT PRIMARY KEY, idempotency_key TEXT NOT NULL, operator_id TEXT NOT NULL,
+        tool_name TEXT NOT NULL, request_hash TEXT NOT NULL, status TEXT NOT NULL, result TEXT,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      );
+      INSERT INTO control_idempotency SELECT id, idempotency_key, operator_id, tool_name, request_hash, status, result, created_at, updated_at FROM control_idempotency_legacy;
+      DROP TABLE control_idempotency_legacy;
+      CREATE UNIQUE INDEX idx_control_idempotency_operator_key ON control_idempotency(operator_id, idempotency_key);
+      CREATE INDEX idx_control_idempotency_tool ON control_idempotency(tool_name);
+      COMMIT;
+    `);
+  } else {
+    getDb().exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_control_idempotency_operator_key ON control_idempotency(operator_id, idempotency_key)');
+  }
+
   const now = new Date().toISOString();
   getDb().prepare(`
     INSERT OR IGNORE INTO tasks (id, name, goal, status, created_at, updated_at)
@@ -745,21 +768,23 @@ export const controlIdempotency = {
     );
     return controlIdempotency.getByKey(idempotencyKey);
   },
-  getByKey(key) {
-    return getDb().prepare('SELECT * FROM control_idempotency WHERE idempotency_key = ?').get(key);
+  getByKey(key, operatorId) {
+    if (!key || !operatorId) return null;
+    return getDb().prepare('SELECT * FROM control_idempotency WHERE idempotency_key = ? AND operator_id = ?').get(key, operatorId);
   },
-  update(key, { status, result }) {
-    const current = controlIdempotency.getByKey(key);
+  update(key, operatorId, { status, result }) {
+    const current = controlIdempotency.getByKey(key, operatorId);
     if (!current) return null;
     getDb().prepare(`
-      UPDATE control_idempotency SET status = ?, result = ?, updated_at = ? WHERE idempotency_key = ?
+      UPDATE control_idempotency SET status = ?, result = ?, updated_at = ? WHERE idempotency_key = ? AND operator_id = ?
     `).run(
       status !== undefined ? status : current.status,
       result !== undefined ? JSON.stringify(result) : current.result,
       new Date().toISOString(),
       key,
+      operatorId,
     );
-    return controlIdempotency.getByKey(key);
+    return controlIdempotency.getByKey(key, operatorId);
   },
 };
 

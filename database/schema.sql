@@ -285,7 +285,7 @@ CREATE INDEX IF NOT EXISTS idx_operator_audit_tool ON operator_audit_log (tool_n
 
 CREATE TABLE IF NOT EXISTS control_idempotency (
   id                TEXT PRIMARY KEY,
-  idempotency_key   TEXT NOT NULL UNIQUE,
+  idempotency_key   TEXT NOT NULL,
   operator_id       TEXT NOT NULL,
   tool_name         TEXT NOT NULL,
   request_hash      TEXT NOT NULL,
@@ -295,6 +295,7 @@ CREATE TABLE IF NOT EXISTS control_idempotency (
   updated_at        TEXT NOT NULL
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_control_idempotency_operator_key ON control_idempotency (operator_id, idempotency_key);
 CREATE INDEX IF NOT EXISTS idx_control_idempotency_tool ON control_idempotency (tool_name);
 
 CREATE TABLE IF NOT EXISTS repair_sessions (
