@@ -12,6 +12,8 @@ import {
   completeIdempotency,
   parseStoredResult,
 } from './idempotency.js';
+import { verifyAndConsumeApprovalContract } from './approval-contract.js';
+import { getTenantId } from './tenant-context.js';
 import { agentTools } from './tools/agent.js';
 import { browserTools } from './tools/browser.js';
 import { githubTools } from './tools/github.js';
@@ -124,6 +126,9 @@ export async function invokeControlTool(opts = {}) {
         const parsed = parseStoredResult(existing);
         recordAudit({ ...auditBase, status: 'replayed', details: { ...auditBase.details, idempotencyId: existing.id } });
         return { ok: true, status: 200, body: { ok: true, replayed: true, tool: toolName, requestId, result: parsed.result } };
+      }
+      if (source === 'http' || source === 'mcp') {
+        verifyAndConsumeApprovalContract(opts.approvalContract, { tenantId: opts.tenantId || getTenantId(), toolName, args });
       }
       beginIdempotency({ idempotencyKey, operatorId, toolName, requestHash });
     }
