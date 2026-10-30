@@ -1,50 +1,88 @@
-// control/index.js
-// Versioned Control HTTP API: /api/control/v1
+// control/tools/composio.js
+// Agent-facing Composio tools. Every mutation is invoked through Control.
 
-import express from 'express';
-import { nanoid } from 'nanoid';
-import { controlAuthMiddleware, ControlAuthError, getControlToken, isProductionEnv } from './auth.js';
-import { isForbiddenTool, ALLOWED_TOOLS, FORBIDDEN_TOOLS } from './policy.js';
-import { recordAudit } from './audit.js';
-import { hashRequest, lookupIdempotency, beginIdempotency, completeIdempotency, parseStoredResult } from './idempotency.js';
-import { agentTools } from './tools/agent.js';
-import { browserTools } from './tools/browser.js';
-import { githubTools } from './tools/github.js';
-import { renderTools } from './tools/render.js';
-import { repairTools } from './repair.js';
-import { websiteEngineTools } from './tools/website-engine.js';
-import { creativeEngineTools } from './tools/creative-engine.js';
-import { supervisorTools } from './tools/supervisor.js';
-import { businessGrowthTools } from '../integrations/business-growth.js';
-import { composioTools } from './tools/composio.js';
-import { invokeControlTool } from './invoke.js';
-import { tenantContextMiddleware } from './tenant-auth.js';
-import { getTenantContext } from './tenant-context.js';
-import { clientRevenueIntelligenceTools } from '../integrations/client-revenue-intelligence.js';
+import { executeComposioOperation, composioRuntimeStatus } from '../../integrations/composio-runtime.js';
 
-const TOOLS = {
-  ...agentTools,
-  ...browserTools,
-  ...githubTools,
-  ...renderTools,
-  ...repairTools,
-  ...websiteEngineTools,
-  ...creativeEngineTools,
-  ...supervisorTools,
-  ...businessGrowthTools,
-  ...composioTools,
-  ...clientRevenueIntelligenceTools,
+export const composioTools = {
+  'composio.status': status,
+  'composio.hubspot.search_contacts': hubspotSearchContacts,
+  'composio.hubspot.create_contact': hubspotCreateContact,
+  'composio.hubspot.update_contact': hubspotUpdateContact,
+  'composio.hubspot.create_company': hubspotCreateCompany,
+  'composio.hubspot.update_company': hubspotUpdateCompany,
+  'composio.hubspot.read_contact': hubspotReadContact,
+  'composio.calendar.create_event': calendarCreateEvent,
+  'composio.calendar.get_event': calendarGetEvent,
+  'composio.calendar.patch_event': calendarPatchEvent,
+  'composio.calendar.delete_event': calendarDeleteEvent,
+  'composio.xero.create_draft_invoice': xeroCreateDraftInvoice,
+  'composio.xero.get_invoice': xeroGetInvoice,
 };
 
-export function listRegisteredTools() { return Object.keys(TOOLS); }
-export async function executeTool(toolName, args, ctx = {}) {
-  if (isForbiddenTool(toolName) || !TOOLS[toolName]) { const err = new Error(`Tool \"${toolName}\" is not registered`); err.status = 403; throw err; }
-  const identity = getTenantContext();
-  if (!identity?.tenantId) { const err = new Error('Verified tenant context is required'); err.status = 401; throw err; }
-  const outcome = await invokeControlTool({ toolName, args, operatorId: identity.operatorId || identity.tenantId, tenantId: identity.tenantId, approvalContract: ctx.approvalContract, idempotencyKey: ctx.idempotencyKey, requestId: ctx.requestId, source: 'mcp' });
-  if (!outcome.ok) { const err = new Error(outcome.body.error || 'Control tool execution rejected'); err.status = outcome.status; err.code = outcome.body.code; throw err; }
-  return outcome.body.result;
+async function status() {
+  return { ok: true, runtime: await composioRuntimeStatus() };
 }
-export { invokeControlTool };
-export function createControlRouter() { const router = express.Router(); router.get('/health', (req, res) => { const tokenConfigured = Boolean(getControlToken()); if (!tokenConfigured && isProductionEnv()) return res.status(503).json({ ok:false, error:'CONTROL_TOKEN is required in production; Control API is fail-closed' }); res.json({ ok:true, service:'control', version:'v1', tools:listRegisteredTools(), forbiddenNeverRegistered:FORBIDDEN_TOOLS, tokenConfigured }); }); router.post('/tools/:toolName', controlAuthMiddleware, tenantContextMiddleware, async (req,res)=>{ const toolName=req.params.toolName; const requestId=req.headers['x-request-id']||nanoid(12); const operatorId=req.nexoraTenant?.operatorId||req.nexoraTenant?.tenantId||'control-operator'; const idempotencyKey=req.headers['idempotency-key']||req.body?.idempotencyKey||null; const args=req.body||{}; const outcome=await invokeControlTool({toolName,args,operatorId,tenantId:req.nexoraTenant?.tenantId,approvalContract:req.headers['x-nexora-approval-contract'],idempotencyKey,requestId,source:'http'}); return res.status(outcome.status).json(outcome.body); }); return router; }
-export { ALLOWED_TOOLS, FORBIDDEN_TOOLS };
+
+async function execute(provider, operation, args, ctx) {
+  return executeComposioOperation({
+    provider,
+    operation,
+    args,
+    requestId: ctx?.requestId || null,
+    tenantId: ctx?.tenantId || null,
+  });
+}
+
+async function hubspotSearchContacts(args = {}, ctx) {
+  return execute('hubspot', 'search_contacts', args, ctx);
+}
+
+async function hubspotCreateContact(args = {}, ctx) {
+  return execute('hubspot', 'create_contact', args, ctx);
+}
+
+async function hubspotUpdateContact(args = {}, ctx) {
+  return execute('hubspot', 'update_contact', args, ctx);
+}
+
+async function hubspotCreateCompany(args = {}, ctx) {
+  return execute('hubspot', 'create_company', args, ctx);
+}
+
+async function hubspotUpdateCompany(args = {}, ctx) {
+  return execute('hubspot', 'update_company', args, ctx);
+}
+
+async function hubspotReadContact(args = {}, ctx) {
+  return execute('hubspot', 'read_contact', args, ctx);
+}
+
+async function calendarCreateEvent(args = {}, ctx) {
+  return execute('googlecalendar', 'create_event', args, ctx);
+}
+
+async function calendarGetEvent(args = {}, ctx) {
+  return execute('googlecalendar', 'get_event', args, ctx);
+}
+
+async function calendarPatchEvent(args = {}, ctx) {
+  return execute('googlecalendar', 'patch_event', args, ctx);
+}
+
+async function calendarDeleteEvent(args = {}, ctx) {
+  return execute('googlecalendar', 'delete_event', args, ctx);
+}
+
+export async function xeroCreateDraftInvoice(args = {}, ctx) {
+  if (String(args.Status || 'DRAFT').toUpperCase() !== 'DRAFT') {
+    const err = new Error('Xero runtime only permits DRAFT invoice creation');
+    err.status = 403;
+    err.code = 'XERO_DRAFT_ONLY';
+    throw err;
+  }
+  return execute('xero', 'create_draft_invoice', { ...args, Status: 'DRAFT' }, ctx);
+}
+
+async function xeroGetInvoice(args = {}, ctx) {
+  return execute('xero', 'get_invoice', args, ctx);
+}
