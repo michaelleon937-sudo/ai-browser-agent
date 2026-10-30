@@ -688,7 +688,7 @@ result!=null?JSON.stringify(result):null,
 now,
 now,
 );
-return controlIdempotency.getByKey(idempotencyKey);
+return controlIdempotency.getByKey(idempotencyKey,operatorId);
 },
 getByKey(key,operatorId){
 if(!key||!operatorId)return null;

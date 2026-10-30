@@ -793,3 +793,14 @@ CREATE INDEX IF NOT EXISTS idx_autonomous_loops_status ON autonomous_loops(statu
 CREATE TABLE IF NOT EXISTS autonomous_loop_checkpoints (id TEXT PRIMARY KEY, loop_id TEXT NOT NULL, checkpoint_no INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'RUNNING', snapshot_json TEXT, outcome_json TEXT, strategy_before_json TEXT, strategy_after_json TEXT, exceptions_json TEXT, actions_json TEXT, started_at TEXT NOT NULL, finished_at TEXT, FOREIGN KEY (loop_id) REFERENCES autonomous_loops(id) ON DELETE CASCADE);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_loop_checkpoint_no ON autonomous_loop_checkpoints(loop_id, checkpoint_no);
 CREATE INDEX IF NOT EXISTS idx_loop_checkpoints_status ON autonomous_loop_checkpoints(status);
+
+
+CREATE TABLE IF NOT EXISTS approval_contract_uses (
+  jti TEXT PRIMARY KEY,
+  approval_id TEXT NOT NULL,
+  tenant_id TEXT NOT NULL,
+  tool_name TEXT NOT NULL,
+  consumed_at TEXT NOT NULL,
+  expires_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_approval_contract_uses_tenant ON approval_contract_uses(tenant_id, approval_id);

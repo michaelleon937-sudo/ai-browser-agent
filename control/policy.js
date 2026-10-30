@@ -19,28 +19,28 @@ export function isAllowedTool(name){return ALLOWED_TOOLS.includes(String(name||'
 export function isMutatingTool(name){return MUTATING_TOOLS.has(String(name||''));}
 export function requiresApproval(name){return TOOLS_REQUIRING_APPROVAL.has(String(name||''));}
 
-export function evaluatePolicy({toolName,args={}}={}) {
+export function evaluatePolicy({toolName,args={},approvalVerified=false}={}) {
   const name=String(toolName||'');
   if(!name)return{allow:false,status:400,reason:'tool name required'};
   if(isForbiddenTool(name))return{allow:false,status:403,reason:`Tool "${name}" is forbidden and is not registered`};
   if(!isAllowedTool(name))return{allow:false,status:403,reason:`Tool "${name}" is not registered`};
 
-  if (TOOLS_REQUIRING_APPROVAL.has(name) && args.approved !== true) {
-    return { allow:false,status:403,reason:`${name} requires explicit approval (approved=true)` };
+  if (TOOLS_REQUIRING_APPROVAL.has(name) && approvalVerified !== true) {
+    return { allow:false,status:403,reason:`${name} requires a valid Nexora signed approval contract` };
   }
 
   if(name==='github.modify_file'){
     const branch=String(args.branch||'');
     if(!branch.startsWith('repair/'))return{allow:false,status:403,reason:'github.modify_file may only target repair/* branches'};
     if(branch==='master'||branch==='main')return{allow:false,status:403,reason:'direct default-branch modification is forbidden'};
-    if(!args.approved)return{allow:false,status:403,reason:'github.modify_file requires explicit approval (approved=true)'};
+    if(!args.approved)return{allow:false,status:403,reason:'github.modify_file requires a valid Nexora signed approval contract'};
   }
   if(name==='render.deploy'){
     const target=String(args.target||args.environment||'staging').toLowerCase();
     if(target==='production'||target==='prod')return{allow:false,status:403,reason:'production Render deploy is blocked by default'};
-    if(!args.approved)return{allow:false,status:403,reason:'render.deploy to staging requires explicit approval (approved=true)'};
+    if(!args.approved)return{allow:false,status:403,reason:'render.deploy to staging requires a valid Nexora signed approval contract'};
   }
-  if(name==='creative.render'&&!args.approved)return{allow:false,status:403,reason:'creative.render requires explicit approval (approved=true)'};
+  if(name==='creative.render'&&!args.approved)return{allow:false,status:403,reason:'creative.render requires a valid Nexora signed approval contract'};
   if((name==='browser.open'||name==='browser.click'||name==='browser.type')&&args.url){
     const hostCheck=checkBrowserHost(args.url);
     if(!hostCheck.allow)return hostCheck;

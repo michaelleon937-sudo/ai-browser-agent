@@ -1,5 +1,9 @@
 // tests/unit/control-layer.test.js
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { signClaims } from '../../control/tenant-auth.js';
+import { verifyAndConsumeApprovalContract } from '../../control/approval-contract.js';
+import { hashRequest } from '../../control/idempotency.js';
+import { runWithTenantContext } from '../../control/tenant-context.js';
 import express from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -231,5 +235,37 @@ describe('github/render HTTP policy', () => {
       body: { target: 'production', approved: true },
     });
     expect(res.status).toBe(403);
+  });
+});
+
+
+describe('single-use Nexora approval contract', () => {
+  it('binds tenant, approver, tool and canonical payload, and rejects replay', async () => {
+    process.env.NEXORA_AGENT_SHARED_SECRET = 'unit-test-shared-secret-at-least-32-bytes-long';
+    const tenantId = 'tenant-unit-a'; const operatorId = 'member-unit-a';
+    const toolName = 'composio.hubspot.create_contact'; const args = { email: 'a@example.com', firstname: 'A' };
+    const now = Math.floor(Date.now() / 1000);
+    const token = signClaims({ iss: 'nexora-intelligence', aud: 'ai-browser-agent', typ: 'approval', tenantId, sub: operatorId, toolName, oneTime: true, approvalId: 'approval-unit-a', jti: 'jti-unit-a', argsHash: hashRequest(toolName, args), iat: now, exp: now + 240 });
+    await runWithTenantContext({ tenantId, operatorId }, async () => {
+      expect(() => verifyAndConsumeApprovalContract(token, { tenantId, operatorId, toolName, args })).not.toThrow();
+      expect(() => verifyAndConsumeApprovalContract(token, { tenantId, operatorId, toolName, args })).toThrow(/already been consumed/);
+      expect(() => verifyAndConsumeApprovalContract(token, { tenantId, operatorId: 'other-user', toolName, args })).toThrow(/does not authorize/);
+    });
+    delete process.env.NEXORA_AGENT_SHARED_SECRET;
+  });
+});
+
+
+describe('tenant database isolation', () => {
+  it('isolates task rows between verified tenant contexts', async () => {
+    const { getDb } = await import('../../database/index.js');
+    const tenantA = 'db-isolation-a'; const tenantB = 'db-isolation-b';
+    await runWithTenantContext({ tenantId: tenantA, operatorId: 'a' }, async () => {
+      const now = new Date().toISOString();
+      getDb().prepare("INSERT INTO tasks (id,name,goal,status,created_at,updated_at) VALUES ('tenant-private-row','private','private','idle',?,?)").run(now,now);
+    });
+    await runWithTenantContext({ tenantId: tenantB, operatorId: 'b' }, async () => {
+      expect(getDb().prepare("SELECT id FROM tasks WHERE id='tenant-private-row'").get()).toBeUndefined();
+    });
   });
 });

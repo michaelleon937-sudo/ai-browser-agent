@@ -3,7 +3,7 @@
 // Enforces policy, audit, and idempotency â never bypass.
 
 import { nanoid } from 'nanoid';
-import { evaluatePolicy, isMutatingTool, isForbiddenTool } from './policy.js';
+import { evaluatePolicy, isMutatingTool, isForbiddenTool, requiresApproval } from './policy.js';
 import { recordAudit } from './audit.js';
 import {
   hashRequest,
@@ -54,13 +54,13 @@ const TOOLS = {
   ...clientRevenueIntelligenceTools,
 };
 
-async function runTool(toolName, args, ctx) {
+async function runTool(toolName, args, ctx, approvalVerified = false) {
   if (isForbiddenTool(toolName) || !TOOLS[toolName]) {
     const err = new Error(`Tool "${toolName}" is not registered`);
     err.status = 403;
     throw err;
   }
-  const policy = evaluatePolicy({ toolName, args });
+  const policy = evaluatePolicy({ toolName, args, approvalVerified });
   if (!policy.allow) {
     const err = new Error(policy.reason);
     err.status = policy.status || 403;
@@ -72,6 +72,7 @@ async function runTool(toolName, args, ctx) {
 export async function invokeControlTool(opts = {}) {
   const toolName = String(opts.toolName || '');
   const args = opts.args && typeof opts.args === 'object' ? opts.args : {};
+  const tenantContext = opts.tenantId || getTenantId();
   const operatorId = opts.operatorId || 'control-operator';
   const requestId = opts.requestId || nanoid(12);
   const idempotencyKey = opts.idempotencyKey || null;
@@ -127,13 +128,15 @@ export async function invokeControlTool(opts = {}) {
         recordAudit({ ...auditBase, status: 'replayed', details: { ...auditBase.details, idempotencyId: existing.id } });
         return { ok: true, status: 200, body: { ok: true, replayed: true, tool: toolName, requestId, result: parsed.result } };
       }
-      if (source === 'http' || source === 'mcp') {
-        verifyAndConsumeApprovalContract(opts.approvalContract, { tenantId: opts.tenantId || getTenantId(), toolName, args });
+      let approvalVerified = false;
+      if (requiresApproval(toolName)) {
+        verifyAndConsumeApprovalContract(opts.approvalContract, { tenantId: tenantContext, operatorId, toolName, args });
+        approvalVerified = true;
       }
       beginIdempotency({ idempotencyKey, operatorId, toolName, requestHash });
     }
 
-    const result = await runTool(toolName, args, { operatorId, requestId, source });
+    const result = await runTool(toolName, args, { operatorId, requestId, source }, requiresApproval(toolName));
     if (isMutatingTool(toolName) && idempotencyKey) {
       completeIdempotency(idempotencyKey, operatorId, { status: 'completed', result });
     }
