@@ -295,7 +295,6 @@ CREATE TABLE IF NOT EXISTS control_idempotency (
   updated_at        TEXT NOT NULL
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_control_idempotency_operator_key ON control_idempotency (operator_id, idempotency_key);
 CREATE INDEX IF NOT EXISTS idx_control_idempotency_tool ON control_idempotency (tool_name);
 
 CREATE TABLE IF NOT EXISTS repair_sessions (
