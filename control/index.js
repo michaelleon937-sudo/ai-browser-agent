@@ -4,7 +4,7 @@
 import express from 'express';
 import { nanoid } from 'nanoid';
 import { controlAuthMiddleware, ControlAuthError, getControlToken, isProductionEnv } from './auth.js';
-import { evaluatePolicy, isMutatingTool, isForbiddenTool, ALLOWED_TOOLS, FORBIDDEN_TOOLS } from './policy.js';
+import { isForbiddenTool, ALLOWED_TOOLS, FORBIDDEN_TOOLS } from './policy.js';
 import { recordAudit } from './audit.js';
 import { hashRequest, lookupIdempotency, beginIdempotency, completeIdempotency, parseStoredResult } from './idempotency.js';
 import { agentTools } from './tools/agent.js';
@@ -36,7 +36,12 @@ const TOOLS = {
 };
 
 export function listRegisteredTools() { return Object.keys(TOOLS); }
-export async function executeTool(toolName, args, ctx = {}) { if (isForbiddenTool(toolName) || !TOOLS[toolName]) { const err = new Error(`Tool "${toolName}" is not registered`); err.status = 403; throw err; } const policy = evaluatePolicy({ toolName, args }); if (!policy.allow) { const err = new Error(policy.reason); err.status = policy.status || 403; throw err; } return TOOLS[toolName](args, ctx); }
+export async function executeTool(toolName, args, ctx = {}) {
+  if (isForbiddenTool(toolName) || !TOOLS[toolName]) { const err = new Error(`Tool \"${toolName}\" is not registered`); err.status = 403; throw err; }
+  const outcome = await invokeControlTool({ toolName, args, operatorId: ctx.operatorId || ctx.tenantId, tenantId: ctx.tenantId, approvalContract: ctx.approvalContract, idempotencyKey: ctx.idempotencyKey, requestId: ctx.requestId, source: 'mcp' });
+  if (!outcome.ok) { const err = new Error(outcome.body.error || 'Control tool execution rejected'); err.status = outcome.status; err.code = outcome.body.code; throw err; }
+  return outcome.body.result;
+}
 export { invokeControlTool };
 export function createControlRouter() { const router = express.Router(); router.get('/health', (req, res) => { const tokenConfigured = Boolean(getControlToken()); if (!tokenConfigured && isProductionEnv()) return res.status(503).json({ ok:false, error:'CONTROL_TOKEN is required in production; Control API is fail-closed' }); res.json({ ok:true, service:'control', version:'v1', tools:listRegisteredTools(), forbiddenNeverRegistered:FORBIDDEN_TOOLS, tokenConfigured }); }); router.post('/tools/:toolName', controlAuthMiddleware, tenantContextMiddleware, async (req,res)=>{ const toolName=req.params.toolName; const requestId=req.headers['x-request-id']||nanoid(12); const operatorId=req.nexoraTenant?.operatorId||req.nexoraTenant?.tenantId||'control-operator'; const idempotencyKey=req.headers['idempotency-key']||req.body?.idempotencyKey||null; const args=req.body||{}; const outcome=await invokeControlTool({toolName,args,operatorId,tenantId:req.nexoraTenant?.tenantId,approvalContract:req.headers['x-nexora-approval-contract'],idempotencyKey,requestId,source:'http'}); return res.status(outcome.status).json(outcome.body); }); return router; }
 export { ALLOWED_TOOLS, FORBIDDEN_TOOLS };
