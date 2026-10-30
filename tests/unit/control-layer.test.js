@@ -28,7 +28,7 @@ async function request(method, url, { headers = {}, body } = {}) {
   try {
     const res = await fetch(`http://127.0.0.1:${port}${url}`, {
       method,
-      headers: { 'Content-Type': 'application/json', ...headers },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.CONTROL_TOKEN}`, ...headers },
       body: body ? JSON.stringify(body) : undefined,
     });
     const text = await res.text();
@@ -45,6 +45,7 @@ beforeAll(async () => {
   process.env.DATABASE_PATH = tmpDbPath;
   process.env.DATA_DIR = path.dirname(tmpDbPath);
   process.env.NODE_ENV = 'test';
+  process.env.CONTROL_TOKEN = 'unit-control-bearer-token';
   process.env.AI_PROVIDER = 'stub';
   originalSharedSecret = process.env.NEXORA_AGENT_SHARED_SECRET;
   sharedSecret = 'unit-test-control-shared-secret-at-least-32-bytes';
@@ -193,8 +194,8 @@ describe('agent + audit + repair', () => {
     expect(sanitizeForAudit({ CONTROL_TOKEN: token }).CONTROL_TOKEN).toBe('[REDACTED]');
   });
   it('retry_run on failed run', async () => {
-    const task = tasks.create({ name: 'retry-me', goal: 'fail' });
-    const failed = runs.start({ taskId: task.id });
+    const task = tasks.create({ name: 'retry-me', goal: 'fail', tenantId: 'control-test-tenant', operatorId: 'control-test-operator' });
+    const failed = runs.start({ taskId: task.id, tenantId: 'control-test-tenant', operatorId: 'control-test-operator' });
     runs.finish(failed.id, { status: 'failed', errorMessage: 'boom' });
     const res = await request('POST', '/api/control/v1/tools/agent.retry_run', {
       headers: { 'x-nexora-tenant-token': token, 'Idempotency-Key': `retry-${Date.now()}` },
