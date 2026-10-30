@@ -15,7 +15,6 @@ let createControlRouter;
 let tmpDbPath;
 let app;
 let token;
-let tenantToken;
 const sharedSecret = 'agent-control-test-secret-at-least-32-bytes-long';
 
 async function request(method, url, { headers = {}, body, tenantId = 'control-test-tenant' } = {}) {
@@ -47,8 +46,6 @@ beforeAll(async () => {
   process.env.NEXORA_AGENT_SHARED_SECRET = sharedSecret;
   token = sharedSecret;
   process.env.CONTROL_TOKEN = token;
-  const now = Math.floor(Date.now() / 1000);
-  tenantToken = signClaims({ iss: 'nexora-intelligence', aud: 'ai-browser-agent-control', typ: 'tenant', tenantId, sub: 'control-operator', iat: now, exp: now + 300, jti: `control-${Date.now()}` }, sharedSecret);
   process.env.MAX_REPAIR_ATTEMPTS = '3';
   ({ migrate, closeDb, tasks, runs, operatorAuditLog, controlIdempotency } = await import('../../database/index.js'));
   migrate();
@@ -134,6 +131,12 @@ describe('forbidden and idempotency', () => {
     });
     expect(second.json.replayed).toBe(true);
     expect(second.json.result.task.id).toBe(first.json.result.task.id);
+    const mismatch = await request('POST', '/api/control/v1/tools/agent.create_task', {
+      headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': key },
+      body: { ...body, goal: 'changed payload' },
+    });
+    expect(mismatch.status).toBe(409);
+    expect(mismatch.json.code).toBe('idempotency_payload_mismatch');
     expect(controlIdempotency.getByKey(key, 'control-test-tenant:control-operator')).toBeTruthy();
   });
   it('does not share an idempotency key across different tenants', async () => {
