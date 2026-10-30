@@ -74,7 +74,7 @@ describe('policy', () => {
   it('requires approval for github.modify_file on repair/*', () => {
     const denied = evaluatePolicy({ toolName: 'github.modify_file', args: { branch: 'repair/abc' } });
     expect(denied.allow).toBe(false);
-    const ok = evaluatePolicy({ toolName: 'github.modify_file', args: { branch: 'repair/abc', approved: true } });
+    const ok = evaluatePolicy({ toolName: 'github.modify_file', args: { branch: 'repair/abc' }, approvalVerified: true });
     expect(ok.allow).toBe(true);
   });
 });
@@ -241,17 +241,16 @@ describe('github/render HTTP policy', () => {
 
 describe('single-use Nexora approval contract', () => {
   it('binds tenant, approver, tool and canonical payload, and rejects replay', async () => {
-    process.env.NEXORA_AGENT_SHARED_SECRET = 'unit-test-shared-secret-at-least-32-bytes-long';
+    const secret = 'unit-test-shared-secret-at-least-32-bytes-long';
     const tenantId = 'tenant-unit-a'; const operatorId = 'member-unit-a';
     const toolName = 'composio.hubspot.create_contact'; const args = { email: 'a@example.com', firstname: 'A' };
     const now = Math.floor(Date.now() / 1000);
-    const token = signClaims({ iss: 'nexora-intelligence', aud: 'ai-browser-agent', typ: 'approval', tenantId, sub: operatorId, toolName, oneTime: true, approvalId: 'approval-unit-a', jti: 'jti-unit-a', argsHash: hashRequest(toolName, args), iat: now, exp: now + 240 });
+    const token = signClaims({ iss: 'nexora-intelligence', aud: 'ai-browser-agent', typ: 'approval', tenantId, sub: operatorId, toolName, oneTime: true, approvalId: 'approval-unit-a', jti: `jti-${Date.now()}-${Math.random()}`, argsHash: hashRequest(toolName, args), iat: now, exp: now + 240 }, secret);
     await runWithTenantContext({ tenantId, operatorId }, async () => {
-      expect(() => verifyAndConsumeApprovalContract(token, { tenantId, operatorId, toolName, args })).not.toThrow();
-      expect(() => verifyAndConsumeApprovalContract(token, { tenantId, operatorId, toolName, args })).toThrow(/already been consumed/);
-      expect(() => verifyAndConsumeApprovalContract(token, { tenantId, operatorId: 'other-user', toolName, args })).toThrow(/does not authorize/);
+      expect(() => verifyAndConsumeApprovalContract(token, { tenantId, operatorId, toolName, args, secret })).not.toThrow();
+      expect(() => verifyAndConsumeApprovalContract(token, { tenantId, operatorId, toolName, args, secret })).toThrow(/already been consumed/);
+      expect(() => verifyAndConsumeApprovalContract(token, { tenantId, operatorId: 'other-user', toolName, args, secret })).toThrow(/does not authorize/);
     });
-    delete process.env.NEXORA_AGENT_SHARED_SECRET;
   });
 });
 

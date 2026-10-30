@@ -65,6 +65,7 @@ describe('Phase A1 approval and send', () => {
     expect(evaluatePolicy({
       toolName: 'client_delivery.send_approved',
       args: { deliveryId: 'x', approved: true },
+      approvalVerified: true,
     }).allow).toBe(true);
   });
 

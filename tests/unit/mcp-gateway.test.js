@@ -205,6 +205,8 @@ describe('Remote MCP Gateway', () => {
       toolName: 'agent.create_task',
       args: { name: 'MCP task', goal: 'test' },
       operatorId: 'mcp-operator',
+      tenantId: null,
+      approvalContract: null,
       idempotencyKey: 'mcp-idem-1',
       source: 'mcp',
     });
