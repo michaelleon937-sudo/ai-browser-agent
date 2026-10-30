@@ -74,6 +74,7 @@ export async function invokeControlTool(opts = {}) {
   const args = opts.args && typeof opts.args === 'object' ? opts.args : {};
   const tenantContext = opts.tenantId || getTenantId();
   const operatorId = opts.operatorId || 'control-operator';
+  const idempotencyScope = tenantContext ? `${tenantContext}:${operatorId}` : operatorId;
   const requestId = opts.requestId || nanoid(12);
   const idempotencyKey = opts.idempotencyKey || null;
   const source = opts.source || 'control';
@@ -116,7 +117,7 @@ export async function invokeControlTool(opts = {}) {
         };
       }
       const requestHash = hashRequest(toolName, args);
-      const existing = lookupIdempotency(idempotencyKey, operatorId);
+      const existing = lookupIdempotency(idempotencyKey, idempotencyScope);
       if (existing) {
         if (existing.request_hash !== requestHash || existing.tool_name !== toolName) {
           recordAudit({ ...auditBase, status: 'rejected', details: { ...auditBase.details, reason: 'idempotency_payload_mismatch', idempotencyId: existing.id } });
@@ -133,12 +134,12 @@ export async function invokeControlTool(opts = {}) {
         verifyAndConsumeApprovalContract(opts.approvalContract, { tenantId: tenantContext, operatorId, toolName, args });
         approvalVerified = true;
       }
-      beginIdempotency({ idempotencyKey, operatorId, toolName, requestHash });
+      beginIdempotency({ idempotencyKey, operatorId: idempotencyScope, toolName, requestHash });
     }
 
     const result = await runTool(toolName, args, { operatorId, tenantId: tenantContext, requestId, source, approvalVerified }, approvalVerified);
     if (isMutatingTool(toolName) && idempotencyKey) {
-      completeIdempotency(idempotencyKey, operatorId, { status: 'completed', result });
+      completeIdempotency(idempotencyKey, idempotencyScope, { status: 'completed', result });
     }
     recordAudit({
       ...auditBase,
@@ -152,8 +153,8 @@ export async function invokeControlTool(opts = {}) {
       body: { ok: true, tool: toolName, requestId, result },
     };
   } catch (err) {
-    if (isMutatingTool(toolName) && idempotencyKey && lookupIdempotency(idempotencyKey, operatorId)) {
-      completeIdempotency(idempotencyKey, operatorId, { status: 'failed', result: { error: err.message } });
+    if (isMutatingTool(toolName) && idempotencyKey && lookupIdempotency(idempotencyKey, idempotencyScope)) {
+      completeIdempotency(idempotencyKey, idempotencyScope, { status: 'failed', result: { error: err.message } });
     }
     const status = err.status || 500;
     recordAudit({
