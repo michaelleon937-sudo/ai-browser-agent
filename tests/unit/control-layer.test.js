@@ -17,6 +17,7 @@ let createControlRouter;
 let tmpDbPath;
 let app;
 let token;
+let tenantToken;
 
 async function request(method, url, { headers = {}, body } = {}) {
   const server = await new Promise((resolve) => {
@@ -26,7 +27,7 @@ async function request(method, url, { headers = {}, body } = {}) {
   try {
     const res = await fetch(`http://127.0.0.1:${port}${url}`, {
       method,
-      headers: { 'Content-Type': 'application/json', ...headers },
+      headers: { 'Content-Type': 'application/json', ...headers, ...(headers.Authorization === `Bearer ${token}` && tenantToken ? { 'x-nexora-tenant-token': tenantToken } : {}) },
       body: body ? JSON.stringify(body) : undefined,
     });
     const text = await res.text();
@@ -43,8 +44,11 @@ beforeAll(async () => {
   process.env.DATABASE_PATH = tmpDbPath;
   process.env.DATA_DIR = path.dirname(tmpDbPath);
   process.env.NODE_ENV = 'test';
+  process.env.NEXORA_AGENT_SHARED_SECRET = 'unit-test-shared-secret-at-least-32-bytes-long';
   process.env.AI_PROVIDER = 'stub';
   token = 'test-control-token-phase5b';
+  const now = Math.floor(Date.now() / 1000);
+  tenantToken = signClaims({ iss: 'nexora-intelligence', aud: 'ai-browser-agent-control', typ: 'tenant', tenantId: 'tenant-control-test', sub: 'control-operator', iat: now, exp: now + 300, jti: `tenant-${Date.now()}` }, process.env.NEXORA_AGENT_SHARED_SECRET);
   process.env.CONTROL_TOKEN = token;
   process.env.MAX_REPAIR_ATTEMPTS = '3';
   ({ migrate, closeDb, tasks, runs, operatorAuditLog, controlIdempotency } = await import('../../database/index.js'));

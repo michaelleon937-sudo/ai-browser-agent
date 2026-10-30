@@ -46,6 +46,20 @@ describe('Composio runtime adapter', () => {
     expect(options.headers['x-api-key']).toBe('test-key');
   });
 
+
+  it('resolves an ACTIVE Composio account owned by the signed tenant', async () => {
+    fetchMock.mockImplementation(async (url) => {
+      if (String(url).includes('/connected_accounts?')) return new Response(JSON.stringify({ items: [{ id: 'tenant-hubspot-account', user_id: 'nexora-tenant-tenant-a', toolkit: { slug: 'hubspot' }, status: 'ACTIVE' }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+      return new Response(JSON.stringify({ successful: true, data: { id: 'tenant-write' } }), { status: 200, headers: { 'content-type': 'application/json' } });
+    });
+    const { executeComposioOperation } = await import('../../integrations/composio-runtime.js');
+    await executeComposioOperation({ provider: 'hubspot', operation: 'create_contact', tenantId: 'tenant-a', args: { email: 'tenant@example.test' } });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const body = JSON.parse(fetchMock.mock.calls[1][1].body);
+    expect(body.connected_account_id).toBe('tenant-hubspot-account');
+    expect(body.user_id).toBe('nexora-tenant-tenant-a');
+  });
+
   it('denies unknown providers and operations before network access', async () => {
     const { executeComposioOperation } = await import('../../integrations/composio-runtime.js');
     await expect(executeComposioOperation({

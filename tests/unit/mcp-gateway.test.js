@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import http from 'node:http';
+import { signClaims } from '../../control/tenant-auth.js';
+import { runWithTenantContext } from '../../control/tenant-context.js';
 
 const invokeControlTool = vi.fn(async ({ toolName, args, idempotencyKey, source }) => ({
   ok: true,
@@ -126,11 +128,15 @@ describe('Remote MCP Gateway', () => {
   let MCP_TOOL_DEFINITIONS;
   let createMcpServerInstance;
   let mountMcp;
+  let tenantToken;
 
   beforeEach(async () => {
     registeredTools.length = 0;
     invokeControlTool.mockClear();
     process.env.CONTROL_TOKEN = 'mcp-test-token';
+    process.env.NEXORA_AGENT_SHARED_SECRET = 'mcp-test-shared-secret-at-least-32-characters';
+    const now = Math.floor(Date.now() / 1000);
+    tenantToken = signClaims({ iss: 'nexora-intelligence', aud: 'ai-browser-agent-control', typ: 'tenant', tenantId: 'tenant-mcp', sub: 'mcp-operator', iat: now, exp: now + 300, jti: `mcp-${Date.now()}` }, process.env.NEXORA_AGENT_SHARED_SECRET);
 
     ({ MCP_TOOL_DEFINITIONS, createMcpServerInstance, mountMcp } = await import('../../mcp/server.js'));
   });
@@ -196,16 +202,16 @@ describe('Remote MCP Gateway', () => {
 
     const createTask = registeredTools.find((tool) => tool.name === 'agent_create_task');
 
-    await createTask.handler(
+    await runWithTenantContext({ tenantId: 'tenant-mcp', operatorId: 'mcp-operator' }, () => createTask.handler(
       { name: 'MCP task', goal: 'test' },
       { requestInfo: { headers: { 'idempotency-key': 'mcp-idem-1' } } },
-    );
+    ));
 
     expect(invokeControlTool).toHaveBeenCalledWith({
       toolName: 'agent.create_task',
       args: { name: 'MCP task', goal: 'test' },
       operatorId: 'mcp-operator',
-      tenantId: null,
+      tenantId: 'tenant-mcp',
       approvalContract: null,
       idempotencyKey: 'mcp-idem-1',
       source: 'mcp',
@@ -242,6 +248,7 @@ describe('Remote MCP Gateway', () => {
         headers: {
           Host: '127.0.0.1',
           Authorization: 'Bearer mcp-test-token',
+          'x-nexora-tenant-token': tenantToken,
         },
       });
       expect(authorized.status).toBe(200);
@@ -270,6 +277,7 @@ describe('Remote MCP Gateway', () => {
           headers: {
             Host: 'evil.example',
             Authorization: 'Bearer mcp-test-token',
+          'x-nexora-tenant-token': tenantToken,
           },
         }, resolve);
         request.on('error', reject);
