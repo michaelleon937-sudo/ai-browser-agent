@@ -31,18 +31,40 @@ describe('Composio runtime adapter', () => {
       operation: 'create_contact',
       args: { email: 'synthetic@example.test', firstname: 'Synthetic' },
       requestId: 'req-1',
+      approvalVerified: true,
     });
 
     expect(result.ok).toBe(true);
     expect(result.toolSlug).toBe('HUBSPOT_CREATE_CONTACT');
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    const [url, options] = fetchMock.mock.calls[1];
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, options] = fetchMock.mock.calls[0];
     expect(url).toContain('/api/v3.1/tools/execute/HUBSPOT_CREATE_CONTACT');
     const body = JSON.parse(options.body);
     expect(body.connected_account_id).toBe('hubspot-test');
     expect(body.version).toBe('latest');
     expect(body.arguments.email).toBe('synthetic@example.test');
     expect(options.headers['x-api-key']).toBe('test-key');
+  });
+
+
+  it('requires a verified Nexora approval before any provider write', async () => {
+    const { executeComposioOperation } = await import('../../integrations/composio-runtime.js');
+    await expect(executeComposioOperation({ provider: 'hubspot', operation: 'create_contact', args: { email: 'no-approval@example.test' } }))
+      .rejects.toMatchObject({ code: 'COMPOSIO_APPROVAL_REQUIRED', status: 403 });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('resolves an ACTIVE Composio account owned by the signed tenant', async () => {
+    fetchMock.mockImplementation(async (url) => {
+      if (String(url).includes('/connected_accounts?')) return new Response(JSON.stringify({ items: [{ id: 'tenant-hubspot-account', user_id: 'nexora-tenant-tenant-a', toolkit: { slug: 'hubspot' }, status: 'ACTIVE' }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+      return new Response(JSON.stringify({ successful: true, data: { id: 'tenant-write' } }), { status: 200, headers: { 'content-type': 'application/json' } });
+    });
+    const { executeComposioOperation } = await import('../../integrations/composio-runtime.js');
+    await executeComposioOperation({ provider: 'hubspot', operation: 'create_contact', tenantId: 'tenant-a', approvalVerified: true, args: { email: 'tenant@example.test' } });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const body = JSON.parse(fetchMock.mock.calls[1][1].body);
+    expect(body.connected_account_id).toBe('tenant-hubspot-account');
+    expect(body.user_id).toBe('nexora-tenant-tenant-a');
   });
 
   it('denies unknown providers and operations before network access', async () => {
