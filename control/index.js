@@ -17,6 +17,7 @@ import { businessGrowthTools } from '../integrations/business-growth.js';
 import { composioTools } from './tools/composio.js';
 import { invokeControlTool } from './invoke.js';
 import { tenantContextMiddleware } from './tenant-auth.js';
+import { getTenantContext } from './tenant-context.js';
 import { clientRevenueIntelligenceTools } from '../integrations/client-revenue-intelligence.js';
 
 const TOOLS = {
@@ -36,7 +37,9 @@ const TOOLS = {
 export function listRegisteredTools() { return Object.keys(TOOLS); }
 export async function executeTool(toolName, args, ctx = {}) {
   if (isForbiddenTool(toolName) || !TOOLS[toolName]) { const err = new Error(`Tool \"${toolName}\" is not registered`); err.status = 403; throw err; }
-  const outcome = await invokeControlTool({ toolName, args, operatorId: ctx.operatorId || ctx.tenantId, tenantId: ctx.tenantId, approvalContract: ctx.approvalContract, idempotencyKey: ctx.idempotencyKey, requestId: ctx.requestId, source: 'mcp' });
+  const identity = getTenantContext();
+  if (!identity?.tenantId) { const err = new Error('Verified tenant context is required'); err.status = 401; throw err; }
+  const outcome = await invokeControlTool({ toolName, args, operatorId: identity.operatorId || identity.tenantId, tenantId: identity.tenantId, approvalContract: ctx.approvalContract, idempotencyKey: ctx.idempotencyKey, requestId: ctx.requestId, source: 'mcp' });
   if (!outcome.ok) { const err = new Error(outcome.body.error || 'Control tool execution rejected'); err.status = outcome.status; err.code = outcome.body.code; throw err; }
   return outcome.body.result;
 }
