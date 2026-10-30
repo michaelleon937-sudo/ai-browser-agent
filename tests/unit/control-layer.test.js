@@ -26,7 +26,7 @@ async function request(method, url, { headers = {}, body } = {}) {
   try {
     const res = await fetch(`http://127.0.0.1:${port}${url}`, {
       method,
-      headers: { 'Content-Type': 'application/json', ...headers, ...(headers.Authorization === `Bearer ${token}` ? { 'x-nexora-tenant-token': tenantToken } : {}) },
+      headers: { 'Content-Type': 'application/json', ...headers, ...(headers.Authorization === `Bearer ${token}` ? { 'x-nexora-tenant-token': signClaims({ iss: 'nexora-intelligence', aud: 'ai-browser-agent-control', typ: 'tenant', tenantId: 'control-test-tenant', sub: 'control-operator', iat: Math.floor(Date.now()/1000), exp: Math.floor(Date.now()/1000)+300, jti: `control-${Date.now()}-${Math.random()}` }, sharedSecret) } : {}) },
       body: body ? JSON.stringify(body) : undefined,
     });
     const text = await res.text();
@@ -78,7 +78,7 @@ describe('policy', () => {
     const denied = evaluatePolicy({ toolName: 'github.modify_file', args: { branch: 'repair/abc' } });
     expect(denied.allow).toBe(false);
     const ok = evaluatePolicy({ toolName: 'github.modify_file', args: { branch: 'repair/abc', approved: true } });
-    expect(ok.allow).toBe(true);
+    expect(ok.allow).toBe(false); // `approved: true` is not a cryptographic approval contract
   });
 });
 
@@ -134,7 +134,7 @@ describe('forbidden and idempotency', () => {
     });
     expect(second.json.replayed).toBe(true);
     expect(second.json.result.task.id).toBe(first.json.result.task.id);
-    expect(controlIdempotency.getByKey(key, 'control-operator')).toBeTruthy();
+    expect(controlIdempotency.getByKey(key, 'control-test-tenant', 'control-operator')).toBeTruthy();
   });
 });
 
