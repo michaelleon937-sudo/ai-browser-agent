@@ -18,7 +18,7 @@ let token;
 let tenantToken;
 const sharedSecret = 'agent-control-test-secret-at-least-32-bytes-long';
 
-async function request(method, url, { headers = {}, body } = {}) {
+async function request(method, url, { headers = {}, body, tenantId = 'control-test-tenant' } = {}) {
   const server = await new Promise((resolve) => {
     const s = app.listen(0, () => resolve(s));
   });
@@ -26,7 +26,7 @@ async function request(method, url, { headers = {}, body } = {}) {
   try {
     const res = await fetch(`http://127.0.0.1:${port}${url}`, {
       method,
-      headers: { 'Content-Type': 'application/json', ...headers, ...(headers.Authorization === `Bearer ${token}` ? { 'x-nexora-tenant-token': signClaims({ iss: 'nexora-intelligence', aud: 'ai-browser-agent-control', typ: 'tenant', tenantId: 'control-test-tenant', sub: 'control-operator', iat: Math.floor(Date.now()/1000), exp: Math.floor(Date.now()/1000)+300, jti: `control-${Date.now()}-${Math.random()}` }, sharedSecret) } : {}) },
+      headers: { 'Content-Type': 'application/json', ...headers, ...(headers.Authorization === `Bearer ${token}` ? { 'x-nexora-tenant-token': signClaims({ iss: 'nexora-intelligence', aud: 'ai-browser-agent-control', typ: 'tenant', tenantId, sub: 'control-operator', iat: Math.floor(Date.now()/1000), exp: Math.floor(Date.now()/1000)+300, jti: `control-${Date.now()}-${Math.random()}` }, sharedSecret) } : {}) },
       body: body ? JSON.stringify(body) : undefined,
     });
     const text = await res.text();
@@ -48,7 +48,7 @@ beforeAll(async () => {
   token = sharedSecret;
   process.env.CONTROL_TOKEN = token;
   const now = Math.floor(Date.now() / 1000);
-  tenantToken = signClaims({ iss: 'nexora-intelligence', aud: 'ai-browser-agent-control', typ: 'tenant', tenantId: 'control-test-tenant', sub: 'control-operator', iat: now, exp: now + 300, jti: `control-${Date.now()}` }, sharedSecret);
+  tenantToken = signClaims({ iss: 'nexora-intelligence', aud: 'ai-browser-agent-control', typ: 'tenant', tenantId, sub: 'control-operator', iat: now, exp: now + 300, jti: `control-${Date.now()}` }, sharedSecret);
   process.env.MAX_REPAIR_ATTEMPTS = '3';
   ({ migrate, closeDb, tasks, runs, operatorAuditLog, controlIdempotency } = await import('../../database/index.js'));
   migrate();
@@ -134,7 +134,21 @@ describe('forbidden and idempotency', () => {
     });
     expect(second.json.replayed).toBe(true);
     expect(second.json.result.task.id).toBe(first.json.result.task.id);
-    expect(controlIdempotency.getByKey(key, 'control-test-tenant', 'control-operator')).toBeTruthy();
+    expect(controlIdempotency.getByKey(key, 'control-test-tenant:control-operator')).toBeTruthy();
+  });
+  it('does not share an idempotency key across different tenants', async () => {
+    const key = `tenant-isolation-${Date.now()}`;
+    const body = { name: 'Tenant scoped task', goal: 'noop' };
+    const first = await request('POST', '/api/control/v1/tools/agent.create_task', {
+      headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': key }, body, tenantId: 'tenant-alpha',
+    });
+    const second = await request('POST', '/api/control/v1/tools/agent.create_task', {
+      headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': key }, body, tenantId: 'tenant-beta',
+    });
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(second.json.replayed).not.toBe(true);
+    expect(second.json.result.task.id).not.toBe(first.json.result.task.id);
   });
 });
 
