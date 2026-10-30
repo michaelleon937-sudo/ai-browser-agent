@@ -3,7 +3,7 @@
 // Enforces policy, audit, and idempotency â never bypass.
 
 import { nanoid } from 'nanoid';
-import { evaluatePolicy, isMutatingTool, isForbiddenTool } from './policy.js';
+import { evaluatePolicy, isMutatingTool, isForbiddenTool, requiresApproval } from './policy.js';
 import { recordAudit } from './audit.js';
 import {
   hashRequest,
@@ -12,6 +12,8 @@ import {
   completeIdempotency,
   parseStoredResult,
 } from './idempotency.js';
+import { verifyAndConsumeApprovalContract } from './approval-contract.js';
+import { getTenantId } from './tenant-context.js';
 import { agentTools } from './tools/agent.js';
 import { browserTools } from './tools/browser.js';
 import { githubTools } from './tools/github.js';
@@ -52,13 +54,13 @@ const TOOLS = {
   ...clientRevenueIntelligenceTools,
 };
 
-async function runTool(toolName, args, ctx) {
+async function runTool(toolName, args, ctx, approvalVerified = false) {
   if (isForbiddenTool(toolName) || !TOOLS[toolName]) {
     const err = new Error(`Tool "${toolName}" is not registered`);
     err.status = 403;
     throw err;
   }
-  const policy = evaluatePolicy({ toolName, args });
+  const policy = evaluatePolicy({ toolName, args, approvalVerified });
   if (!policy.allow) {
     const err = new Error(policy.reason);
     err.status = policy.status || 403;
@@ -70,7 +72,9 @@ async function runTool(toolName, args, ctx) {
 export async function invokeControlTool(opts = {}) {
   const toolName = String(opts.toolName || '');
   const args = opts.args && typeof opts.args === 'object' ? opts.args : {};
+  const tenantContext = opts.tenantId || getTenantId();
   const operatorId = opts.operatorId || 'control-operator';
+  const idempotencyScope = tenantContext ? `${tenantContext}:${operatorId}` : operatorId;
   const requestId = opts.requestId || nanoid(12);
   const idempotencyKey = opts.idempotencyKey || null;
   const source = opts.source || 'control';
@@ -98,6 +102,7 @@ export async function invokeControlTool(opts = {}) {
   }
 
   try {
+    let approvalVerified = false;
     if (isMutatingTool(toolName)) {
       if (!idempotencyKey) {
         recordAudit({
@@ -111,31 +116,38 @@ export async function invokeControlTool(opts = {}) {
           body: { ok: false, error: 'Idempotency-Key header is required for mutating tools', requestId },
         };
       }
-      const existing = lookupIdempotency(idempotencyKey);
+      const requestHash = hashRequest(toolName, args);
+      const existing = lookupIdempotency(idempotencyKey, idempotencyScope);
       if (existing) {
+        if (existing.request_hash !== requestHash || existing.tool_name !== toolName) {
+          recordAudit({ ...auditBase, status: 'rejected', details: { ...auditBase.details, reason: 'idempotency_payload_mismatch', idempotencyId: existing.id } });
+          return { ok: false, status: 409, body: { ok: false, error: 'Idempotency key was already used for a different request', code: 'idempotency_payload_mismatch', requestId } };
+        }
+        if (existing.status === 'started') {
+          return { ok: false, status: 409, body: { ok: false, error: 'A request with this idempotency key is still in progress', code: 'idempotency_in_progress', requestId } };
+        }
         const parsed = parseStoredResult(existing);
-        recordAudit({
-          ...auditBase,
-          status: 'replayed',
-          details: { ...auditBase.details, idempotencyId: existing.id },
-        });
-        return {
-          ok: true,
-          status: 200,
-          body: { ok: true, replayed: true, tool: toolName, requestId, result: parsed.result },
-        };
+        recordAudit({ ...auditBase, status: 'replayed', details: { ...auditBase.details, idempotencyId: existing.id } });
+        return { ok: true, status: 200, body: { ok: true, replayed: true, tool: toolName, requestId, result: parsed.result } };
       }
-      beginIdempotency({
-        idempotencyKey,
-        operatorId,
-        toolName,
-        requestHash: hashRequest(toolName, args),
-      });
+      // Evaluate non-approval policy constraints before consuming a one-time contract.
+      // Treat approval as provisionally satisfied only for this non-mutating preflight;
+      // the signed contract is still mandatory and consumed below before execution.
+      const preflight = evaluatePolicy({ toolName, args, approvalVerified: true });
+      if (!preflight.allow) {
+        recordAudit({ ...auditBase, status: 'rejected', details: { ...auditBase.details, reason: preflight.reason } });
+        return { ok: false, status: preflight.status || 403, body: { ok: false, error: preflight.reason, requestId } };
+      }
+      if (requiresApproval(toolName)) {
+        verifyAndConsumeApprovalContract(opts.approvalContract, { tenantId: tenantContext, operatorId, toolName, args });
+        approvalVerified = true;
+      }
+      beginIdempotency({ idempotencyKey, operatorId: idempotencyScope, toolName, requestHash });
     }
 
-    const result = await runTool(toolName, args, { operatorId, requestId, source });
+    const result = await runTool(toolName, args, { operatorId, tenantId: tenantContext, requestId, source, approvalVerified }, approvalVerified);
     if (isMutatingTool(toolName) && idempotencyKey) {
-      completeIdempotency(idempotencyKey, { status: 'completed', result });
+      completeIdempotency(idempotencyKey, idempotencyScope, { status: 'completed', result });
     }
     recordAudit({
       ...auditBase,
@@ -149,8 +161,8 @@ export async function invokeControlTool(opts = {}) {
       body: { ok: true, tool: toolName, requestId, result },
     };
   } catch (err) {
-    if (isMutatingTool(toolName) && idempotencyKey && lookupIdempotency(idempotencyKey)) {
-      completeIdempotency(idempotencyKey, { status: 'failed', result: { error: err.message } });
+    if (isMutatingTool(toolName) && idempotencyKey && lookupIdempotency(idempotencyKey, idempotencyScope)) {
+      completeIdempotency(idempotencyKey, idempotencyScope, { status: 'failed', result: { error: err.message } });
     }
     const status = err.status || 500;
     recordAudit({

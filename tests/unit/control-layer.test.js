@@ -6,6 +6,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { FORBIDDEN_TOOLS, ALLOWED_TOOLS, evaluatePolicy, isForbiddenTool } from '../../control/policy.js';
 import { sanitizeForAudit } from '../../control/audit.js';
+import { signClaims } from '../../control/tenant-auth.js';
+import { runWithTenantContext } from '../../control/tenant-context.js';
 import { canRetry, incrementAttempt, getOrCreateSession } from '../../control/repair.js';
 
 let migrate, closeDb, tasks, runs, operatorAuditLog, controlIdempotency;
@@ -13,8 +15,9 @@ let createControlRouter;
 let tmpDbPath;
 let app;
 let token;
+const sharedSecret = 'agent-control-test-secret-at-least-32-bytes-long';
 
-async function request(method, url, { headers = {}, body } = {}) {
+async function request(method, url, { headers = {}, body, tenantId = 'control-test-tenant' } = {}) {
   const server = await new Promise((resolve) => {
     const s = app.listen(0, () => resolve(s));
   });
@@ -22,7 +25,7 @@ async function request(method, url, { headers = {}, body } = {}) {
   try {
     const res = await fetch(`http://127.0.0.1:${port}${url}`, {
       method,
-      headers: { 'Content-Type': 'application/json', ...headers },
+      headers: { 'Content-Type': 'application/json', ...headers, ...(headers.Authorization === `Bearer ${token}` ? { 'x-nexora-tenant-token': signClaims({ iss: 'nexora-intelligence', aud: 'ai-browser-agent-control', typ: 'tenant', tenantId, sub: 'control-operator', iat: Math.floor(Date.now()/1000), exp: Math.floor(Date.now()/1000)+300, jti: `control-${Date.now()}-${Math.random()}` }, sharedSecret) } : {}) },
       body: body ? JSON.stringify(body) : undefined,
     });
     const text = await res.text();
@@ -40,7 +43,8 @@ beforeAll(async () => {
   process.env.DATA_DIR = path.dirname(tmpDbPath);
   process.env.NODE_ENV = 'test';
   process.env.AI_PROVIDER = 'stub';
-  token = 'test-control-token-phase5b';
+  process.env.NEXORA_AGENT_SHARED_SECRET = sharedSecret;
+  token = sharedSecret;
   process.env.CONTROL_TOKEN = token;
   process.env.MAX_REPAIR_ATTEMPTS = '3';
   ({ migrate, closeDb, tasks, runs, operatorAuditLog, controlIdempotency } = await import('../../database/index.js'));
@@ -71,7 +75,7 @@ describe('policy', () => {
     const denied = evaluatePolicy({ toolName: 'github.modify_file', args: { branch: 'repair/abc' } });
     expect(denied.allow).toBe(false);
     const ok = evaluatePolicy({ toolName: 'github.modify_file', args: { branch: 'repair/abc', approved: true } });
-    expect(ok.allow).toBe(true);
+    expect(ok.allow).toBe(false); // `approved: true` is not a cryptographic approval contract
   });
 });
 
@@ -127,7 +131,26 @@ describe('forbidden and idempotency', () => {
     });
     expect(second.json.replayed).toBe(true);
     expect(second.json.result.task.id).toBe(first.json.result.task.id);
-    expect(controlIdempotency.getByKey(key)).toBeTruthy();
+    const mismatch = await request('POST', '/api/control/v1/tools/agent.create_task', {
+      headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': key },
+      body: { ...body, goal: 'changed payload' },
+    });
+    expect(mismatch.status).toBe(409);
+    expect(mismatch.json.code).toBe('idempotency_payload_mismatch');
+  });
+  it('does not share an idempotency key across different tenants', async () => {
+    const key = `tenant-isolation-${Date.now()}`;
+    const body = { name: 'Tenant scoped task', goal: 'noop' };
+    const first = await request('POST', '/api/control/v1/tools/agent.create_task', {
+      headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': key }, body, tenantId: 'tenant-alpha',
+    });
+    const second = await request('POST', '/api/control/v1/tools/agent.create_task', {
+      headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': key }, body, tenantId: 'tenant-beta',
+    });
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(second.json.replayed).not.toBe(true);
+    expect(second.json.result.task.id).not.toBe(first.json.result.task.id);
   });
 });
 
@@ -162,9 +185,12 @@ describe('agent + audit + repair', () => {
     expect(sanitizeForAudit({ CONTROL_TOKEN: token }).CONTROL_TOKEN).toBe('[REDACTED]');
   });
   it('retry_run on failed run', async () => {
-    const task = tasks.create({ name: 'retry-me', goal: 'fail' });
-    const failed = runs.start({ taskId: task.id });
-    runs.finish(failed.id, { status: 'failed', errorMessage: 'boom' });
+    const { task, failed } = runWithTenantContext({ tenantId: 'control-test-tenant', operatorId: 'control-operator' }, () => {
+      const task = tasks.create({ name: 'retry-me', goal: 'fail' });
+      const failed = runs.start({ taskId: task.id });
+      runs.finish(failed.id, { status: 'failed', errorMessage: 'boom' });
+      return { task, failed };
+    });
     const res = await request('POST', '/api/control/v1/tools/agent.retry_run', {
       headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': `retry-${Date.now()}` },
       body: { runId: failed.id },
