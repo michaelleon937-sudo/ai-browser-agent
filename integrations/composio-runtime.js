@@ -6,7 +6,7 @@
 const BASE_URL = String(process.env.COMPOSIO_API_BASE_URL || 'https://backend.composio.dev').replace(/\/$/, '');
 
 const PROVIDER_CONFIG = Object.freeze({
-  hubspot: { accountEnv: 'COMPOSIO_HUBSPOT_ACCOUNT_ID', tools: { search_contacts: 'HUBSPOT_SEARCH_CONTACTS_BY_CRITERIA', create_contact: 'HUBSPOT_CREATE_CONTACT', update_contact: 'HUBSPOT_UPDATE_CONTACT', read_contact: 'HUBSPOT_READ_CONTACT' } },
+  hubspot: { accountEnv: 'COMPOSIO_HUBSPOT_ACCOUNT_ID', tools: { search_contacts: 'HUBSPOT_SEARCH_CONTACTS_BY_CRITERIA', create_contact: 'HUBSPOT_CREATE_CONTACT', update_contact: 'HUBSPOT_UPDATE_CONTACT', create_company: 'HUBSPOT_CREATE_COMPANY', update_company: 'HUBSPOT_UPDATE_COMPANY', read_contact: 'HUBSPOT_READ_CONTACT' } },
   googlecalendar: { accountEnv: 'COMPOSIO_GOOGLECALENDAR_ACCOUNT_ID', tools: { create_event: 'GOOGLECALENDAR_CREATE_EVENT', get_event: 'GOOGLECALENDAR_EVENTS_GET', patch_event: 'GOOGLECALENDAR_PATCH_EVENT', delete_event: 'GOOGLECALENDAR_DELETE_EVENT' } },
   xero: { accountEnv: 'COMPOSIO_XERO_ACCOUNT_ID', tools: { create_draft_invoice: 'XERO_CREATE_INVOICE', get_invoice: 'XERO_GET_INVOICE' } },
 });
@@ -90,7 +90,7 @@ export async function executeComposioOperation({ provider, operation, args = {},
   const userId = tenantId ? `nexora-tenant-${tenantId}` : process.env.COMPOSIO_USER_ID;
   if (!userId) throw configurationError('Verified tenant identity or COMPOSIO_USER_ID is required');
   const { toolSlug, configuredAccountId } = getConfig(provider, operation);
-  const accountId = tenantId ? await resolveTenantConnectedAccount(apiKey, userId, provider, null) : (configuredAccountId || await resolveTenantConnectedAccount(apiKey, userId, provider, null));
+  const accountId = await resolveTenantConnectedAccount(apiKey, userId, provider, tenantId ? null : configuredAccountId);
   const url = `${BASE_URL}/api/v3.1/tools/execute/${encodeURIComponent(toolSlug)}`;
   const response = await fetch(url, {
     method: 'POST',

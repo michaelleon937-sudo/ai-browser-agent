@@ -17,7 +17,8 @@ let createControlRouter;
 let tmpDbPath;
 let app;
 let token;
-let tenantToken;
+let sharedSecret;
+let originalSharedSecret;
 
 async function request(method, url, { headers = {}, body } = {}) {
   const server = await new Promise((resolve) => {
@@ -27,7 +28,7 @@ async function request(method, url, { headers = {}, body } = {}) {
   try {
     const res = await fetch(`http://127.0.0.1:${port}${url}`, {
       method,
-      headers: { 'Content-Type': 'application/json', ...headers, ...(headers.Authorization === `Bearer ${token}` && tenantToken ? { 'x-nexora-tenant-token': tenantToken } : {}) },
+      headers: { 'Content-Type': 'application/json', ...headers },
       body: body ? JSON.stringify(body) : undefined,
     });
     const text = await res.text();
@@ -44,12 +45,12 @@ beforeAll(async () => {
   process.env.DATABASE_PATH = tmpDbPath;
   process.env.DATA_DIR = path.dirname(tmpDbPath);
   process.env.NODE_ENV = 'test';
-  process.env.NEXORA_AGENT_SHARED_SECRET = 'unit-test-shared-secret-at-least-32-bytes-long';
   process.env.AI_PROVIDER = 'stub';
-  token = 'test-control-token-phase5b';
+  originalSharedSecret = process.env.NEXORA_AGENT_SHARED_SECRET;
+  sharedSecret = 'unit-test-control-shared-secret-at-least-32-bytes';
+  process.env.NEXORA_AGENT_SHARED_SECRET = sharedSecret;
   const now = Math.floor(Date.now() / 1000);
-  tenantToken = signClaims({ iss: 'nexora-intelligence', aud: 'ai-browser-agent-control', typ: 'tenant', tenantId: 'tenant-control-test', sub: 'control-operator', iat: now, exp: now + 300, jti: `tenant-${Date.now()}` }, process.env.NEXORA_AGENT_SHARED_SECRET);
-  process.env.CONTROL_TOKEN = token;
+  token = signClaims({ iss: 'nexora-intelligence', aud: 'ai-browser-agent-control', typ: 'tenant', tenantId: 'control-test-tenant', sub: 'control-test-operator', iat: now, exp: now + 300 }, sharedSecret);
   process.env.MAX_REPAIR_ATTEMPTS = '3';
   ({ migrate, closeDb, tasks, runs, operatorAuditLog, controlIdempotency } = await import('../../database/index.js'));
   migrate();
@@ -61,6 +62,7 @@ beforeAll(async () => {
 
 afterAll(() => {
   try { closeDb(); } catch {}
+  if (originalSharedSecret === undefined) delete process.env.NEXORA_AGENT_SHARED_SECRET; else process.env.NEXORA_AGENT_SHARED_SECRET = originalSharedSecret;
   try { fs.unlinkSync(tmpDbPath); } catch {}
 });
 
@@ -90,19 +92,19 @@ describe('auth', () => {
   });
   it('wrong token → 401', async () => {
     const res = await request('POST', '/api/control/v1/tools/agent.health_check', {
-      headers: { Authorization: 'Bearer wrong-token' }, body: {},
+      headers: { 'x-nexora-tenant-token': 'wrong-token' }, body: {},
     });
     expect(res.status).toBe(401);
   });
   it('health check reports database', async () => {
     const res = await request('POST', '/api/control/v1/tools/agent.health_check', {
-      headers: { Authorization: `Bearer ${token}` }, body: {},
+      headers: { 'x-nexora-tenant-token': token }, body: {},
     });
     expect(res.json.result.database.ok).toBe(true);
   });
   it('authorized works', async () => {
     const res = await request('POST', '/api/control/v1/tools/agent.health_check', {
-      headers: { Authorization: `Bearer ${token}` }, body: {},
+      headers: { 'x-nexora-tenant-token': token }, body: {},
     });
     expect(res.status).toBe(200);
     expect(res.json.ok).toBe(true);
@@ -112,13 +114,13 @@ describe('auth', () => {
 describe('forbidden and idempotency', () => {
   it('outreach.send → 403', async () => {
     const res = await request('POST', '/api/control/v1/tools/outreach.send', {
-      headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': 'x' }, body: {},
+      headers: { 'x-nexora-tenant-token': token, 'Idempotency-Key': 'x' }, body: {},
     });
     expect(res.status).toBe(403);
   });
   it('mutation without key rejected', async () => {
     const res = await request('POST', '/api/control/v1/tools/agent.create_task', {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { 'x-nexora-tenant-token': token },
       body: { name: 'A', goal: 'B' },
     });
     expect(res.status).toBe(400);
@@ -127,11 +129,11 @@ describe('forbidden and idempotency', () => {
     const key = `dup-${Date.now()}`;
     const body = { name: 'Idempotent Task', goal: 'noop' };
     const first = await request('POST', '/api/control/v1/tools/agent.create_task', {
-      headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': key }, body,
+      headers: { 'x-nexora-tenant-token': token, 'Idempotency-Key': key }, body,
     });
     expect(first.status).toBe(200);
     const second = await request('POST', '/api/control/v1/tools/agent.create_task', {
-      headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': key }, body,
+      headers: { 'x-nexora-tenant-token': token, 'Idempotency-Key': key }, body,
     });
     expect(second.json.replayed).toBe(true);
     expect(second.json.result.task.id).toBe(first.json.result.task.id);
@@ -140,12 +142,12 @@ describe('forbidden and idempotency', () => {
   it('rejects reuse of the same key with a different payload', async () => {
     const key = `mismatch-${Date.now()}`;
     const first = await request('POST', '/api/control/v1/tools/agent.create_task', {
-      headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': key },
+      headers: { 'x-nexora-tenant-token': token, 'Idempotency-Key': key },
       body: { name: 'Original task', goal: 'original' },
     });
     expect(first.status).toBe(200);
     const second = await request('POST', '/api/control/v1/tools/agent.create_task', {
-      headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': key },
+      headers: { 'x-nexora-tenant-token': token, 'Idempotency-Key': key },
       body: { name: 'Changed task', goal: 'different' },
     });
     expect(second.status).toBe(409);
@@ -163,25 +165,25 @@ describe('forbidden and idempotency', () => {
 describe('agent + audit + repair', () => {
   it('create/get/run returns runId and audit has no token', async () => {
     const created = await request('POST', '/api/control/v1/tools/agent.create_task', {
-      headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': `ct-${Date.now()}` },
+      headers: { 'x-nexora-tenant-token': token, 'Idempotency-Key': `ct-${Date.now()}` },
       body: { name: 'Control probe', goal: 'Complete immediately' },
     });
     const taskId = created.json.result.task.id;
     const ran = await request('POST', '/api/control/v1/tools/agent.run_task', {
-      headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': `run-${Date.now()}` },
+      headers: { 'x-nexora-tenant-token': token, 'Idempotency-Key': `run-${Date.now()}` },
       body: { taskId },
     });
     expect(ran.json.result.runId).toBeTruthy();
     const got = await request('POST', '/api/control/v1/tools/agent.get_task', {
-      headers: { Authorization: `Bearer ${token}` }, body: { taskId },
+      headers: { 'x-nexora-tenant-token': token }, body: { taskId },
     });
     expect(got.json.result.task.id).toBe(taskId);
     const gr = await request('POST', '/api/control/v1/tools/agent.get_run', {
-      headers: { Authorization: `Bearer ${token}` }, body: { runId: ran.json.result.runId },
+      headers: { 'x-nexora-tenant-token': token }, body: { runId: ran.json.result.runId },
     });
     expect(gr.json.result.run.id).toBe(ran.json.result.runId);
     const logs = await request('POST', '/api/control/v1/tools/agent.get_logs', {
-      headers: { Authorization: `Bearer ${token}` }, body: { runId: ran.json.result.runId },
+      headers: { 'x-nexora-tenant-token': token }, body: { runId: ran.json.result.runId },
     });
     expect(logs.json.result).toHaveProperty('steps');
     expect(logs.json.result).toHaveProperty('errors');
@@ -195,7 +197,7 @@ describe('agent + audit + repair', () => {
     const failed = runs.start({ taskId: task.id });
     runs.finish(failed.id, { status: 'failed', errorMessage: 'boom' });
     const res = await request('POST', '/api/control/v1/tools/agent.retry_run', {
-      headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': `retry-${Date.now()}` },
+      headers: { 'x-nexora-tenant-token': token, 'Idempotency-Key': `retry-${Date.now()}` },
       body: { runId: failed.id },
     });
     expect(res.status).toBe(200);
@@ -214,28 +216,28 @@ describe('agent + audit + repair', () => {
 describe('github/render HTTP policy', () => {
   it('master modification blocked', async () => {
     const res = await request('POST', '/api/control/v1/tools/github.modify_file', {
-      headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': `gh-${Date.now()}` },
+      headers: { 'x-nexora-tenant-token': token, 'Idempotency-Key': `gh-${Date.now()}` },
       body: { branch: 'master', path: 'x.js', content: 'no', message: 'no', approved: true },
     });
     expect(res.status).toBe(403);
   });
   it('repair branch without approval blocked', async () => {
     const res = await request('POST', '/api/control/v1/tools/github.modify_file', {
-      headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': `gh2-${Date.now()}` },
+      headers: { 'x-nexora-tenant-token': token, 'Idempotency-Key': `gh2-${Date.now()}` },
       body: { branch: 'repair/x', path: 'x.js', content: 'no', message: 'no' },
     });
     expect(res.status).toBe(403);
   });
   it('staging deploy without approval blocked', async () => {
     const res = await request('POST', '/api/control/v1/tools/render.deploy', {
-      headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': `rd2-${Date.now()}` },
+      headers: { 'x-nexora-tenant-token': token, 'Idempotency-Key': `rd2-${Date.now()}` },
       body: { target: 'staging' },
     });
     expect(res.status).toBe(403);
   });
   it('production deploy blocked', async () => {
     const res = await request('POST', '/api/control/v1/tools/render.deploy', {
-      headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': `rd-${Date.now()}` },
+      headers: { 'x-nexora-tenant-token': token, 'Idempotency-Key': `rd-${Date.now()}` },
       body: { target: 'production', approved: true },
     });
     expect(res.status).toBe(403);
