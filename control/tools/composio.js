@@ -9,13 +9,10 @@ export const composioTools = {
   'composio.hubspot.search_contacts': hubspotSearchContacts,
   'composio.hubspot.create_contact': hubspotCreateContact,
   'composio.hubspot.update_contact': hubspotUpdateContact,
-  'composio.hubspot.create_company': hubspotCreateCompany,
-  'composio.hubspot.update_company': hubspotUpdateCompany,
   'composio.hubspot.read_contact': hubspotReadContact,
   'composio.calendar.create_event': calendarCreateEvent,
   'composio.calendar.get_event': calendarGetEvent,
   'composio.calendar.patch_event': calendarPatchEvent,
-  'composio.calendar.delete_event': calendarDeleteEvent,
   'composio.xero.create_draft_invoice': xeroCreateDraftInvoice,
   'composio.xero.get_invoice': xeroGetInvoice,
 };
@@ -31,6 +28,7 @@ async function execute(provider, operation, args, ctx) {
     args,
     requestId: ctx?.requestId || null,
     tenantId: ctx?.tenantId || getTenantId() || null,
+    approvalVerified: ctx?.approvalVerified === true,
   });
 }
 
@@ -44,14 +42,6 @@ async function hubspotCreateContact(args = {}, ctx) {
 
 async function hubspotUpdateContact(args = {}, ctx) {
   return execute('hubspot', 'update_contact', args, ctx);
-}
-
-async function hubspotCreateCompany(args = {}, ctx) {
-  return execute('hubspot', 'create_company', args, ctx);
-}
-
-async function hubspotUpdateCompany(args = {}, ctx) {
-  return execute('hubspot', 'update_company', args, ctx);
 }
 
 async function hubspotReadContact(args = {}, ctx) {
@@ -68,10 +58,6 @@ async function calendarGetEvent(args = {}, ctx) {
 
 async function calendarPatchEvent(args = {}, ctx) {
   return execute('googlecalendar', 'patch_event', args, ctx);
-}
-
-async function calendarDeleteEvent(args = {}, ctx) {
-  return execute('googlecalendar', 'delete_event', args, ctx);
 }
 
 export async function xeroCreateDraftInvoice(args = {}, ctx) {
