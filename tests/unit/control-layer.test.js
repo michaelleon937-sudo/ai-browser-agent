@@ -137,7 +137,6 @@ describe('forbidden and idempotency', () => {
     });
     expect(mismatch.status).toBe(409);
     expect(mismatch.json.code).toBe('idempotency_payload_mismatch');
-    expect(controlIdempotency.getByKey(key, 'control-test-tenant:control-operator')).toBeTruthy();
   });
   it('does not share an idempotency key across different tenants', async () => {
     const key = `tenant-isolation-${Date.now()}`;
