@@ -804,3 +804,10 @@ CREATE TABLE IF NOT EXISTS approval_contract_uses (
   expires_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_approval_contract_uses_tenant ON approval_contract_uses(tenant_id, approval_id);
+
+
+-- Registry lives in the legacy DB; each tenant's operational data remains in its own SQLite file.
+CREATE TABLE IF NOT EXISTS agent_tenants (
+  tenant_id TEXT PRIMARY KEY,
+  created_at TEXT NOT NULL
+);

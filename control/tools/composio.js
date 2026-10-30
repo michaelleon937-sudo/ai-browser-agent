@@ -2,6 +2,7 @@
 // Agent-facing Composio tools. Every mutation is invoked through Control.
 
 import { executeComposioOperation, composioRuntimeStatus } from '../../integrations/composio-runtime.js';
+import { getTenantId } from '../../database/tenant-context.js';
 
 export const composioTools = {
   'composio.status': status,
@@ -29,7 +30,7 @@ async function execute(provider, operation, args, ctx) {
     operation,
     args,
     requestId: ctx?.requestId || null,
-    tenantId: ctx?.tenantId || null,
+    tenantId: ctx?.tenantId || getTenantId() || null,
   });
 }
 

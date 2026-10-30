@@ -43,3 +43,31 @@ describe('scheduler', () => {
     expect(new Date(updated.next_run_at).getTime()).toBeGreaterThan(Date.now() - 5000);
   }, 15_000);
 });
+
+
+import { runWithTenantContext } from '../../database/tenant-context.js';
+import { listTenantIds } from '../../database/index.js';
+
+describe('tenant scheduler isolation', () => {
+  it('tracks scheduled tasks in separate tenant databases', async () => {
+    const tenantA = `scheduler-a-${Date.now()}`;
+    const tenantB = `scheduler-b-${Date.now()}`;
+    const now = new Date(Date.now() - 1000).toISOString();
+    let taskA; let taskB;
+    await runWithTenantContext({ tenantId: tenantA, operatorId: 'scheduler-test' }, async () => {
+      taskA = tasks.create({ name: 'tenant-a-task', goal: 'tenant a goal', cronExpression: '* * * * *' });
+      tasks.setNextRun(taskA.id, now);
+    });
+    await runWithTenantContext({ tenantId: tenantB, operatorId: 'scheduler-test' }, async () => {
+      taskB = tasks.create({ name: 'tenant-b-task', goal: 'tenant b goal', cronExpression: '* * * * *' });
+      tasks.setNextRun(taskB.id, now);
+    });
+    expect(listTenantIds()).toEqual(expect.arrayContaining([tenantA, tenantB]));
+    const dueA = await runWithTenantContext({ tenantId: tenantA, operatorId: 'scheduler-test' }, async () => tasks.dueForRun(new Date().toISOString()));
+    const dueB = await runWithTenantContext({ tenantId: tenantB, operatorId: 'scheduler-test' }, async () => tasks.dueForRun(new Date().toISOString()));
+    expect(dueA.map(row => row.id)).toContain(taskA.id);
+    expect(dueA.map(row => row.id)).not.toContain(taskB.id);
+    expect(dueB.map(row => row.id)).toContain(taskB.id);
+    expect(dueB.map(row => row.id)).not.toContain(taskA.id);
+  });
+});
