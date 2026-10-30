@@ -11,7 +11,6 @@ function openDatabase(dbPath){fs.mkdirSync(path.dirname(dbPath),{recursive:true}
 function initializeTenantDatabase(connection){const schemaPath=fileURLToPath(new URL('./schema.sql',import.meta.url));connection.exec(fs.readFileSync(schemaPath,'utf8'));connection.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_control_idempotency_operator_key ON control_idempotency(operator_id,idempotency_key)');const now=new Date().toISOString();connection.prepare("INSERT OR IGNORE INTO tasks(id,name,goal,status,created_at,updated_at)VALUES('ad-hoc','Ad-hoc run','(ad-hoc — goal supplied at run time)','idle',?,?)").run(now,now);}
 export function getDb(){const tenantId=getTenantId();const legacyTenant=String(process.env.AGENT_LEGACY_TENANT_ID||'');if(!tenantId||tenantId===legacyTenant){if(!db)db=openDatabase(config.database.path);return db;}if(tenantDbs.has(tenantId))return tenantDbs.get(tenantId);const digest=crypto.createHash('sha256').update(tenantId).digest('hex').slice(0,32);const tenantPath=path.join(path.dirname(config.database.path),'tenants',digest+'.db');const connection=openDatabase(tenantPath);initializeTenantDatabase(connection);tenantDbs.set(tenantId,connection);return connection;}
 export function closeDb(){if(db){db.close();db=null;}for(const connection of tenantDbs.values()){try{connection.close();}catch{}}tenantDbs.clear();}
-}
 export function migrate(){
 const schemaPath=fileURLToPath(new URL('./schema.sql',import.meta.url));
 const sql=fs.readFileSync(schemaPath,'utf8');
