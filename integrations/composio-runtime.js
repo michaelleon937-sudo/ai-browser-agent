@@ -90,7 +90,7 @@ export async function executeComposioOperation({ provider, operation, args = {},
   const userId = tenantId ? `nexora-tenant-${tenantId}` : process.env.COMPOSIO_USER_ID;
   if (!userId) throw configurationError('Verified tenant identity or COMPOSIO_USER_ID is required');
   const { toolSlug, configuredAccountId } = getConfig(provider, operation);
-  const accountId = await resolveTenantConnectedAccount(apiKey, userId, provider, configuredAccountId);
+  const accountId = await resolveTenantConnectedAccount(apiKey, userId, provider, tenantId ? null : configuredAccountId);
   const url = `${BASE_URL}/api/v3.1/tools/execute/${encodeURIComponent(toolSlug)}`;
   const response = await fetch(url, {
     method: 'POST',
