@@ -1,8 +1,6 @@
-# Dockerfile
-# Node 20 + Playwright's Chromium. Runs as a long-lived process (dashboard +
-# scheduler + persistent browser context). Designed for Fly.io / Render / any
-# Docker host with a persistent volume mounted at /data.
-
+# Node 20 + Playwright's Chromium. The pinned Playwright image already
+# includes the matching browser binaries and Linux system dependencies.
+# Keep the package version in package.json aligned with this image tag.
 FROM mcr.microsoft.com/playwright:v1.47.0-jammy AS base
 
 ENV NODE_ENV=production \
