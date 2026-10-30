@@ -130,6 +130,14 @@ export async function invokeControlTool(opts = {}) {
         recordAudit({ ...auditBase, status: 'replayed', details: { ...auditBase.details, idempotencyId: existing.id } });
         return { ok: true, status: 200, body: { ok: true, replayed: true, tool: toolName, requestId, result: parsed.result } };
       }
+      // Evaluate non-approval policy constraints before consuming a one-time contract.
+      // Treat approval as provisionally satisfied only for this non-mutating preflight;
+      // the signed contract is still mandatory and consumed below before execution.
+      const preflight = evaluatePolicy({ toolName, args, approvalVerified: true });
+      if (!preflight.allow) {
+        recordAudit({ ...auditBase, status: 'rejected', details: { ...auditBase.details, reason: preflight.reason } });
+        return { ok: false, status: preflight.status || 403, body: { ok: false, error: preflight.reason, requestId } };
+      }
       if (requiresApproval(toolName)) {
         verifyAndConsumeApprovalContract(opts.approvalContract, { tenantId: tenantContext, operatorId, toolName, args });
         approvalVerified = true;
