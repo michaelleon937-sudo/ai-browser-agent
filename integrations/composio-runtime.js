@@ -80,7 +80,7 @@ export async function composioRuntimeStatus() {
     userConfigured: Boolean(process.env.COMPOSIO_USER_ID),
     providers: Object.fromEntries(Object.entries(PROVIDER_CONFIG).map(([provider, config]) => [provider, { accountConfigured: Boolean(process.env[config.accountEnv]), operations: Object.keys(config.tools) }])),
   };
-  if (process.env.COMPOSIO_MIGRATE_CONNECTIONS === '1') status.connectionMigration = await migrateComposioConnectionsToShared();
+  if (process.env.COMPOSIO_MIGRATE_CONNECTIONS === '1') status.connectionMigration = { disabled: true, reason: 'Automatic shared-account migration is disabled; connect each tenant using its own Nexora workspace identity.' };
   return status;
 }
 
