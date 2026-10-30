@@ -127,7 +127,7 @@ describe('forbidden and idempotency', () => {
     });
     expect(second.json.replayed).toBe(true);
     expect(second.json.result.task.id).toBe(first.json.result.task.id);
-    expect(controlIdempotency.getByKey(key)).toBeTruthy();
+    expect(controlIdempotency.getByKey(key, 'control-operator')).toBeTruthy();
   });
   it('rejects reuse of the same key with a different payload', async () => {
     const key = `mismatch-${Date.now()}`;
