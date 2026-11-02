@@ -434,6 +434,8 @@ export default {
         runtime: 'cloudflare-workers',
         browserRenderingConfigured: Boolean(env.BROWSER),
         controlConfigured: Boolean(env.CONTROL_TOKEN && env.NEXORA_AGENT_SHARED_SECRET),
+        controlTokenConfigured: Boolean(env.CONTROL_TOKEN),
+        tenantSigningSecretConfigured: Boolean(env.NEXORA_AGENT_SHARED_SECRET),
         aiConfigured: Boolean(env.AI && typeof env.AI.run === 'function'),
         aiModel: env.AI_MODEL || null,
         sentryConfigured: Boolean(env.SENTRY_DSN),
