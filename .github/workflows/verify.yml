@@ -8,12 +8,12 @@ on:
 jobs:
   test:
     name: Unit + integration tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
 
@@ -32,7 +32,7 @@ jobs:
       # (Assertion failed: (env) != nullptr in Statement::~Statement).
       # Engines field allows >=20; pin 20 for stable native addon lifecycle.
       - name: Setup Node.js 20
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "20"
           cache: npm
