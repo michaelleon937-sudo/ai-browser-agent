@@ -164,7 +164,11 @@ async function executeBrowserTask(toolName, args, env, requestId) {
   try {
     // Browser Run guardrails constrain the entire session, including redirects and subresources,
     // to the public hostname explicitly requested by the owner-approved task.
-    browser = await puppeteer.launch(env.BROWSER, { guardrails: { allowedDomains: [target.hostname] } });
+    const alternateHost = target.hostname.startsWith('www.') ? target.hostname.slice(4) : `www.${target.hostname}`;
+    const allowedDomains = Array.from(new Set([target.hostname, alternateHost]));
+    browser = await puppeteer.launch(env.BROWSER, {
+      guardrails: { allowedDomains, allowedDomainSets: ['common-cdns'] },
+    });
     const page = await browser.newPage();
     await page.setViewport({ width: 1280, height: 800 });
     page.setDefaultNavigationTimeout(timeoutMs);

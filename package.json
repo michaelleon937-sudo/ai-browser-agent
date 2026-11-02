@@ -28,7 +28,7 @@
   },
   "devDependencies": {
     "vitest": "^2.0.5",
-    "@cloudflare/puppeteer": "1.1.0"
+    "@cloudflare/puppeteer": "1.4.0"
   },
   "engines": {
     "node": ">=20.0.0"
