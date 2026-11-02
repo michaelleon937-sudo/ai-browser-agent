@@ -32,8 +32,40 @@ describe('Cloudflare browser execution Worker', () => {
     const health = await response.json();
     expect(health.runtime).toBe('cloudflare-workers');
     expect(health.controlConfigured).toBe(false);
+    expect(health.controlTokenConfigured).toBe(false);
+    expect(health.tenantSigningSecretConfigured).toBe(false);
     expect(health.aiConfigured).toBe(false);
     expect(health.sentryConfigured).toBe(false);
+  });
+
+  it('exposes GET /api/control/v1/health with the same non-sensitive flags as /healthz', async () => {
+    const response = await worker.fetch(new Request('https://agent.test/api/control/v1/health'), {});
+    expect(response.status).toBe(200);
+    const health = await response.json();
+    expect(health.ok).toBe(true);
+    expect(health.service).toBe('ai-browser-agent');
+    expect(health.runtime).toBe('cloudflare-workers');
+    expect(health.controlConfigured).toBe(false);
+    expect(health.controlTokenConfigured).toBe(false);
+    expect(health.tenantSigningSecretConfigured).toBe(false);
+    expect(JSON.stringify(health)).not.toMatch(/Bearer|token-|secret-/i);
+  });
+
+  it('reports configured control flags on /api/control/v1/health without leaking secrets', async () => {
+    const response = await worker.fetch(new Request('https://agent.test/api/control/v1/health'), {
+      CONTROL_TOKEN: 'control-test-token-value',
+      NEXORA_AGENT_SHARED_SECRET: 'tenant-test-secret-value-32chars-min',
+      BROWSER: {},
+    });
+    expect(response.status).toBe(200);
+    const health = await response.json();
+    expect(health.controlConfigured).toBe(true);
+    expect(health.controlTokenConfigured).toBe(true);
+    expect(health.tenantSigningSecretConfigured).toBe(true);
+    expect(health.browserRenderingConfigured).toBe(true);
+    const serialized = JSON.stringify(health);
+    expect(serialized).not.toContain('control-test-token-value');
+    expect(serialized).not.toContain('tenant-test-secret-value');
   });
 
   it('reports configured Sentry and browser bindings without exposing their values', async () => {
