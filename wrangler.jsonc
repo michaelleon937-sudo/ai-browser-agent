@@ -8,6 +8,11 @@
   "browser": {
     "binding": "BROWSER"
   },
+  "previews": {
+    "browser": {
+      "binding": "BROWSER"
+    }
+  },
   "workers_dev": false,
   "observability": {
     "enabled": true
