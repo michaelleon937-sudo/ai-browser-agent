@@ -11,15 +11,15 @@
   "previews": {
     "browser": {
       "binding": "BROWSER"
+    },
+    "vars": {
+      "SENTRY_DSN": "https://47e0b1a4805c45a64665bd46b1f0990b@o4512361266937856.ingest.us.sentry.io/4512361789128705",
+      "SENTRY_ENVIRONMENT": "preview"
     }
   },
   "workers_dev": false,
   "observability": {
     "enabled": true
   },
-  "preview_urls": true,
-  "vars": {
-    "SENTRY_DSN": "https://47e0b1a4805c45a64665bd46b1f0990b@o4512361266937856.ingest.us.sentry.io/4512361789128705",
-    "SENTRY_ENVIRONMENT": "preview"
-  }
+  "preview_urls": true
 }
