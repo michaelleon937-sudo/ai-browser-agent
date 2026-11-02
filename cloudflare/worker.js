@@ -339,6 +339,7 @@ export default {
         runtime: 'cloudflare-workers',
         browserRenderingConfigured: Boolean(env.BROWSER),
         controlConfigured: Boolean(env.CONTROL_TOKEN && env.NEXORA_AGENT_SHARED_SECRET),
+        sentryConfigured: Boolean(env.SENTRY_DSN),
         version: env.BUILD_SHA || 'preview',
         timestamp: new Date().toISOString(),
       });

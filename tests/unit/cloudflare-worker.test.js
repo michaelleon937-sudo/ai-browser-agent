@@ -29,7 +29,26 @@ describe('Cloudflare browser execution Worker', () => {
   it('exposes a non-sensitive health endpoint', async () => {
     const response = await worker.fetch(new Request('https://agent.test/healthz'), {});
     expect(response.status).toBe(200);
-    expect((await response.json()).runtime).toBe('cloudflare-workers');
+    const health = await response.json();
+    expect(health.runtime).toBe('cloudflare-workers');
+    expect(health.controlConfigured).toBe(false);
+    expect(health.sentryConfigured).toBe(false);
+  });
+
+  it('reports configured Sentry and browser bindings without exposing their values', async () => {
+    const response = await worker.fetch(new Request('https://agent.test/healthz'), {
+      BROWSER: {},
+      CONTROL_TOKEN: 'control-test-token',
+      NEXORA_AGENT_SHARED_SECRET: 'tenant-test-secret',
+      SENTRY_DSN: 'https://publickey@o4512361266937856.ingest.us.sentry.io/4512361789128705',
+    });
+    const health = await response.json();
+    expect(health.browserRenderingConfigured).toBe(true);
+    expect(health.controlConfigured).toBe(true);
+    expect(health.sentryConfigured).toBe(true);
+    expect(JSON.stringify(health)).not.toContain('publickey');
+    expect(JSON.stringify(health)).not.toContain('control-test-token');
+    expect(JSON.stringify(health)).not.toContain('tenant-test-secret');
   });
   it('rejects an invalid control bearer token', async () => {
     const response = await worker.fetch(toolRequest('agent.health_check', {}, { bearer: 'wrong' }), env);
