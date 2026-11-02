@@ -2,6 +2,11 @@ import puppeteer from '@cloudflare/puppeteer';
 
 const encoder = new TextEncoder();
 const TOOL_PREFIX = '/api/control/v1/tools/';
+const AI_PREFIX = '/api/ai/v1/chat/completions';
+const MAX_AI_BODY_BYTES = 24 * 1024;
+const MAX_AI_PROMPT_CHARS = 12_000;
+const MAX_AI_MESSAGES = 20;
+const MAX_AI_OUTPUT_TOKENS = 1024;
 const MAX_BODY_BYTES = 16 * 1024;
 const MAX_NAVIGATION_MS = 20_000;
 const MAX_TEXT_CHARS = 12_000;
@@ -223,9 +228,7 @@ async function executeBrowserTask(toolName, args, env, requestId) {
   }
 }
 
-async function handleControlRequest(request, env) {
-  const requestIdHeader = request.headers.get('x-request-id') || '';
-  const requestId = /^[A-Za-z0-9._-]{1,100}$/.test(requestIdHeader) ? requestIdHeader : crypto.randomUUID();
+async function authenticateControlRequest(request, env) {
   if (!env.CONTROL_TOKEN || !env.NEXORA_AGENT_SHARED_SECRET) {
     throw new ControlError(503, 'control_not_configured', 'The signed Nexora control credentials have not been configured');
   }
@@ -238,6 +241,17 @@ async function handleControlRequest(request, env) {
   if (operatorHeader && operatorHeader !== tenantClaims.sub) {
     throw new ControlError(403, 'operator_context_mismatch', 'The operator header does not match the signed tenant token');
   }
+  return tenantClaims;
+}
+
+function requestIdFor(request) {
+  const value = request.headers.get('x-request-id') || '';
+  return /^[A-Za-z0-9._-]{1,100}$/.test(value) ? value : crypto.randomUUID();
+}
+
+async function handleControlRequest(request, env) {
+  const requestId = requestIdFor(request);
+  await authenticateControlRequest(request, env);
 
   const pathname = new URL(request.url).pathname;
   if (!pathname.startsWith(TOOL_PREFIX)) throw new ControlError(404, 'tool_not_found', 'The requested control tool was not found');
@@ -260,6 +274,8 @@ async function handleControlRequest(request, env) {
       result: {
         runtime: 'cloudflare-workers',
         browserRenderingConfigured: Boolean(env.BROWSER),
+        aiConfigured: Boolean(env.AI && typeof env.AI.run === 'function'),
+        aiModel: env.AI_MODEL || null,
         supportedTools: Array.from(ALLOWED_TOOLS),
         writeActionsEnabled: false,
       },
@@ -268,6 +284,85 @@ async function handleControlRequest(request, env) {
 
   const result = await executeBrowserTask(toolName, args, env, requestId);
   return json({ ok: true, tool: toolName, requestId, result });
+}
+
+async function handleAiRequest(request, env) {
+  const requestId = requestIdFor(request);
+  await authenticateControlRequest(request, env);
+  if (!env.AI || typeof env.AI.run !== 'function') {
+    throw new ControlError(503, 'ai_binding_missing', 'Workers AI is not configured for this Preview');
+  }
+
+  const rawBody = await request.text();
+  if (encoder.encode(rawBody).byteLength > MAX_AI_BODY_BYTES) {
+    throw new ControlError(413, 'ai_request_too_large', 'The AI request exceeds the allowed size');
+  }
+  let body;
+  try { body = JSON.parse(rawBody); } catch {
+    throw new ControlError(400, 'invalid_json', 'The AI request body must be valid JSON');
+  }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw new ControlError(400, 'invalid_ai_request', 'The AI request must be a JSON object');
+  }
+  if (body.tools || body.functions || body.tool_choice || body.function_call) {
+    throw new ControlError(400, 'tool_calls_not_supported', 'This endpoint supports text generation only; tool execution is disabled');
+  }
+  if (!Array.isArray(body.messages) || body.messages.length < 1 || body.messages.length > MAX_AI_MESSAGES) {
+    throw new ControlError(400, 'invalid_messages', 'Between 1 and 20 chat messages are required');
+  }
+  let totalChars = 0;
+  const messages = body.messages.map((message) => {
+    if (!message || typeof message !== 'object' || !['system', 'user', 'assistant'].includes(message.role) || typeof message.content !== 'string') {
+      throw new ControlError(400, 'invalid_message', 'Each message must have a system, user or assistant role and plain-text content');
+    }
+    totalChars += message.content.length;
+    if (message.content.length > 8_000 || totalChars > MAX_AI_PROMPT_CHARS) {
+      throw new ControlError(413, 'ai_prompt_too_large', 'The combined AI prompt exceeds the allowed character limit');
+    }
+    return { role: message.role, content: message.content };
+  });
+  if (!messages.some((message) => message.role === 'user')) {
+    throw new ControlError(400, 'user_message_required', 'At least one user message is required');
+  }
+
+  const maxTokens = body.max_tokens === undefined ? 512 : body.max_tokens;
+  if (!Number.isInteger(maxTokens) || maxTokens < 64 || maxTokens > MAX_AI_OUTPUT_TOKENS) {
+    throw new ControlError(400, 'invalid_max_tokens', `max_tokens must be an integer between 64 and ${MAX_AI_OUTPUT_TOKENS}`);
+  }
+  const temperature = body.temperature === undefined ? 0.2 : body.temperature;
+  if (typeof temperature !== 'number' || !Number.isFinite(temperature) || temperature < 0 || temperature > 1) {
+    throw new ControlError(400, 'invalid_temperature', 'temperature must be a number between 0 and 1');
+  }
+
+  const model = typeof env.AI_MODEL === 'string' && env.AI_MODEL.startsWith('@cf/')
+    ? env.AI_MODEL
+    : '@cf/openai/gpt-oss-20b';
+  let result;
+  try {
+    result = await env.AI.run(model, { messages, max_tokens: maxTokens, temperature, stream: false });
+  } catch (error) {
+    console.error(JSON.stringify({ event: 'agent_ai_inference_error', requestId, errorName: error?.name || 'Error' }));
+    throw new ControlError(502, 'ai_inference_failed', 'Workers AI could not complete the request');
+  }
+  const choice = result?.choices?.[0];
+  const content = choice?.message?.content;
+  if (typeof content !== 'string' || !content.trim()) {
+    throw new ControlError(502, 'ai_empty_response', 'Workers AI returned no usable text response');
+  }
+  const usage = result?.usage || {};
+  const safeUsage = {};
+  for (const key of ['prompt_tokens', 'completion_tokens', 'total_tokens', 'neurons']) {
+    if (typeof usage[key] === 'number' && Number.isFinite(usage[key])) safeUsage[key] = usage[key];
+  }
+  return json({
+    id: typeof result?.id === 'string' ? result.id : `chatcmpl-${requestId}`,
+    object: 'chat.completion',
+    created: Math.floor(Date.now() / 1000),
+    model,
+    requestId,
+    choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: choice.finish_reason || 'stop' }],
+    usage: safeUsage,
+  });
 }
 
 function safeSentryText(value, max = 400) {
@@ -339,16 +434,20 @@ export default {
         runtime: 'cloudflare-workers',
         browserRenderingConfigured: Boolean(env.BROWSER),
         controlConfigured: Boolean(env.CONTROL_TOKEN && env.NEXORA_AGENT_SHARED_SECRET),
+        aiConfigured: Boolean(env.AI && typeof env.AI.run === 'function'),
+        aiModel: env.AI_MODEL || null,
         sentryConfigured: Boolean(env.SENTRY_DSN),
         version: env.BUILD_SHA || 'preview',
         timestamp: new Date().toISOString(),
       });
     }
-    if (request.method !== 'POST' || !url.pathname.startsWith(TOOL_PREFIX)) {
+    const isControlRoute = url.pathname.startsWith(TOOL_PREFIX);
+    const isAiRoute = url.pathname === AI_PREFIX;
+    if (request.method !== 'POST' || (!isControlRoute && !isAiRoute)) {
       return json({ ok: false, error: 'Not found', code: 'not_found' }, 404);
     }
     try {
-      return await handleControlRequest(request, env);
+      return isAiRoute ? await handleAiRequest(request, env) : await handleControlRequest(request, env);
     } catch (error) {
       const status = Number.isInteger(error?.status) ? error.status : 500;
       const code = typeof error?.code === 'string' ? error.code : 'internal_error';

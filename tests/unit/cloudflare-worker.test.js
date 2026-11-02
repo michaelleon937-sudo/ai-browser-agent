@@ -32,6 +32,7 @@ describe('Cloudflare browser execution Worker', () => {
     const health = await response.json();
     expect(health.runtime).toBe('cloudflare-workers');
     expect(health.controlConfigured).toBe(false);
+    expect(health.aiConfigured).toBe(false);
     expect(health.sentryConfigured).toBe(false);
   });
 
@@ -41,15 +42,76 @@ describe('Cloudflare browser execution Worker', () => {
       CONTROL_TOKEN: 'control-test-token',
       NEXORA_AGENT_SHARED_SECRET: 'tenant-test-secret',
       SENTRY_DSN: 'https://publickey@o4512361266937856.ingest.us.sentry.io/4512361789128705',
+      AI: { run: async () => ({ choices: [{ message: { content: 'test' } }] }) },
+      AI_MODEL: '@cf/openai/gpt-oss-20b',
     });
     const health = await response.json();
     expect(health.browserRenderingConfigured).toBe(true);
     expect(health.controlConfigured).toBe(true);
+    expect(health.aiConfigured).toBe(true);
+    expect(health.aiModel).toBe('@cf/openai/gpt-oss-20b');
     expect(health.sentryConfigured).toBe(true);
     expect(JSON.stringify(health)).not.toContain('publickey');
     expect(JSON.stringify(health)).not.toContain('control-test-token');
     expect(JSON.stringify(health)).not.toContain('tenant-test-secret');
   });
+  it('serves authenticated OpenAI-compatible text completions through the Preview AI binding', async () => {
+    let receivedModel = '';
+    let receivedInput;
+    const aiEnv = {
+      ...env,
+      AI_MODEL: '@cf/openai/gpt-oss-20b',
+      AI: { run: async (model, input) => {
+        receivedModel = model;
+        receivedInput = input;
+        return { id: 'test-completion', choices: [{ finish_reason: 'stop', message: { role: 'assistant', content: 'NEXORA AI ONLINE', reasoning_content: 'must-not-leak' } }], usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14, neurons: 2.5 } };
+      } },
+    };
+    const response = await worker.fetch(new Request('https://agent.test/api/ai/v1/chat/completions', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${bearer}`, 'content-type': 'application/json', 'x-nexora-tenant-token': tenantToken(), 'x-operator-id': 'test-profile', 'x-request-id': 'ai-unit-1' },
+      body: JSON.stringify({ messages: [{ role: 'system', content: 'Be concise.' }, { role: 'user', content: 'Say hello.' }], max_tokens: 128, temperature: 0.1 }),
+    }), aiEnv);
+    const payload = await response.json();
+    expect(response.status).toBe(200);
+    expect(receivedModel).toBe('@cf/openai/gpt-oss-20b');
+    expect(receivedInput.max_tokens).toBe(128);
+    expect(payload.choices[0].message.content).toBe('NEXORA AI ONLINE');
+    expect(payload.usage.neurons).toBe(2.5);
+    expect(JSON.stringify(payload)).not.toContain('must-not-leak');
+  });
+
+  it('rejects AI requests when the Preview AI binding is missing', async () => {
+    const response = await worker.fetch(new Request('https://agent.test/api/ai/v1/chat/completions', {
+      method: 'POST', headers: { authorization: `Bearer ${bearer}`, 'content-type': 'application/json', 'x-nexora-tenant-token': tenantToken() },
+      body: JSON.stringify({ messages: [{ role: 'user', content: 'Hello' }] }),
+    }), env);
+    expect(response.status).toBe(503);
+    expect((await response.json()).code).toBe('ai_binding_missing');
+  });
+
+  it('rejects AI tool/function calling and unsupported message roles', async () => {
+    const aiEnv = { ...env, AI: { run: async () => { throw new Error('must not run'); } } };
+    const base = { method: 'POST', headers: { authorization: `Bearer ${bearer}`, 'content-type': 'application/json', 'x-nexora-tenant-token': tenantToken() } };
+    const toolResponse = await worker.fetch(new Request('https://agent.test/api/ai/v1/chat/completions', { ...base, body: JSON.stringify({ messages: [{ role: 'user', content: 'Hi' }], tools: [] }) }), aiEnv);
+    expect(toolResponse.status).toBe(400);
+    expect((await toolResponse.json()).code).toBe('tool_calls_not_supported');
+    const roleResponse = await worker.fetch(new Request('https://agent.test/api/ai/v1/chat/completions', { ...base, body: JSON.stringify({ messages: [{ role: 'tool', content: 'run something' }] }) }), aiEnv);
+    expect(roleResponse.status).toBe(400);
+    expect((await roleResponse.json()).code).toBe('invalid_message');
+  });
+
+  it('caps AI output tokens and rejects oversized prompts before inference', async () => {
+    let calls = 0;
+    const aiEnv = { ...env, AI: { run: async () => { calls += 1; return { choices: [{ message: { content: 'ok' } }] }; } } };
+    const headers = { authorization: `Bearer ${bearer}`, 'content-type': 'application/json', 'x-nexora-tenant-token': tenantToken() };
+    const tokenResponse = await worker.fetch(new Request('https://agent.test/api/ai/v1/chat/completions', { method: 'POST', headers, body: JSON.stringify({ messages: [{ role: 'user', content: 'Hi' }], max_tokens: 4096 }) }), aiEnv);
+    expect(tokenResponse.status).toBe(400);
+    const promptResponse = await worker.fetch(new Request('https://agent.test/api/ai/v1/chat/completions', { method: 'POST', headers, body: JSON.stringify({ messages: [{ role: 'user', content: 'x'.repeat(12_001) }] }) }), aiEnv);
+    expect(promptResponse.status).toBe(413);
+    expect(calls).toBe(0);
+  });
+
   it('rejects an invalid control bearer token', async () => {
     const response = await worker.fetch(toolRequest('agent.health_check', {}, { bearer: 'wrong' }), env);
     expect(response.status).toBe(401);
