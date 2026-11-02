@@ -163,21 +163,12 @@ async function executeBrowserTask(toolName, args, env, requestId) {
   const timeoutMs = Math.max(3_000, Math.min(requestedTimeout, MAX_NAVIGATION_MS));
   let browser;
   try {
-    browser = await puppeteer.launch(env.BROWSER);
+    // Browser Run guardrails constrain the entire session, including redirects and subresources,
+    // to the public hostname explicitly requested by the owner-approved task.
+    browser = await puppeteer.launch(env.BROWSER, { guardrails: { allowedDomains: [target.hostname] } });
     const page = await browser.newPage();
     await page.setViewport({ width: 1280, height: 800 });
     page.setDefaultNavigationTimeout(timeoutMs);
-    await page.setRequestInterception(true);
-    page.on('request', (outgoing) => {
-      let allowed = false;
-      try {
-        assertPublicHttpUrl(outgoing.url());
-        allowed = ['GET', 'HEAD'].includes(outgoing.method().toUpperCase());
-      } catch { allowed = false; }
-      const action = allowed ? outgoing.continue() : outgoing.abort('blockedbyclient');
-      action.catch(() => {});
-    });
-
     const response = await page.goto(target.toString(), { waitUntil: 'domcontentloaded', timeout: timeoutMs });
     const snapshotText = await page.evaluate(() => JSON.stringify({
       title: document.title || '',
