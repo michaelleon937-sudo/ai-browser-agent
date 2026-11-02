@@ -25,5 +25,14 @@
   "observability": {
     "enabled": true
   },
-  "preview_urls": true
+  "preview_urls": true,
+  "ai": {
+    "binding": "AI"
+  },
+  "vars": {
+    "AI_MODEL": "@cf/openai/gpt-oss-20b",
+    "SENTRY_DSN": "https://47e0b1a4805c45a64665bd46b1f0990b@o4512361266937856.ingest.us.sentry.io/4512361789128705",
+    "SENTRY_ENVIRONMENT": "preview",
+    "BUILD_SHA": "97b268230a9c0ea3359541fa63f25ebfe6dc30b1"
+  }
 }
