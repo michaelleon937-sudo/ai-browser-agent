@@ -7,10 +7,9 @@ const bearer = 'unit-test-control-bearer-token';
 const b64 = (value) => Buffer.from(JSON.stringify(value)).toString('base64url');
 function tenantToken(extra = {}) {
   const now = Math.floor(Date.now() / 1000);
-  const header = b64({ alg: 'HS256', typ: 'JWT' });
   const payload = b64({ iss: 'nexora-intelligence', aud: 'ai-browser-agent-control', typ: 'tenant', tenantId: 'test-tenant', sub: 'test-profile', jti: 'unit-jti', iat: now, exp: now + 300, ...extra });
-  const input = `${header}.${payload}`;
-  return `${input}.${createHmac('sha256', sharedKey).update(input).digest('base64url')}`;
+  const signature = createHmac('sha256', sharedKey).update(payload).digest('base64url');
+  return `v1.${payload}.${signature}`;
 }
 function toolRequest(tool, args = {}, options = {}) {
   return new Request(`https://agent.test/api/control/v1/tools/${tool}`, {

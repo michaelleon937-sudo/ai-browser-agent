@@ -57,18 +57,17 @@ async function verifyTenantToken(token, secret) {
   const parts = token.split('.');
   if (parts.length !== 3) throw new ControlError(401, 'tenant_token_invalid', 'The tenant token is malformed');
 
-  let header;
+  if (parts[0] !== 'v1') {
+    throw new ControlError(401, 'tenant_token_invalid', 'The tenant token version is not accepted');
+  }
   let claims;
   try {
-    header = decodeBase64UrlJson(parts[0]);
     claims = decodeBase64UrlJson(parts[1]);
   } catch {
     throw new ControlError(401, 'tenant_token_invalid', 'The tenant token is malformed');
   }
-  if (header?.alg !== 'HS256' || header?.typ !== 'JWT') {
-    throw new ControlError(401, 'tenant_token_invalid', 'The tenant token algorithm is not accepted');
-  }
 
+  // Match Nexora/Agent's shared v1 HMAC contract: sign the base64url payload only.
   const key = await crypto.subtle.importKey(
     'raw',
     encoder.encode(secret),
@@ -82,7 +81,7 @@ async function verifyTenantToken(token, secret) {
       'HMAC',
       key,
       base64UrlToBytes(parts[2]),
-      encoder.encode(`${parts[0]}.${parts[1]}`),
+      encoder.encode(parts[1]),
     );
   } catch {
     signatureValid = false;
