@@ -270,8 +270,67 @@ async function handleControlRequest(request, env) {
   return json({ ok: true, tool: toolName, requestId, result });
 }
 
+function safeSentryText(value, max = 400) {
+  return String(value || 'Unhandled Worker error')
+    .replace(/https?:\/\/[^\s"'<>]+/gi, '[url]')
+    .replace(/Bearer\s+[^\s,;]+/gi, 'Bearer [redacted]')
+    .replace(/((?:token|secret|password|api[_-]?key)=)[^\s&]+/gi, '$1[redacted]')
+    .slice(0, max);
+}
+
+async function captureSentry(env, error, request, code, requestId) {
+  const dsnValue = env.SENTRY_DSN;
+  if (!dsnValue) return false;
+  try {
+    const dsn = new URL(dsnValue);
+    const projectId = dsn.pathname.split('/').filter(Boolean).at(-1);
+    const publicKey = dsn.username;
+    if (dsn.protocol !== 'https:' || !dsn.hostname.endsWith('.ingest.us.sentry.io') || !projectId || !publicKey) return false;
+    const eventId = crypto.randomUUID().replace(/-/g, '');
+    const timestamp = Date.now() / 1000;
+    const route = (() => { try { return new URL(request.url).pathname; } catch { return 'unknown'; } })();
+    const message = safeSentryText(error?.message || error?.name || code || 'Unhandled Worker error');
+    const event = {
+      event_id: eventId,
+      timestamp,
+      platform: 'javascript',
+      level: 'error',
+      logger: 'ai-browser-agent',
+      environment: safeSentryText(env.SENTRY_ENVIRONMENT || 'preview', 40),
+      message,
+      tags: {
+        runtime: 'cloudflare-workers',
+        route: safeSentryText(route, 200),
+        method: safeSentryText(request.method || 'unknown', 16),
+        code: safeSentryText(code || 'internal_error', 100),
+        request_id: safeSentryText(requestId || 'unknown', 100),
+      },
+      fingerprint: ['ai-browser-agent', safeSentryText(code || 'worker-error', 100)],
+      exception: { values: [{ type: safeSentryText(error?.name || 'Error', 80), value: message }] },
+    };
+    const envelope = [
+      JSON.stringify({ event_id: eventId, sent_at: new Date().toISOString(), dsn: dsnValue }),
+      JSON.stringify({ type: 'event', content_type: 'application/json' }),
+      JSON.stringify(event),
+      '',
+    ].join('\n');
+    const response = await fetch(`https://${dsn.hostname}/api/${projectId}/envelope/`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/x-sentry-envelope',
+        'x-sentry-auth': `Sentry sentry_version=7,sentry_client=ai-browser-agent/1.0,sentry_key=${publicKey}`,
+      },
+      body: envelope,
+      signal: AbortSignal.timeout(2000),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (request.method === 'GET' && url.pathname === '/healthz') {
       return json({
@@ -293,7 +352,12 @@ export default {
       const status = Number.isInteger(error?.status) ? error.status : 500;
       const code = typeof error?.code === 'string' ? error.code : 'internal_error';
       const requestId = request.headers.get('x-request-id') || crypto.randomUUID();
-      if (status >= 500) console.error(JSON.stringify({ event: 'agent_control_error', requestId, code, errorName: error?.name || 'Error' }));
+      if (status >= 500) {
+        console.error(JSON.stringify({ event: 'agent_control_error', requestId, code, errorName: error?.name || 'Error' }));
+        const report = captureSentry(env, error, request, code, requestId);
+        if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(report);
+        else await report;
+      }
       return json({ ok: false, error: error?.message || 'The control request failed', code, requestId }, status);
     }
   },

@@ -56,6 +56,54 @@ describe('Cloudflare browser execution Worker', () => {
     expect(response.status).toBe(400);
     expect((await response.json()).code).toBe('unsafe_url');
   });
+
+  it('reports sanitized 5xx control failures to Sentry without attaching credentials or request data', async () => {
+    const originalFetch = globalThis.fetch;
+    let capturedUrl = '';
+    let capturedInit;
+    globalThis.fetch = async (url, init) => {
+      capturedUrl = String(url);
+      capturedInit = init;
+      return new Response(null, { status: 200 });
+    };
+    try {
+      const request = new Request('https://agent.test/api/control/v1/tools/agent.health_check?private=must-not-leak', {
+        method: 'POST',
+        headers: { authorization: 'Bearer do-not-report-this-token', 'content-type': 'application/json' },
+        body: JSON.stringify({ customerEmail: 'private@example.com' }),
+      });
+      const response = await worker.fetch(request, {
+        SENTRY_DSN: 'https://publickey@o4512361266937856.ingest.us.sentry.io/4512361789128705',
+        SENTRY_ENVIRONMENT: 'preview',
+      });
+      expect(response.status).toBe(503);
+      expect(capturedUrl).toBe('https://o4512361266937856.ingest.us.sentry.io/api/4512361789128705/envelope/');
+      const lines = String(capturedInit.body).split('\n');
+      const event = JSON.parse(lines[2]);
+      expect(event.environment).toBe('preview');
+      expect(event.tags.code).toBe('control_not_configured');
+      expect(event.tags.route).toBe('/api/control/v1/tools/agent.health_check');
+      expect(JSON.stringify(event)).not.toContain('do-not-report-this-token');
+      expect(JSON.stringify(event)).not.toContain('private@example.com');
+      expect(JSON.stringify(event)).not.toContain('must-not-leak');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('does not call Sentry when no DSN is configured', async () => {
+    const originalFetch = globalThis.fetch;
+    let called = false;
+    globalThis.fetch = async () => { called = true; return new Response(null, { status: 200 }); };
+    try {
+      const response = await worker.fetch(toolRequest('agent.health_check'), {});
+      expect(response.status).toBe(503);
+      expect(called).toBe(false);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it('requires a configured Browser Rendering binding for public navigation', async () => {
     const response = await worker.fetch(toolRequest('browser.navigate', { url: 'https://example.com' }), env);
     expect(response.status).toBe(503);
