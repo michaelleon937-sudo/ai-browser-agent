@@ -8,6 +8,7 @@ import { FORBIDDEN_TOOLS, ALLOWED_TOOLS, evaluatePolicy, isForbiddenTool } from 
 import { sanitizeForAudit } from '../../control/audit.js';
 import { signClaims } from '../../control/tenant-auth.js';
 import { runWithTenantContext } from '../../control/tenant-context.js';
+import { hashRequest } from '../../control/idempotency.js';
 import { canRetry, incrementAttempt, getOrCreateSession } from '../../control/repair.js';
 
 let migrate, closeDb, tasks, runs, operatorAuditLog, controlIdempotency;
@@ -137,6 +138,69 @@ describe('forbidden and idempotency', () => {
     });
     expect(mismatch.status).toBe(409);
     expect(mismatch.json.code).toBe('idempotency_payload_mismatch');
+  });
+  it('replays failed idempotency records as failures', async () => {
+    const key = `failed-${Date.now()}`;
+    const body = { name: 'Failed Task', goal: 'noop' };
+    const operatorScope = 'control-test-tenant:control-operator';
+    controlIdempotency.create({
+      idempotencyKey: key,
+      operatorId: operatorScope,
+      toolName: 'agent.create_task',
+      requestHash: hashRequest('agent.create_task', body),
+      status: 'failed',
+      result: { error: 'synthetic failure', code: 'synthetic_failure', httpStatus: 422 },
+    });
+    const replay = await request('POST', '/api/control/v1/tools/agent.create_task', {
+      headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': key }, body,
+    });
+    expect(replay.status).toBe(422);
+    expect(replay.json.ok).toBe(false);
+    expect(replay.json.replayed).toBe(true);
+    expect(replay.json.code).toBe('synthetic_failure');
+  });
+  it('keeps an in-progress idempotency record unchanged on replay', async () => {
+    const key = `started-${Date.now()}`;
+    const body = { name: 'Started Task', goal: 'noop' };
+    const operatorScope = 'control-test-tenant:control-operator';
+    controlIdempotency.create({
+      idempotencyKey: key,
+      operatorId: operatorScope,
+      toolName: 'agent.create_task',
+      requestHash: hashRequest('agent.create_task', body),
+      status: 'started',
+      result: null,
+    });
+    const replay = await request('POST', '/api/control/v1/tools/agent.create_task', {
+      headers: { Authorization: `Bearer ${token}`, 'Idempotency-Key': key }, body,
+    });
+    expect(replay.status).toBe(409);
+    expect(replay.json.code).toBe('idempotency_in_progress');
+    expect(controlIdempotency.getByKey(key, operatorScope).status).toBe('started');
+  });
+  it('only lets the owning invocation complete a started idempotency record once', () => {
+    const key = `owner-${Date.now()}`;
+    const operatorScope = 'control-test-tenant:control-operator';
+    const record = controlIdempotency.create({
+      idempotencyKey: key,
+      operatorId: operatorScope,
+      toolName: 'agent.create_task',
+      requestHash: hashRequest('agent.create_task', { name: 'Owner Task', goal: 'noop' }),
+      status: 'started',
+      result: null,
+    });
+    expect(controlIdempotency.updateOwned({
+      idempotencyKey: key, operatorId: operatorScope, recordId: 'not-the-owner', status: 'failed', result: { error: 'stale' },
+    })).toBeNull();
+    expect(controlIdempotency.getByKey(key, operatorScope).status).toBe('started');
+    const completed = controlIdempotency.updateOwned({
+      idempotencyKey: key, operatorId: operatorScope, recordId: record.id, status: 'completed', result: { ok: true },
+    });
+    expect(completed.status).toBe('completed');
+    expect(controlIdempotency.updateOwned({
+      idempotencyKey: key, operatorId: operatorScope, recordId: record.id, status: 'failed', result: { error: 'late failure' },
+    })).toBeNull();
+    expect(controlIdempotency.getByKey(key, operatorScope).status).toBe('completed');
   });
   it('does not share an idempotency key across different tenants', async () => {
     const key = `tenant-isolation-${Date.now()}`;

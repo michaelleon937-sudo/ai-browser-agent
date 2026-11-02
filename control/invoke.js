@@ -101,6 +101,9 @@ export async function invokeControlTool(opts = {}) {
     };
   }
 
+  let idempotencyRecord = null;
+  let toolExecutionReturned = false;
+
   try {
     let approvalVerified = false;
     if (isMutatingTool(toolName)) {
@@ -128,6 +131,30 @@ export async function invokeControlTool(opts = {}) {
         }
         const parsed = parseStoredResult(existing);
         recordAudit({ ...auditBase, status: 'replayed', details: { ...auditBase.details, idempotencyId: existing.id } });
+        if (existing.status === 'failed') {
+          const failure = parsed.result && typeof parsed.result === 'object' ? parsed.result : {};
+          const failureStatus = Number.isInteger(failure.httpStatus) && failure.httpStatus >= 400 && failure.httpStatus <= 599
+            ? failure.httpStatus
+            : 500;
+          return {
+            ok: false,
+            status: failureStatus,
+            body: {
+              ok: false,
+              replayed: true,
+              error: typeof failure.error === 'string' ? failure.error : 'The original request failed and was not retried',
+              code: typeof failure.code === 'string' ? failure.code : 'idempotency_previous_failure',
+              requestId,
+            },
+          };
+        }
+        if (existing.status !== 'completed') {
+          return {
+            ok: false,
+            status: 409,
+            body: { ok: false, error: 'Stored idempotency state requires reconciliation', code: 'idempotency_state_unknown', requestId },
+          };
+        }
         return { ok: true, status: 200, body: { ok: true, replayed: true, tool: toolName, requestId, result: parsed.result } };
       }
       // Evaluate non-approval policy constraints before consuming a one-time contract.
@@ -142,12 +169,30 @@ export async function invokeControlTool(opts = {}) {
         verifyAndConsumeApprovalContract(opts.approvalContract, { tenantId: tenantContext, operatorId, toolName, args });
         approvalVerified = true;
       }
-      beginIdempotency({ idempotencyKey, operatorId: idempotencyScope, toolName, requestHash });
+      idempotencyRecord = beginIdempotency({ idempotencyKey, operatorId: idempotencyScope, toolName, requestHash });
     }
 
     const result = await runTool(toolName, args, { operatorId, tenantId: tenantContext, requestId, source, approvalVerified }, approvalVerified);
+    toolExecutionReturned = true;
     if (isMutatingTool(toolName) && idempotencyKey) {
-      completeIdempotency(idempotencyKey, idempotencyScope, { status: 'completed', result });
+      const completedRecord = completeIdempotency(idempotencyRecord, { status: 'completed', result });
+      if (!completedRecord) {
+        recordAudit({
+          ...auditBase,
+          status: 'error',
+          details: { ...auditBase.details, reason: 'idempotency_completion_conflict' },
+        });
+        return {
+          ok: false,
+          status: 503,
+          body: {
+            ok: false,
+            error: 'The tool completed but its result could not be persisted. Reconcile the operation before retrying.',
+            code: 'idempotency_completion_conflict',
+            requestId,
+          },
+        };
+      }
     }
     recordAudit({
       ...auditBase,
@@ -161,10 +206,13 @@ export async function invokeControlTool(opts = {}) {
       body: { ok: true, tool: toolName, requestId, result },
     };
   } catch (err) {
-    if (isMutatingTool(toolName) && idempotencyKey && lookupIdempotency(idempotencyKey, idempotencyScope)) {
-      completeIdempotency(idempotencyKey, idempotencyScope, { status: 'failed', result: { error: err.message } });
-    }
     const status = err.status || 500;
+    if (idempotencyRecord && !toolExecutionReturned) {
+      completeIdempotency(idempotencyRecord, {
+        status: 'failed',
+        result: { error: err.message, code: err.code || null, httpStatus: status },
+      });
+    }
     recordAudit({
       ...auditBase,
       status: 'error',

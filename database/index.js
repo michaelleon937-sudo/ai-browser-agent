@@ -698,6 +698,23 @@ getByKey(key,operatorId){
 if(!key||!operatorId)return null;
 return getDb().prepare('SELECT * FROM control_idempotency WHERE idempotency_key = ? AND operator_id = ?').get(key,operatorId);
 },
+updateOwned({idempotencyKey,operatorId,recordId,status,result}){
+if(!idempotencyKey||!operatorId||!recordId||!status)return null;
+const changed=getDb().prepare(`
+      UPDATE control_idempotency
+      SET status = ?, result = ?, updated_at = ?
+      WHERE id = ? AND idempotency_key = ? AND operator_id = ? AND status = 'started'
+    `).run(
+status,
+result!==undefined?JSON.stringify(result):null,
+new Date().toISOString(),
+recordId,
+idempotencyKey,
+operatorId,
+).changes;
+if(changed!==1)return null;
+return controlIdempotency.getByKey(idempotencyKey,operatorId);
+},
 update(key,operatorId,{status,result}){
 const current=controlIdempotency.getByKey(key,operatorId);
 if(!current)return null;

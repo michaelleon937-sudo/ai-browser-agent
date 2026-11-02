@@ -30,6 +30,13 @@ export function beginIdempotency({ idempotencyKey, operatorId, toolName, request
   return controlIdempotency.create({ idempotencyKey, operatorId, toolName, requestHash, status: 'started', result: null });
 }
 
-export function completeIdempotency(key, operatorId, { status, result }) {
-  return controlIdempotency.update(key, operatorId, { status, result });
+export function completeIdempotency(record, { status, result }) {
+  if (!record?.id || !record?.idempotency_key || !record?.operator_id) return null;
+  return controlIdempotency.updateOwned({
+    idempotencyKey: record.idempotency_key,
+    operatorId: record.operator_id,
+    recordId: record.id,
+    status,
+    result,
+  });
 }
