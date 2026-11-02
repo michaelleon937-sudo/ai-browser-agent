@@ -9,11 +9,11 @@ on:
 jobs:
   comfyui-e2e:
     name: Live self-hosted ComfyUI inference
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - name: Checkout feature branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
       - name: Record exact commit
@@ -83,7 +83,7 @@ jobs:
           "$RUNNER_TEMP/comfy-venv/bin/python" -c 'from PIL import Image; image=Image.open("'$RUNNER_TEMP'/comfyui-render.png"); print("actual image:", image.size, image.mode); assert image.width > 0 and image.height > 0'
       - name: Upload actual ComfyUI render evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: comfyui-live-e2e-evidence
           path: |

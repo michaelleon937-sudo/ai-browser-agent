@@ -6,7 +6,8 @@
 
 
 import cronParser from 'cron-parser';
-import { tasks, runs } from '../database/index.js';
+import { tasks, runs, listTenantIds } from '../database/index.js';
+import { runWithTenantContext } from '../database/tenant-context.js';
 import { runAgent } from '../agent/index.js';
 import { config } from '../config/index.js';
 import { notify } from '../notifications/index.js';
@@ -39,13 +40,12 @@ async function tick() {
   if (ticking) return; // avoid overlapping ticks if a run is slow to enqueue
   ticking = true;
   try {
-    const due = tasks.dueForRun(new Date().toISOString());
-    for (const task of due) {
-      try {
-        await runDueTask(task);
-      } catch (err) {
-        console.error(`[scheduler] task ${task.id} failed to run:`, err);
-        notify({ level: 'error', subject: `Scheduler error: ${task.name}`, body: err.message });
+    const tenantIds = listTenantIds();
+    if (tenantIds.length === 0) {
+      await processTenantTasks(null); // legacy single-tenant mode before any tenant is registered
+    } else {
+      for (const tenantId of tenantIds) {
+        await runWithTenantContext({ tenantId, operatorId: 'scheduler' }, () => processTenantTasks(tenantId));
       }
     }
   } finally {
@@ -53,8 +53,23 @@ async function tick() {
   }
 }
 
+async function processTenantTasks(tenantId) {
+  const due = tasks.dueForRun(new Date().toISOString());
+  for (const task of due) {
+    try {
+      await runDueTask(task, tenantId);
+    } catch (err) {
+      console.error(`[scheduler] tenant ${tenantId || 'legacy'} task ${task.id} failed to run:`, err);
+      // Never send one tenant's task details to the platform owner's global Telegram channel.
+      if (!tenantId || tenantId === String(process.env.AGENT_LEGACY_TENANT_ID || '')) {
+        notify({ level: 'error', subject: `Scheduler error: ${task.name}`, body: err.message });
+      }
+    }
+  }
+}
 
-async function runDueTask(task) {
+
+async function runDueTask(task, tenantId = null) {
   const next = computeNextRun(task.cron_expression, task.timezone);
   tasks.setNextRun(task.id, next);
 
@@ -66,8 +81,8 @@ async function runDueTask(task) {
 
 
   console.log(`[scheduler] running due task: ${task.name} (${task.id})`);
-  runAgent({ taskId: task.id }).catch((err) => {
-    console.error(`[scheduler] runAgent crashed for ${task.id}:`, err);
+  runAgent({ taskId: task.id, tenantId }).catch((err) => {
+    console.error(`[scheduler] tenant ${tenantId || 'legacy'} runAgent crashed for ${task.id}:`, err);
   });
 }
 

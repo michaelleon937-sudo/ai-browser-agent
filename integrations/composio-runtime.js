@@ -7,7 +7,7 @@ const BASE_URL = String(process.env.COMPOSIO_API_BASE_URL || 'https://backend.co
 
 const PROVIDER_CONFIG = Object.freeze({
   hubspot: { accountEnv: 'COMPOSIO_HUBSPOT_ACCOUNT_ID', tools: { search_contacts: 'HUBSPOT_SEARCH_CONTACTS_BY_CRITERIA', create_contact: 'HUBSPOT_CREATE_CONTACT', update_contact: 'HUBSPOT_UPDATE_CONTACT', read_contact: 'HUBSPOT_READ_CONTACT' } },
-  googlecalendar: { accountEnv: 'COMPOSIO_GOOGLECALENDAR_ACCOUNT_ID', tools: { create_event: 'GOOGLECALENDAR_CREATE_EVENT', get_event: 'GOOGLECALENDAR_EVENTS_GET', patch_event: 'GOOGLECALENDAR_PATCH_EVENT', delete_event: 'GOOGLECALENDAR_DELETE_EVENT' } },
+  googlecalendar: { accountEnv: 'COMPOSIO_GOOGLECALENDAR_ACCOUNT_ID', tools: { create_event: 'GOOGLECALENDAR_CREATE_EVENT', get_event: 'GOOGLECALENDAR_EVENTS_GET', patch_event: 'GOOGLECALENDAR_PATCH_EVENT' } },
   xero: { accountEnv: 'COMPOSIO_XERO_ACCOUNT_ID', tools: { create_draft_invoice: 'XERO_CREATE_INVOICE', get_invoice: 'XERO_GET_INVOICE' } },
 });
 
@@ -20,9 +20,27 @@ function getConfig(provider, operation) {
   if (!config) { const err = new Error(`Unsupported Composio provider: ${provider}`); err.status = 403; err.code = 'COMPOSIO_PROVIDER_NOT_ALLOWED'; throw err; }
   const toolSlug = config.tools[operation];
   if (!toolSlug) { const err = new Error(`Unsupported Composio operation: ${provider}.${operation}`); err.status = 403; err.code = 'COMPOSIO_OPERATION_NOT_ALLOWED'; throw err; }
-  const accountId = process.env[config.accountEnv];
-  if (!accountId) throw configurationError(`${config.accountEnv} is not configured`);
-  return { toolSlug, accountId };
+  const configuredAccountId = process.env[config.accountEnv] || null;
+  return { toolSlug, configuredAccountId };
+}
+
+async function resolveTenantConnectedAccount(apiKey, userId, provider, configuredAccountId = null) {
+  const response = await fetch(`${BASE_URL}/api/v3.1/connected_accounts?limit=100&account_type=ALL`, { headers: { 'x-api-key': apiKey, accept: 'application/json' }, cache: 'no-store', signal: AbortSignal.timeout(12000) });
+  if (!response.ok) throw configurationError(`Unable to resolve the ${provider} account for this tenant (HTTP ${response.status})`);
+  const payload = await response.json().catch(() => ({}));
+  const root = payload?.data && typeof payload.data === 'object' ? payload.data : payload;
+  const items = Array.isArray(root?.items) ? root.items : Array.isArray(payload?.items) ? payload.items : [];
+  const expectedToolkit = provider === 'googlecalendar' ? 'googlecalendar' : provider;
+  let matches = items.filter((item) => {
+    const slug = String(item?.toolkit?.slug || item?.toolkit_slug || '').toLowerCase().replace(/[_-]/g, '');
+    return item?.user_id === userId && slug === expectedToolkit && String(item?.status || '').toUpperCase() === 'ACTIVE';
+  });
+  if (configuredAccountId) matches = matches.filter((item) => item?.id === configuredAccountId);
+  if (matches.length !== 1 || typeof matches[0]?.id !== 'string') {
+    const err = new Error(matches.length > 1 ? `Multiple active ${provider} accounts exist for this tenant; select one explicitly` : `No active ${provider} connected account belongs to this tenant`);
+    err.status = matches.length > 1 ? 409 : 403; err.code = 'COMPOSIO_TENANT_ACCOUNT_NOT_RESOLVED'; throw err;
+  }
+  return matches[0].id;
 }
 
 export async function migrateComposioConnectionsToShared() {
@@ -62,16 +80,19 @@ export async function composioRuntimeStatus() {
     userConfigured: Boolean(process.env.COMPOSIO_USER_ID),
     providers: Object.fromEntries(Object.entries(PROVIDER_CONFIG).map(([provider, config]) => [provider, { accountConfigured: Boolean(process.env[config.accountEnv]), operations: Object.keys(config.tools) }])),
   };
-  if (process.env.COMPOSIO_MIGRATE_CONNECTIONS === '1') status.connectionMigration = await migrateComposioConnectionsToShared();
+  if (process.env.COMPOSIO_MIGRATE_CONNECTIONS === '1') status.connectionMigration = { disabled: true, reason: 'Automatic shared-account migration is disabled; connect each tenant using its own Nexora workspace identity.' };
   return status;
 }
 
-export async function executeComposioOperation({ provider, operation, args = {}, requestId = null } = {}) {
+export async function executeComposioOperation({ provider, operation, args = {}, requestId = null, tenantId = null, approvalVerified = false } = {}) {
   const apiKey = process.env.COMPOSIO_API_KEY;
   if (!apiKey) throw configurationError('COMPOSIO_API_KEY is not configured');
-  const userId = process.env.COMPOSIO_USER_ID;
-  if (!userId) throw configurationError('COMPOSIO_USER_ID is not configured');
-  const { toolSlug, accountId } = getConfig(provider, operation);
+  const userId = tenantId ? `nexora-tenant-${tenantId}` : process.env.COMPOSIO_USER_ID;
+  if (!userId) throw configurationError('Verified tenant identity or COMPOSIO_USER_ID is required');
+  const { toolSlug, configuredAccountId } = getConfig(provider, operation);
+  const writeOperations = new Set(['hubspot:create_contact', 'hubspot:update_contact', 'googlecalendar:create_event', 'googlecalendar:patch_event', 'xero:create_draft_invoice']);
+  if (writeOperations.has(`${provider}:${operation}`) && approvalVerified !== true) { const err = new Error('Nexora signed approval contract is required for provider writes'); err.status = 403; err.code = 'COMPOSIO_APPROVAL_REQUIRED'; throw err; }
+  const accountId = tenantId ? await resolveTenantConnectedAccount(apiKey, userId, provider, null) : (configuredAccountId || await resolveTenantConnectedAccount(apiKey, userId, provider, null));
   const url = `${BASE_URL}/api/v3.1/tools/execute/${encodeURIComponent(toolSlug)}`;
   const response = await fetch(url, {
     method: 'POST',

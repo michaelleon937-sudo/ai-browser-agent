@@ -1,42 +1,10 @@
-// mcp/auth.js
-// Bearer auth for the MCP gateway using the existing CONTROL_TOKEN.
-// Never logs or returns the token value.
-
-import { assertControlConfigured, timingSafeEqualString, ControlAuthError, getControlToken } from '../control/auth.js';
-
-/**
- * Express middleware: require Authorization: Bearer <CONTROL_TOKEN>.
- * Attaches req.mcpAuth = { operatorId: 'mcp-operator' } on success.
- */
-export function mcpBearerAuth(req, res, next) {
-  try {
-    const expected = assertControlConfigured();
-    if (!expected) {
-      return res.status(503).json({
-        error: 'CONTROL_TOKEN is not configured; MCP gateway is fail-closed',
-      });
-    }
-    const header = String(req.headers.authorization || '');
-    const m = header.match(/^Bearer\s+(.+)$/i);
-    if (!m) {
-      res.setHeader('WWW-Authenticate', 'Bearer');
-      return res.status(401).json({ error: 'Unauthorized', message: 'Bearer token required' });
-    }
-    const provided = m[1].trim();
-    if (!timingSafeEqualString(provided, expected)) {
-      res.setHeader('WWW-Authenticate', 'Bearer');
-      return res.status(401).json({ error: 'Unauthorized', message: 'Invalid token' });
-    }
-    req.mcpAuth = { operatorId: 'mcp-operator', authenticated: true };
-    return next();
-  } catch (err) {
-    if (err instanceof ControlAuthError) {
-      return res.status(err.status || 503).json({ error: err.message });
-    }
-    return res.status(500).json({ error: 'auth failure' });
-  }
+// MCP gateway uses the same signed tenant token as the Control HTTP API.
+import { tenantContextMiddleware } from '../control/tenant-auth.js';
+export function mcpBearerAuth(req,res,next){
+  if(String(process.env.NEXORA_AGENT_SHARED_SECRET||'').length>=32)return tenantContextMiddleware(req,res,next);
+  if((process.env.NODE_ENV||'production')==='production')return res.status(503).json({error:'NEXORA_AGENT_SHARED_SECRET is required'});
+  const expected=String(process.env.CONTROL_TOKEN||'');const m=String(req.headers.authorization||'').match(/^Bearer\s+(.+)$/i);
+  if(!expected||!m||m[1].trim()!==expected)return res.status(401).json({error:'Unauthorized'});
+  req.mcpAuth={operatorId:'mcp-operator',authenticated:true};return next();
 }
-
-export function isMcpTokenConfigured() {
-  return Boolean(getControlToken());
-}
+export function isMcpTokenConfigured(){return String(process.env.NEXORA_AGENT_SHARED_SECRET||'').length>=32||((process.env.NODE_ENV||'production')!=='production'&&Boolean(process.env.CONTROL_TOKEN));}

@@ -2,6 +2,7 @@
 // Agent-facing Composio tools. Every mutation is invoked through Control.
 
 import { executeComposioOperation, composioRuntimeStatus } from '../../integrations/composio-runtime.js';
+import { getTenantId } from '../../database/tenant-context.js';
 
 export const composioTools = {
   'composio.status': status,
@@ -12,7 +13,6 @@ export const composioTools = {
   'composio.calendar.create_event': calendarCreateEvent,
   'composio.calendar.get_event': calendarGetEvent,
   'composio.calendar.patch_event': calendarPatchEvent,
-  'composio.calendar.delete_event': calendarDeleteEvent,
   'composio.xero.create_draft_invoice': xeroCreateDraftInvoice,
   'composio.xero.get_invoice': xeroGetInvoice,
 };
@@ -27,6 +27,8 @@ async function execute(provider, operation, args, ctx) {
     operation,
     args,
     requestId: ctx?.requestId || null,
+    tenantId: ctx?.tenantId || getTenantId() || null,
+    approvalVerified: ctx?.approvalVerified === true,
   });
 }
 
@@ -56,10 +58,6 @@ async function calendarGetEvent(args = {}, ctx) {
 
 async function calendarPatchEvent(args = {}, ctx) {
   return execute('googlecalendar', 'patch_event', args, ctx);
-}
-
-async function calendarDeleteEvent(args = {}, ctx) {
-  return execute('googlecalendar', 'delete_event', args, ctx);
 }
 
 export async function xeroCreateDraftInvoice(args = {}, ctx) {

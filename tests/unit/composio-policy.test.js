@@ -17,7 +17,7 @@ describe('Composio Control policy', () => {
   it('requires approval for calendar and Xero draft writes', () => {
     expect(evaluatePolicy({ toolName: 'composio.calendar.create_event', args: {} }).allow).toBe(false);
     expect(evaluatePolicy({ toolName: 'composio.xero.create_draft_invoice', args: {} }).allow).toBe(false);
-    expect(evaluatePolicy({ toolName: 'composio.xero.create_draft_invoice', args: { approved: true } }).allow).toBe(true);
+    expect(evaluatePolicy({ toolName: 'composio.xero.create_draft_invoice', args: {}, approvalVerified: true }).allow).toBe(true);
   });
 
   it('denies arbitrary toolkit or unregistered operation names', () => {

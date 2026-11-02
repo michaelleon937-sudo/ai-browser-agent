@@ -1,5 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { migrate } from '../../database/index.js';
 import { ingestWebsiteLead } from '../../integrations/website-leads.js';
+
+beforeAll(() => { migrate(); });
 
 describe('website lead capture', () => {
   it('validates required consent and contact fields', () => {

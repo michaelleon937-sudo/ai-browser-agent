@@ -9,6 +9,8 @@ import { MCP_TOOL_DEFINITIONS } from './tools.js';
 import { mcpBearerAuth, isMcpTokenConfigured } from './auth.js';
 import { invokeControlTool } from '../control/invoke.js';
 import { config } from '../config/index.js';
+import { getTenantContext } from '../control/tenant-context.js';
+import { tenantContextMiddleware } from '../control/tenant-auth.js';
 
 function buildAllowedHosts() {
   const hosts = new Set([
@@ -43,7 +45,7 @@ function createMcpServerInstance() {
         'Business workflow: TASK → DISCOVERY → PROSPECT QUALIFICATION → OPPORTUNITY ANALYSIS → SAMPLE GENERATION → PROPOSAL GENERATION → OUTREACH DRAFT → HUMAN APPROVAL → REPORT.',
         'Never attempt email/DM send, payments, tender submission, production deletion, or approval bypass — those tools are not registered.',
         'Mutating tools require an Idempotency-Key HTTP header on the MCP request.',
-        'Approval-gated tools still require approved=true when Control policy demands it.',
+        'Approval-gated tools require a valid, signed, single-use Nexora approval contract bound to the exact payload.',
       ].join(' '),
     },
   );
@@ -66,11 +68,16 @@ function createMcpServerInstance() {
         // Strip client-supplied idempotencyKey from tool args so it is not treated as tool input noise
         const toolArgs = { ...(args || {}) };
         delete toolArgs.idempotencyKey;
+        delete toolArgs.approvalContract;
+        const tenantContext = getTenantContext();
+        const approvalContract = headers['x-nexora-approval-contract'] || headers['X-Nexora-Approval-Contract'] || args?.approvalContract || null;
 
         const outcome = await invokeControlTool({
           toolName: def.controlName,
           args: toolArgs,
-          operatorId: 'mcp-operator',
+          operatorId: tenantContext?.operatorId || tenantContext?.tenantId || 'mcp-operator',
+          tenantId: tenantContext?.tenantId || null,
+          approvalContract: approvalContract ? String(approvalContract) : null,
           idempotencyKey: idempotencyKey ? String(idempotencyKey) : null,
           source: 'mcp',
         });
@@ -151,9 +158,9 @@ export function mountMcp(app) {
   };
 
   // Authenticated MCP endpoint (POST/GET/DELETE for Streamable HTTP)
-  app.post('/mcp', hostMw, mcpBearerAuth, handler);
-  app.get('/mcp', hostMw, mcpBearerAuth, handler);
-  app.delete('/mcp', hostMw, mcpBearerAuth, handler);
+  app.post('/mcp', hostMw, mcpBearerAuth, tenantContextMiddleware, handler);
+  app.get('/mcp', hostMw, mcpBearerAuth, tenantContextMiddleware, handler);
+  app.delete('/mcp', hostMw, mcpBearerAuth, tenantContextMiddleware, handler);
 }
 
 export { MCP_TOOL_DEFINITIONS, createMcpServerInstance };
