@@ -1,60 +1,57 @@
-# Cloudflare Worker replay protection
+# Cloudflare Worker source of truth
 
-This folder maintains the `ReplayGuard` Durable Object source used by the Cloudflare-hosted `ai-browser-agent` Worker. The deployed Worker is dashboard-managed; this repository does not yet contain its complete Worker entrypoint. Do not deploy this class alone as a replacement for the full agent Worker.
+This directory contains the complete Worker module recovered from the deployed Cloudflare script, plus the standalone ReplayGuard class used for focused unit tests. `cloudflare/worker.js` is the deployable bundled entrypoint; do not deploy `replay-guard.js` by itself.
 
-## Integration
+## Recovered deployment snapshot
 
-Derive the Durable Object name from both tenant and token ID:
+- Worker: `ai-browser-agent`
+- Source version: `b1506706-b08b-4df0-9bd9-bf7dfc886879` (version 34)
+- Source captured from Cloudflare: 2026-11-03T21:00:46Z
+- Latest deployment record at capture: `8d7d013e-6348-48dc-b06b-609fb5dc9d6d`, 100% traffic to version 34
+- Version annotation says “Preview”, and `SENTRY_ENVIRONMENT` is `preview`; however, Cloudflare version metadata reports `has_preview: false` and the deployment record assigns 100% of Worker traffic to this version. These labels do **not** prove traffic isolation. Verify routing and production status before any future deployment.
+- workers.dev enabled; preview URLs enabled; no custom Worker domains were returned by the account API.
 
-```js
-const namespace = env.REPLAY_GUARD || ctx?.exports?.ReplayGuard;
-if (!namespace) throw new ControlError(503, 'replay_guard_unavailable', 'Replay protection is not configured');
-const id = namespace.idFromName(`${claims.tenantId}:${claims.jti}`);
-const response = await namespace.get(id).fetch('https://replay-guard/consume', {
-  method: 'POST', headers: { 'content-type': 'application/json' },
-  body: JSON.stringify({ jti: claims.jti, exp: claims.exp }),
-});
-if (response.status === 409) throw new ControlError(409, 'tenant_token_replayed', 'Tenant token has already been used');
-if (!response.ok) throw new ControlError(503, 'replay_guard_unavailable', 'Replay protection is unavailable');
-```
+## Runtime routes recovered from the module
 
-Call this only after HMAC/signature, issuer, audience, `iat`, and `exp` validation, and before any browser/provider/control side effect. Fail closed if the Durable Object is unavailable.
+- `GET /healthz`
+- `GET /api/control/v1/health`
+- `/api/control/v1/tools/` (control tool dispatch)
+- `/api/ai/v1/chat/completions` (AI-compatible chat endpoint)
 
-## Wrangler migration fragment
+The full module is bundled/minified. `node --check cloudflare/worker.js` passed at recovery time.
 
-Merge into the existing Worker configuration; do not replace its main entrypoint:
+## Runtime bindings
 
-```toml
-[[durable_objects.bindings]]
-name = "REPLAY_GUARD"
-class_name = "ReplayGuard"
+| Binding | Cloudflare type | Notes |
+|---|---|---|
+| `AI` | Workers AI | AI binding |
+| `AI_MODEL` | Plain text variable | Preserved from dashboard with `keep_vars` |
+| `BROWSER` | Browser | Browser Rendering binding (version 2 in live metadata) |
+| `BUILD_SHA` | Plain text variable | Preserved from dashboard with `keep_vars` |
+| `CONTROL_TOKEN` | Secret text | Existing encrypted secret; value is never stored in Git |
+| `NEXORA_AGENT_SHARED_SECRET` | Secret text | Existing encrypted secret; value is never stored in Git |
+| `REPLAY_GUARD` | Durable Object namespace | Class `ReplayGuard`; namespace `071ea369563e49fc90fa074281b58e49` |
+| `SENTRY_DSN` | Plain text variable | Preserved from dashboard with `keep_vars` |
+| `SENTRY_ENVIRONMENT` | Plain text variable | Preserved from dashboard with `keep_vars` |
 
-[[migrations]]
-tag = "v1-replay-guard"
-new_sqlite_classes = ["ReplayGuard"]
-```
+The Wrangler config declares the AI, Browser and Durable Object bindings; declares the two required secret names for validation; and uses `keep_vars: true` so dashboard-managed variables are not overwritten. Secret values are not committed. Cloudflare documents that secrets are preserved unless explicitly deleted.
 
-For a Worker already deployed with this class migration, retain its existing migration history and namespace ID. Do not reapply migration tags or delete the namespace.
+## Durable Object export and binding
 
-## Tests
+The recovered version metadata reports `ReplayGuard` as a SQLite-backed Durable Object export and binds it as `REPLAY_GUARD`. `wrangler.jsonc` uses the declarative `exports` configuration (not a second legacy migration), matching the deployed version metadata. Keep the existing namespace and class identity; do not create a new namespace or reapply an old migration tag.
 
-Run with Node 20+:
+The class consumes `jti` atomically inside a storage transaction, returns `201` for the first use and `409` for a replay, rejects expired/invalid claims with `400`, and schedules cleanup using an alarm. The API caller must validate HMAC/signature, issuer, audience, `iat`, and `exp` before calling the Durable Object. Fail closed if the namespace is unavailable.
+
+## Preview CI behavior
+
+Cloudflare Workers Builds has separate triggers: Preview includes non-`master` branches and runs `npx wrangler@4.156.1 versions upload`; Production includes `master` and runs `npx wrangler deploy`. This feature branch is not `master`, so its configured trigger is Preview. `versions upload` uploads a version; it is not the same command as `wrangler deploy`. Still inspect deployment history after CI to verify that no traffic deployment occurred.
+
+## Validation
 
 ```bash
-node --test tests/replay-guard.test.js
+node --check cloudflare/worker.js
+npx vitest run tests/replay-guard.test.js
+npx wrangler@4.156.1 versions upload
 ```
 
-Tests cover first-use acceptance (201), repeat use (409), concurrent same-jti requests (one 201 and one 409), expired claims (400), and alarm cleanup. Local tests do not replace Cloudflare live tests.
-
-## Preview deployment evidence
-
-- Worker: `ai-browser-agent`; `SENTRY_ENVIRONMENT=preview`.
-- Active version: `34`.
-- Deployment ID: `8d7d013e-6348-48dc-b06b-609fb5dc9d6d`.
-- Durable Object: `ReplayGuard`; binding: `REPLAY_GUARD`.
-- Live `/healthz` and `/api/control/v1/health`: HTTP 200.
-- Invalid control bearer: HTTP 401.
-- Durable Object: first use 201, replay 409, concurrent duplicate 201 + 409, expired claim 400.
-- No Production deployment or database migration was performed.
-
-The Worker bundle remains dashboard-managed. Before future source-controlled deployments, move the complete Worker entrypoint into this repository and configure CI/deployment from that canonical source. Never deploy only `replay-guard.js` as the full agent Worker.
+Do not run `wrangler deploy`, `wrangler versions deploy`, or change deployment percentages as part of Preview verification. Production changes require a separate explicit approval.
