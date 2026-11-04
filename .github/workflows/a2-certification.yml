@@ -39,6 +39,8 @@ jobs:
           ldconfig -p | grep -E 'libEGL.so.1|libGL.so.1|libgbm.so.1'
       - name: Install dependencies
         run: npm ci
+      - name: Install Playwright Chromium for CI tests
+        run: npx playwright install chromium
       - name: CloudMailin inbound unit tests
         run: npx vitest run tests/unit/phase-a2-inbound-webhook.test.js --reporter=verbose
       - name: Full unit regression
