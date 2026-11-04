@@ -33,7 +33,27 @@ export async function screenshot(args = {}) {
   return { ok: true, pngBase64: shot.pngBase64 };
 }
 
-export async function extract() {
+export async function extract(args = {}) {
+  if (args.url) {
+    assertAllowlistedUrl(args.url);
+    const info = await browser.research(args.url, {
+      waitUntil: args.waitUntil || 'domcontentloaded',
+      timeoutMs: args.timeoutMs,
+      validateUrl: checkBrowserHost,
+    });
+    return {
+      ok: true,
+      url: info.finalUrl,
+      finalUrl: info.finalUrl,
+      title: info.title,
+      description: info.description,
+      text: info.text,
+      links: info.links,
+      statusCode: info.statusCode,
+      capturedAt: info.capturedAt,
+      contentSha256: info.contentSha256,
+    };
+  }
   const info = await browser.getPageInfo();
   return { ok: true, url: info.url, title: info.title, text: info.visibleText };
 }
