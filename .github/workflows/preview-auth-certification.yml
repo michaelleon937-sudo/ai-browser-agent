@@ -1,0 +1,140 @@
+name: Preview Auth and ReplayGuard Certification
+
+on:
+  push:
+    branches:
+      - feature/cloudflare-replayguard-source-sync
+    paths:
+      - .github/workflows/preview-auth-certification.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: preview-auth-replayguard
+  cancel-in-progress: false
+
+jobs:
+  preview-auth-replayguard:
+    name: Preview-only authentication and replay tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: preview-auth-certification
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify isolated Preview auth and atomic replay protection
+        env:
+          PREVIEW_URL: https://feature-cloudflare-replayguard-source-sync-ai-browser-agent.michaelleon937.workers.dev
+          CONTROL_TOKEN: ${{ secrets.PREVIEW_CONTROL_TOKEN }}
+          TENANT_SECRET: ${{ secrets.PREVIEW_TENANT_SECRET }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { webcrypto, randomUUID } from 'node:crypto';
+
+          const base = process.env.PREVIEW_URL;
+          const control = process.env.CONTROL_TOKEN;
+          const secret = process.env.TENANT_SECRET;
+          if (!base || !control || !secret) throw new Error('Preview test credentials are missing');
+
+          const enc = new TextEncoder();
+          const b64url = value => Buffer.from(value).toString('base64url');
+
+          async function sign(claims) {
+            const payload = b64url(enc.encode(JSON.stringify(claims)));
+            const key = await webcrypto.subtle.importKey(
+              'raw',
+              enc.encode(secret),
+              { name: 'HMAC', hash: 'SHA-256' },
+              false,
+              ['sign']
+            );
+            const signature = await webcrypto.subtle.sign('HMAC', key, enc.encode(payload));
+            return `v1.${payload}.${b64url(signature)}`;
+          }
+
+          async function probe(bearer, tenantToken, requestId) {
+            const headers = {
+              authorization: `Bearer ${bearer}`,
+              'content-type': 'application/json',
+              'x-request-id': requestId
+            };
+            if (tenantToken) headers['x-nexora-tenant-token'] = tenantToken;
+            const response = await fetch(`${base}/api/control/v1/tools/__preview_auth_probe__`, {
+              method: 'POST',
+              headers,
+              body: '{}'
+            });
+            const raw = await response.text();
+            let body = {};
+            try { body = JSON.parse(raw); } catch {}
+            return { status: response.status, code: body.code ?? null };
+          }
+
+          const healthResponse = await fetch(`${base}/healthz`);
+          const health = await healthResponse.json();
+          if (!healthResponse.ok || !health.ok || !health.controlConfigured) {
+            throw new Error(`Preview health/configuration failed: ${JSON.stringify(health)}`);
+          }
+
+          const now = Math.floor(Date.now() / 1000);
+          const claims = {
+            iss: 'nexora-intelligence',
+            aud: 'ai-browser-agent-control',
+            typ: 'tenant',
+            tenantId: 'preview-isolated-test',
+            sub: 'preview-test-operator',
+            iat: now,
+            exp: now + 300
+          };
+
+          const invalidBearer = await probe('invalid-preview-token', null, 'preview-ci-invalid-bearer');
+          const expiredToken = await sign({
+            ...claims,
+            jti: randomUUID(),
+            iat: now - 120,
+            exp: now - 60
+          });
+          const expired = await probe(control, expiredToken, 'preview-ci-expired-token');
+
+          const validToken = await sign({ ...claims, jti: randomUUID() });
+          const valid = await probe(control, validToken, 'preview-ci-valid-token');
+          const replay = await probe(control, validToken, 'preview-ci-replayed-token');
+
+          const concurrentToken = await sign({ ...claims, jti: randomUUID() });
+          const concurrent = await Promise.all([
+            probe(control, concurrentToken, 'preview-ci-concurrent-a'),
+            probe(control, concurrentToken, 'preview-ci-concurrent-b')
+          ]);
+          const concurrentStatuses = concurrent.map(result => result.status).sort((a, b) => a - b);
+
+          const checks = {
+            previewHealthOk: health.ok === true,
+            previewSecretsConfigured: health.controlConfigured === true,
+            invalidBearerRejected401: invalidBearer.status === 401,
+            expiredTenantTokenRejected401: expired.status === 401 && expired.code === 'tenant_token_expired_or_invalid',
+            validSignedTokenPassedAuthentication: valid.status === 403 && valid.code === 'tool_not_enabled',
+            replayedJtiRejected409: replay.status === 409 && replay.code === 'tenant_token_replayed',
+            concurrentSameJtiExactlyOneAccepted: concurrentStatuses[0] === 403 && concurrentStatuses[1] === 409
+          };
+
+          console.log(JSON.stringify({
+            preview: base,
+            health: {
+              ok: health.ok,
+              version: health.version,
+              browserRenderingConfigured: health.browserRenderingConfigured,
+              controlConfigured: health.controlConfigured,
+              aiConfigured: health.aiConfigured
+            },
+            results: { invalidBearer, expired, valid, replay, concurrent },
+            checks
+          }, null, 2));
+
+          if (Object.values(checks).some(value => value !== true)) {
+            process.exit(1);
+          }
+          NODE
