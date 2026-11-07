@@ -28,16 +28,17 @@ describe("Nexora background runner Preview contract", () => {
     expect(worker).toContain('typeof rawPayload === "string" ? JSON.parse(rawPayload) : rawPayload');
   });
 
-  it("persists a sleep checkpoint and waits for an explicit approval event", () => {
+  it("persists a sleep checkpoint and waits for explicit approval", () => {
     expect(worker).toContain('step.sleep("phone-offline-window", "90 seconds")');
     expect(worker).toContain('type: "approval"');
     expect(worker).toContain('timeout: "24 hours"');
     expect(worker).toContain("step.do(");
   });
 
-  it("rejects unapproved task kinds and production execution", () => {
-    expect(worker).toContain('"phone-sleep-proof", "preview-validation"');
-    expect(worker).toContain('environment !== "preview"');
+  it("fails closed on Production without retrying a deterministic policy rejection", () => {
+    expect(worker).toContain('reason: "production_execution_blocked"');
+    expect(worker).toContain("if (accepted.status === \"rejected\") return accepted");
+    expect(worker).toContain("{ retries: { limit: 1 }, timeout: \"30 seconds\" }");
     expect(worker).toContain("productionWrites: false");
   });
 });
