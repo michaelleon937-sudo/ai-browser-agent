@@ -1,0 +1,54 @@
+name: Background Runner Preview CI
+
+on:
+  push:
+    branches:
+      - feature/nexora-background-runner-preview
+  pull_request:
+    branches:
+      - feature/cloudflare-replayguard-source-sync
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: background-runner-preview-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  contract-and-unit-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - name: Background runner contract tests
+        run: npx vitest run tests/unit/background-runner-contract.test.js
+      - name: Existing unit regression
+        run: npm test
+
+  neon-preview-read-only:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require Preview-only Neon credential
+        env:
+          NEON_PREVIEW_DATABASE_URL: ${{ secrets.NEON_PREVIEW_DATABASE_URL }}
+        run: |
+          test -n "$NEON_PREVIEW_DATABASE_URL" || { echo "NEON_PREVIEW_DATABASE_URL is missing"; exit 1; }
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+      - name: Verify Neon Preview database in a read-only transaction
+        env:
+          NEON_PREVIEW_DATABASE_URL: ${{ secrets.NEON_PREVIEW_DATABASE_URL }}
+        run: |
+          result="$(psql "$NEON_PREVIEW_DATABASE_URL" -X -v ON_ERROR_STOP=1 -Atc "BEGIN READ ONLY; SELECT current_database() = 'neondb' AND current_setting('transaction_read_only') = 'on'; ROLLBACK;")"
+          test "$result" = "t" || { echo "Neon Preview guard failed"; exit 1; }
+          echo "PASS: Neon Preview read-only connection verified"
