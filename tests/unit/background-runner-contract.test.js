@@ -19,8 +19,13 @@ describe("Nexora background runner Preview contract", () => {
   it("requires authenticated task operations and exposes only health publicly", () => {
     expect(worker).toContain("BACKGROUND_AGENT_TOKEN");
     expect(worker).toContain('url.pathname === "/healthz"');
-    expect(worker).toContain("requireAuth(request, env)");
+    expect(worker).toContain("const denied = await auth(request, env)");
     expect(worker).toContain("production_locked");
+  });
+
+  it("normalizes Cloudflare Workflow event payload shapes", () => {
+    expect(worker).toContain("event?.payload ?? event?.params ?? event");
+    expect(worker).toContain('typeof rawPayload === "string" ? JSON.parse(rawPayload) : rawPayload');
   });
 
   it("persists a sleep checkpoint and waits for an explicit approval event", () => {

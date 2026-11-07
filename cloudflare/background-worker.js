@@ -6,25 +6,23 @@ const json = (body, status = 200) =>
     headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
   });
 
-const encoder = new TextEncoder();
-
 async function equalSecret(a, b) {
-  const [left, right] = await Promise.all([
-    crypto.subtle.digest("SHA-256", encoder.encode(a)),
-    crypto.subtle.digest("SHA-256", encoder.encode(b)),
+  const enc = new TextEncoder();
+  const [x, y] = await Promise.all([
+    crypto.subtle.digest("SHA-256", enc.encode(a)),
+    crypto.subtle.digest("SHA-256", enc.encode(b)),
   ]);
-  const x = new Uint8Array(left);
-  const y = new Uint8Array(right);
-  let mismatch = 0;
-  for (let i = 0; i < x.length; i += 1) mismatch |= x[i] ^ y[i];
-  return mismatch === 0;
+  const left = new Uint8Array(x);
+  const right = new Uint8Array(y);
+  let diff = 0;
+  for (let i = 0; i < left.length; i += 1) diff |= left[i] ^ right[i];
+  return diff === 0;
 }
 
-async function requireAuth(request, env) {
-  const configured = env.BACKGROUND_AGENT_TOKEN;
-  if (!configured) return json({ error: "preview_runner_not_configured" }, 503);
-  const supplied = (request.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
-  if (!supplied || !(await equalSecret(supplied, configured))) {
+async function auth(request, env) {
+  if (!env.BACKGROUND_AGENT_TOKEN) return json({ error: "preview_runner_not_configured" }, 503);
+  const token = (request.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
+  if (!token || !(await equalSecret(token, env.BACKGROUND_AGENT_TOKEN))) {
     return json({ error: "unauthorized" }, 401);
   }
   return null;
@@ -32,13 +30,17 @@ async function requireAuth(request, env) {
 
 export class NexoraBackgroundWorkflow extends WorkflowEntrypoint {
   async run(event, step) {
-    const { taskId, kind, environment } = event.payload || {};
+    const rawPayload = event?.payload ?? event?.params ?? event;
+    const payload = typeof rawPayload === "string" ? JSON.parse(rawPayload) : rawPayload;
+    const { taskId, kind, environment } = payload || {};
 
     const accepted = await step.do("validate-preview-task", async () => {
       if (environment !== "preview") throw new Error("production_execution_blocked");
       if (!/^[A-Za-z0-9_-]{1,64}$/.test(taskId || "")) throw new Error("invalid_task_id");
-      if (!["phone-sleep-proof", "preview-validation"].includes(kind)) throw new Error("task_kind_not_allowlisted");
-      return { taskId, kind, environment: "preview", acceptedAt: new Date().toISOString() };
+      if (!["phone-sleep-proof", "preview-validation"].includes(kind)) {
+        throw new Error("task_kind_not_allowlisted");
+      }
+      return { taskId, kind, environment, acceptedAt: new Date().toISOString() };
     });
 
     if (kind === "phone-sleep-proof") {
@@ -60,7 +62,7 @@ export class NexoraBackgroundWorkflow extends WorkflowEntrypoint {
       return { taskId, status: "rejected", productionWrites: false };
     }
 
-    const result = await step.do(
+    return await step.do(
       "execute-approved-preview-task",
       { retries: { limit: 3, delay: "5 seconds", backoff: "exponential" }, timeout: "1 minute" },
       async () => ({
@@ -73,8 +75,6 @@ export class NexoraBackgroundWorkflow extends WorkflowEntrypoint {
         acceptedTask: accepted,
       }),
     );
-
-    return result;
   }
 }
 
@@ -93,17 +93,18 @@ export default {
       });
     }
 
-    const authError = await requireAuth(request, env);
-    if (authError) return authError;
+    const denied = await auth(request, env);
+    if (denied) return denied;
 
     if (request.method === "POST" && url.pathname === "/v1/tasks") {
       let body;
       try { body = await request.json(); } catch { return json({ error: "invalid_json" }, 400); }
-      const taskId = body?.taskId;
-      const kind = body?.kind;
+      const { taskId, kind } = body || {};
       if (!/^[A-Za-z0-9_-]{1,64}$/.test(taskId || "")) return json({ error: "invalid_task_id" }, 400);
-      if (!["phone-sleep-proof", "preview-validation"].includes(kind)) return json({ error: "task_kind_not_allowlisted" }, 400);
-      if ((body?.environment || "preview") !== "preview") return json({ error: "production_locked" }, 403);
+      if (!["phone-sleep-proof", "preview-validation"].includes(kind)) {
+        return json({ error: "task_kind_not_allowlisted" }, 400);
+      }
+      if ((body.environment || "preview") !== "preview") return json({ error: "production_locked" }, 403);
 
       let instance;
       let created = true;
@@ -113,12 +114,8 @@ export default {
           params: { taskId, kind, environment: "preview" },
         });
       } catch (error) {
-        try {
-          instance = await env.TASK_WORKFLOW.get(taskId);
-          created = false;
-        } catch {
-          throw error;
-        }
+        try { instance = await env.TASK_WORKFLOW.get(taskId); created = false; }
+        catch { throw error; }
       }
       return json({ taskId, instanceId: instance.id, created, status: await instance.status() }, created ? 202 : 200);
     }
