@@ -23,6 +23,12 @@
       }
     ]
   },
+  "migrations": [
+    {
+      "tag": "replayguard-v1",
+      "new_sqlite_classes": ["ReplayGuard"]
+    }
+  ],
   "exports": {
     "ReplayGuard": {
       "type": "durable-object",

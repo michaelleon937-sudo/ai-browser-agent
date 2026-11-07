@@ -1,4 +1,5 @@
 import { test, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { ReplayGuard } from '../cloudflare/replay-guard.js';
 
 class MockStorage {
@@ -24,6 +25,22 @@ function makeGuard() {
   return { guard: new ReplayGuard({ storage }), storage };
 }
 const future = () => Math.floor(Date.now() / 1000) + 300;
+
+test('declares a SQLite ReplayGuard migration and an isolated Preview binding', () => {
+  const config = JSON.parse(readFileSync(new URL('../wrangler.jsonc', import.meta.url), 'utf8'));
+  expect(config.migrations).toContainEqual({
+    tag: 'replayguard-v1',
+    new_sqlite_classes: ['ReplayGuard'],
+  });
+  expect(config.durable_objects.bindings).toContainEqual({
+    name: 'REPLAY_GUARD',
+    class_name: 'ReplayGuard',
+  });
+  expect(config.previews.durable_objects.bindings).toContainEqual({
+    name: 'REPLAY_GUARD',
+    class_name: 'ReplayGuard',
+  });
+});
 
 test('accepts a valid unused jti once', async () => {
   const { guard } = makeGuard();
