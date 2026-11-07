@@ -20058,7 +20058,14 @@ async function executeBrowserTask(toolName, args, env, requestId) {
       guardrails: { allowedDomains, allowedDomainSets: ["common-cdns"] }
     });
     const page = await browser.newPage();
-    await page.setViewport({ width: 1280, height: 800 });
+    const requestedViewport = args?.viewport && typeof args.viewport === "object" ? args.viewport : {};
+    const viewportWidth = Number.isFinite(requestedViewport.width) ? Math.max(640, Math.min(1600, Math.round(requestedViewport.width))) : 1280;
+    const viewportHeight = Number.isFinite(requestedViewport.height) ? Math.max(480, Math.min(1800, Math.round(requestedViewport.height))) : 800;
+    await page.setViewport({ width: viewportWidth, height: viewportHeight });
+    const bypass = typeof args?.headers?.["x-vercel-protection-bypass"] === "string" ? args.headers["x-vercel-protection-bypass"].slice(0, 512) : "";
+    if (bypass && target.protocol === "https:" && target.hostname.startsWith("nexora-intelligence-") && target.hostname.endsWith(".vercel.app")) {
+      await page.setExtraHTTPHeaders({ "x-vercel-protection-bypass": bypass });
+    }
     page.setDefaultNavigationTimeout(timeoutMs);
     const response = await page.goto(target.toString(), { waitUntil: "domcontentloaded", timeout: timeoutMs });
     const snapshotText = await page.evaluate(() => JSON.stringify({
