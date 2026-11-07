@@ -1,7 +1,7 @@
 {
   "name": "ai-browser-agent",
   "version": "1.0.0",
-  "description": "Self-hosted, autonomous browser-automation agent that runs 24/7 in the cloud without your PC.",
+  "description": "Self-hosted, autonomous, browser-automation agent that runs 24/7 in the cloud without your PC.",
   "type": "module",
   "private": true,
   "main": "agent/main.js",
@@ -12,7 +12,7 @@
     "test": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
     "test:all": "vitest run",
-    "postinstall": "playwright install --with-deps chromium"
+    "install:browser": "playwright install chromium"
   },
   "dependencies": {
     "@modelcontextprotocol/express": "^2.0.0",

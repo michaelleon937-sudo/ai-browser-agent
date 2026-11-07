@@ -1,0 +1,59 @@
+{
+  "name": "ai-browser-agent",
+  "main": "cloudflare/worker.js",
+  "compatibility_date": "2026-11-02",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "account_id": "9b63fc459e6b6ca4c15d2bcd242bfa65",
+  "workers_dev": true,
+  "preview_urls": true,
+  "keep_vars": true,
+  "ai": {
+    "binding": "AI"
+  },
+  "browser": {
+    "binding": "BROWSER"
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "REPLAY_GUARD",
+        "class_name": "ReplayGuard"
+      }
+    ]
+  },
+  "exports": {
+    "ReplayGuard": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  },
+  "previews": {
+    "vars": {
+      "AI_MODEL": "@cf/openai/gpt-oss-20b",
+      "SENTRY_DSN": "https://47e0b1a4805c45a64665bd46b1f0990b@o4512361266937856.ingest.us.sentry.io/4512361789128705",
+      "SENTRY_ENVIRONMENT": "preview"
+    },
+    "ai": {
+      "binding": "AI"
+    },
+    "browser": {
+      "binding": "BROWSER"
+    },
+    "durable_objects": {
+      "bindings": [
+        {
+          "name": "REPLAY_GUARD",
+          "class_name": "ReplayGuard"
+        }
+      ]
+    }
+  },
+  "secrets": {
+    "required": [
+      "CONTROL_TOKEN",
+      "NEXORA_AGENT_SHARED_SECRET"
+    ]
+  }
+}

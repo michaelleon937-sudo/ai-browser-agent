@@ -8,6 +8,7 @@
 import { chromium } from 'playwright';
 import path from 'node:path';
 import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 import { config } from '../config/index.js';
 
 
@@ -107,6 +108,78 @@ const api = {
     });
   },
 
+
+  async research(url, { waitUntil = 'domcontentloaded', timeoutMs, validateUrl } = {}) {
+    await ensureLaunched();
+    if (!browserInstance) throw new Error('Browser runtime is unavailable');
+    const isolatedContext = await browserInstance.newContext({
+      viewport: { width: config.browser.viewportWidth, height: config.browser.viewportHeight },
+      javaScriptEnabled: true,
+      acceptDownloads: false,
+    });
+    try {
+      const page = await isolatedContext.newPage();
+      const navigationTimeout = Math.min(Math.max(Number(timeoutMs) || config.browser.navigationTimeoutMs, 1000), 30000);
+      page.setDefaultTimeout(config.browser.actionTimeoutMs);
+      page.setDefaultNavigationTimeout(navigationTimeout);
+      let blockedNavigation = null;
+      if (typeof validateUrl === 'function') {
+        await page.route('**/*', async (route) => {
+          const request = route.request();
+          if (request.isNavigationRequest()) {
+            let check;
+            try { check = validateUrl(request.url()); } catch { check = { allow: false, status: 403, reason: 'Navigation URL policy validation failed' }; }
+            if (!check || check.allow !== true) {
+              blockedNavigation = check || { status: 403, reason: 'Navigation host is not allowlisted' };
+              await route.abort('blockedbyclient');
+              return;
+            }
+          }
+          await route.continue();
+        });
+      }
+      let response;
+      try {
+        const allowedWaitUntil = ['load', 'domcontentloaded', 'networkidle', 'commit'];
+        response = await page.goto(url, {
+          waitUntil: allowedWaitUntil.includes(waitUntil) ? waitUntil : 'domcontentloaded',
+          timeout: navigationTimeout,
+        });
+      } catch (error) {
+        if (blockedNavigation) {
+          const blocked = new Error(blockedNavigation.reason || 'Navigation host is not allowlisted');
+          blocked.status = blockedNavigation.status || 403;
+          blocked.code = 'BROWSER_HOST_NOT_ALLOWLISTED';
+          throw blocked;
+        }
+        throw error;
+      }
+      const pageData = await page.evaluate(() => {
+        const text = (document.body?.innerText || '').slice(0, 12000);
+        const description = document.querySelector('meta[name="description"]')?.getAttribute('content') || '';
+        const links = Array.from(document.querySelectorAll('a[href]')).slice(0, 30).map((anchor) => ({
+          text: (anchor.innerText || anchor.textContent || '').trim().slice(0, 100),
+          href: anchor.href,
+        })).filter((link) => link.text && link.href);
+        return { title: document.title || '', description: description.slice(0, 1000), text, links };
+      });
+      const finalUrl = page.url();
+      return {
+        url: finalUrl,
+        finalUrl,
+        title: pageData.title,
+        description: pageData.description,
+        visibleText: pageData.text,
+        text: pageData.text,
+        links: pageData.links,
+        statusCode: response?.status() ?? null,
+        capturedAt: new Date().toISOString(),
+        contentSha256: createHash('sha256').update(pageData.text, 'utf8').digest('hex'),
+      };
+    } finally {
+      try { await isolatedContext.close(); } catch {}
+    }
+  },
 
   async snapshot({ includeBoxes = false } = {}) {
     return withPage(async (page) => {
