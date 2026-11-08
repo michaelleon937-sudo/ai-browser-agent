@@ -28,6 +28,15 @@ describe("Nexora background runner Preview contract", () => {
     expect(worker).toContain('typeof rawPayload === "string" ? JSON.parse(rawPayload) : rawPayload');
   });
 
+  it("checks both inherited Preview bindings before completing any task", () => {
+    expect(worker).toContain("verify-preview-runner-readiness");
+    expect(worker).toContain("Boolean(this.env.BACKGROUND_AGENT_TOKEN)");
+    expect(worker).toContain("Boolean(this.env.TASK_WORKFLOW)");
+    expect(worker).toContain("preview_runner_not_configured");
+    expect(worker).toContain("workflowConfigured: Boolean(env.TASK_WORKFLOW)");
+    expect(worker).toContain("validation,");
+  });
+
   it("persists a sleep checkpoint and waits for explicit approval", () => {
     expect(worker).toContain('step.sleep("phone-offline-window", "90 seconds")');
     expect(worker).toContain('type: "approval"');

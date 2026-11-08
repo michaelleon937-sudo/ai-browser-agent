@@ -53,6 +53,20 @@ export class NexoraBackgroundWorkflow extends WorkflowEntrypoint {
 
     if (accepted.status === "rejected") return accepted;
 
+    const validation = await step.do(
+      "verify-preview-runner-readiness",
+      { retries: { limit: 1 }, timeout: "30 seconds" },
+      async () => ({
+        tokenConfigured: Boolean(this.env.BACKGROUND_AGENT_TOKEN),
+        workflowConfigured: Boolean(this.env.TASK_WORKFLOW),
+        environment: "preview",
+        productionWrites: false,
+      }),
+    );
+    if (!validation.tokenConfigured || !validation.workflowConfigured) {
+      return { taskId, status: "rejected", reason: "preview_runner_not_configured", validation, productionWrites: false };
+    }
+
     if (kind === "phone-sleep-proof") {
       await step.sleep("phone-offline-window", "90 seconds");
       await step.do("offline-window-checkpoint", async () => ({
@@ -83,6 +97,7 @@ export class NexoraBackgroundWorkflow extends WorkflowEntrypoint {
         completedAt: new Date().toISOString(),
         productionWrites: false,
         acceptedTask: accepted,
+        validation,
       }),
     );
   }
@@ -98,6 +113,7 @@ export default {
         runtime: "cloudflare-workflows",
         environment: "preview",
         tokenConfigured: Boolean(env.BACKGROUND_AGENT_TOKEN),
+        workflowConfigured: Boolean(env.TASK_WORKFLOW),
         productionWrites: false,
       });
     }
