@@ -47,7 +47,8 @@ describe("Nexora background runner Preview contract", () => {
   it("fails closed on Production without retrying a deterministic policy rejection", () => {
     expect(worker).toContain('reason: "production_execution_blocked"');
     expect(worker).toContain("if (accepted.status === \"rejected\") return accepted");
-    expect(worker).toContain("{ retries: { limit: 1 }, timeout: \"30 seconds\" }");
+    expect(worker).toContain("{ retries: { limit: 1, delay: \"1 second\" }, timeout: \"30 seconds\" }");
+    expect(worker).not.toContain("retries: { limit: 1 }, timeout:");
     expect(worker).toContain("productionWrites: false");
   });
 });

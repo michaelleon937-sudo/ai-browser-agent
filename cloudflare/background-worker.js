@@ -36,7 +36,7 @@ export class NexoraBackgroundWorkflow extends WorkflowEntrypoint {
 
     const accepted = await step.do(
       "validate-preview-task",
-      { retries: { limit: 1 }, timeout: "30 seconds" },
+      { retries: { limit: 1, delay: "1 second" }, timeout: "30 seconds" },
       async () => {
         if (environment !== "preview") {
           return { taskId, status: "rejected", reason: "production_execution_blocked", productionWrites: false };
@@ -55,7 +55,7 @@ export class NexoraBackgroundWorkflow extends WorkflowEntrypoint {
 
     const validation = await step.do(
       "verify-preview-runner-readiness",
-      { retries: { limit: 1 }, timeout: "30 seconds" },
+      { retries: { limit: 1, delay: "1 second" }, timeout: "30 seconds" },
       async () => ({
         tokenConfigured: Boolean(this.env.BACKGROUND_AGENT_TOKEN),
         workflowConfigured: Boolean(this.env.TASK_WORKFLOW),
