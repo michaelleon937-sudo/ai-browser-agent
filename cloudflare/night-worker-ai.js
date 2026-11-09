@@ -1,6 +1,6 @@
 const REPOSITORY = "michaelleon937-sudo/nexora-intelligence";
 const REF = "refs/heads/feature/nexora-autonomous-night-worker";
-const WORKFLOW_REF = `${REPOSITORY}/.github/workflows/ci.yml@${REF}`;
+const AGENT_REF_PATTERN = /^refs\/heads\/agent\/nexora-night-worker-[A-Za-z0-9_-]{1,64}$/;
 const AUDIENCE = "nexora-night-worker";
 const ISSUER = "https://token.actions.githubusercontent.com";
 const MAX_BODY_BYTES = 256 * 1024;
@@ -35,11 +35,11 @@ export function isAllowedGithubOidcClaims(claims, nowSeconds = Math.floor(Date.n
   return claims?.iss === ISSUER
     && audience.includes(AUDIENCE)
     && claims?.repository === REPOSITORY
-    && claims?.ref === REF
+    && (claims?.ref === REF || AGENT_REF_PATTERN.test(claims?.ref || ""))
     && ["push", "workflow_dispatch"].includes(claims?.event_name)
-    && claims?.workflow_ref === WORKFLOW_REF
+    && claims?.workflow_ref === `${REPOSITORY}/.github/workflows/ci.yml@${claims?.ref}`
     && typeof claims?.sub === "string"
-    && claims.sub === `repo:${REPOSITORY}:ref:${REF}`
+    && claims.sub === `repo:${REPOSITORY}:ref:${claims?.ref}`
     && Number.isFinite(claims?.exp)
     && claims.exp > nowSeconds
     && (!Number.isFinite(claims?.nbf) || claims.nbf <= nowSeconds + 30);
