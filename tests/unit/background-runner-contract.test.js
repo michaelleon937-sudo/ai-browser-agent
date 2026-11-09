@@ -36,7 +36,7 @@ describe("Nexora background runner Preview contract", () => {
     expect(aiModule).toContain("verifyGithubActionsOidc");
     expect(aiModule).toContain("token.actions.githubusercontent.com/.well-known/jwks");
     expect(aiModule).toContain('claims?.repository === REPOSITORY');
-    expect(aiModule).toContain('claims?.ref === REF');
+    expect(aiModule).toContain('AGENT_REF_PATTERN.test(claims?.ref || "")');
     expect(aiModule).toContain('["push", "workflow_dispatch"].includes(claims?.event_name)');
     expect(aiModule).toContain('claims?.workflow_ref === WORKFLOW_REF');
   });
@@ -56,6 +56,7 @@ describe("Nexora background runner Preview contract", () => {
     expect(worker).toContain('step.waitForEvent(`night-worker-checkpoint-${sequence}`');
     expect(worker).toContain('persist-night-worker-checkpoint-${sequence}');
     expect(worker).toContain('timeout: "7 days"');
+    expect(worker).toContain("Math.min(60, Math.max(1, Number(body.maxCheckpoints) || 60))");
     expect(worker).toContain('limit: 3');
     expect(worker).toContain('match[2] === "checkpoint"');
     expect(worker).toContain("clientSequence: checkpoint.sequence");
