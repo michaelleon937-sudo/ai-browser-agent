@@ -39,7 +39,8 @@ export function isAllowedGithubOidcClaims(claims, nowSeconds = Math.floor(Date.n
     && ["push", "workflow_dispatch"].includes(claims?.event_name)
     && claims?.workflow_ref === `${REPOSITORY}/.github/workflows/ci.yml@${claims?.ref}`
     && typeof claims?.sub === "string"
-    && claims.sub === `repo:${REPOSITORY}:ref:${claims?.ref}`
+    && (claims.sub === `repo:${REPOSITORY}:ref:${claims?.ref}`
+      || claims.sub === `repo:${REPOSITORY}:environment:phase7-preview`)
     && Number.isFinite(claims?.exp)
     && claims.exp > nowSeconds
     && (!Number.isFinite(claims?.nbf) || claims.nbf <= nowSeconds + 30);
