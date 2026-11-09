@@ -41,6 +41,12 @@ describe("Nexora background runner Preview contract", () => {
     expect(aiModule).toContain('claims?.workflow_ref === `${REPOSITORY}/.github/workflows/ci.yml@${claims?.ref}`');
   });
 
+  it("allocates enough planner output tokens and reports truncated model output", () => {
+    expect(aiModule).toContain('max_tokens: operation === "plan" ? 3072 : 4096');
+    expect(aiModule).toContain('choice?.finish_reason === "length"');
+    expect(aiModule).toContain('error: "ai_output_truncated"');
+  });
+
   it("accepts only the authorized Preview workflow identity", () => {
     expect(isAllowedGithubOidcClaims(claims(), 1_900_000_000)).toBe(true);
     expect(isAllowedGithubOidcClaims(claims({ event_name: "workflow_dispatch" }), 1_900_000_000)).toBe(true);
