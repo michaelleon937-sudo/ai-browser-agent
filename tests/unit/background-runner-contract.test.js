@@ -37,17 +37,28 @@ describe("Nexora background runner Preview contract", () => {
     expect(aiModule).toContain("token.actions.githubusercontent.com/.well-known/jwks");
     expect(aiModule).toContain('claims?.repository === REPOSITORY');
     expect(aiModule).toContain('claims?.ref === REF');
-    expect(aiModule).toContain('claims?.event_name === "push"');
+    expect(aiModule).toContain('["push", "workflow_dispatch"].includes(claims?.event_name)');
     expect(aiModule).toContain('claims?.workflow_ref === WORKFLOW_REF');
   });
 
   it("accepts only the authorized Preview workflow identity", () => {
     expect(isAllowedGithubOidcClaims(claims(), 1_900_000_000)).toBe(true);
+    expect(isAllowedGithubOidcClaims(claims({ event_name: "workflow_dispatch" }), 1_900_000_000)).toBe(true);
     expect(isAllowedGithubOidcClaims(claims({ ref: "refs/heads/main" }), 1_900_000_000)).toBe(false);
     expect(isAllowedGithubOidcClaims(claims({ repository: "attacker/repo" }), 1_900_000_000)).toBe(false);
     expect(isAllowedGithubOidcClaims(claims({ event_name: "pull_request" }), 1_900_000_000)).toBe(false);
     expect(isAllowedGithubOidcClaims(claims({ aud: "other-audience" }), 1_900_000_000)).toBe(false);
     expect(isAllowedGithubOidcClaims(claims({ exp: 1_899_999_999 }), 1_900_000_000)).toBe(false);
+  });
+
+  it("persists Night Worker checkpoints with bounded retries and Preview-only execution", () => {
+    expect(worker).toContain('kind === "night-worker"');
+    expect(worker).toContain('step.waitForEvent(`night-worker-checkpoint-${sequence}`');
+    expect(worker).toContain('persist-night-worker-checkpoint-${sequence}');
+    expect(worker).toContain('timeout: "7 days"');
+    expect(worker).toContain('limit: 3');
+    expect(worker).toContain('match[2] === "checkpoint"');
+    expect(worker).toContain('await githubOidcAuth(request)');
   });
 
   it("retains authenticated task operations and fails closed on Production", () => {
