@@ -80,12 +80,13 @@ export class NexoraBackgroundWorkflow extends WorkflowEntrypoint {
           async () => {
             const stages = ["started", "planned", "researched", "patched", "verified", "complete", "blocked", "failed"];
             const statuses = ["running", "complete", "blocked", "failed"];
-            if (checkpoint.taskId !== taskId || checkpoint.sequence !== sequence
+            if (checkpoint.taskId !== taskId || !Number.isInteger(checkpoint.sequence)
+              || checkpoint.sequence < 1 || checkpoint.sequence > 20
               || !stages.includes(checkpoint.stage) || !statuses.includes(checkpoint.status)) {
               throw new Error("invalid_night_worker_checkpoint");
             }
             return {
-              taskId, sequence, stage: checkpoint.stage, status: checkpoint.status,
+              taskId, sequence, clientSequence: checkpoint.sequence, stage: checkpoint.stage, status: checkpoint.status,
               summary: String(checkpoint.summary || "").slice(0, 500),
               timestamp: checkpoint.timestamp || new Date().toISOString(),
               productionWrites: false,
