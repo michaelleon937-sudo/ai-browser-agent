@@ -38,7 +38,7 @@ describe("Nexora background runner Preview contract", () => {
     expect(aiModule).toContain('claims?.repository === REPOSITORY');
     expect(aiModule).toContain('AGENT_REF_PATTERN.test(claims?.ref || "")');
     expect(aiModule).toContain('["push", "workflow_dispatch"].includes(claims?.event_name)');
-    expect(aiModule).toContain('claims?.workflow_ref === WORKFLOW_REF');
+    expect(aiModule).toContain('claims?.workflow_ref === `${REPOSITORY}/.github/workflows/ci.yml@${claims?.ref}`');
   });
 
   it("accepts only the authorized Preview workflow identity", () => {
