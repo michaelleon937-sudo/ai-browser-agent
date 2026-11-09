@@ -71,6 +71,8 @@ describe("Nexora background runner Preview contract", () => {
     expect(worker).toContain('timeout: "7 days"');
     expect(worker).toContain("Math.min(60, Math.max(1, Number(body.maxCheckpoints) || 60))");
     expect(worker).toContain("checkpoint.sequence > 60");
+    expect(worker).toContain("const checkpointEventType = `night-worker-checkpoint-${sequence}`;");
+    expect(worker).toContain("type: `night-worker-checkpoint-${body.sequence}`");
     expect(worker).toContain("body.sequence > 60");
     expect(worker).toContain("sequence <= maxCheckpoints");
     expect(worker).toContain('limit: 3');
