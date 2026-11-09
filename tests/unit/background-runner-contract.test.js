@@ -35,7 +35,7 @@ describe("Nexora background runner Preview contract", () => {
     expect(worker).toContain("handleNightWorkerAI(request, env)");
     expect(aiModule).toContain("verifyGithubActionsOidc");
     expect(aiModule).toContain("isComplete:boolean");
-    expect(aiModule).toContain("Set isComplete=true only when the task acceptance criteria are already satisfied");
+    expect(aiModule).toContain("Set isComplete=true only when the task's acceptance criteria are already satisfied by verified repository state");
     expect(aiModule).toContain("token.actions.githubusercontent.com/.well-known/jwks");
     expect(aiModule).toContain('claims?.repository === REPOSITORY');
     expect(aiModule).toContain('AGENT_REF_PATTERN.test(claims?.ref || "")');
