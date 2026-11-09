@@ -44,6 +44,19 @@ describe("Nexora background runner Preview contract", () => {
   it("accepts only the authorized Preview workflow identity", () => {
     expect(isAllowedGithubOidcClaims(claims(), 1_900_000_000)).toBe(true);
     expect(isAllowedGithubOidcClaims(claims({ event_name: "workflow_dispatch" }), 1_900_000_000)).toBe(true);
+    const resumedRef = "refs/heads/agent/nexora-night-worker-proof-20261109";
+    expect(isAllowedGithubOidcClaims(claims({
+      ref: resumedRef,
+      event_name: "workflow_dispatch",
+      workflow_ref: `michaelleon937-sudo/nexora-intelligence/.github/workflows/ci.yml@${resumedRef}`,
+      sub: `repo:michaelleon937-sudo/nexora-intelligence:ref:${resumedRef}`,
+    }), 1_900_000_000)).toBe(true);
+    expect(isAllowedGithubOidcClaims(claims({
+      ref: resumedRef,
+      event_name: "workflow_dispatch",
+      workflow_ref: `michaelleon937-sudo/nexora-intelligence/.github/workflows/untrusted.yml@${resumedRef}`,
+      sub: `repo:michaelleon937-sudo/nexora-intelligence:ref:${resumedRef}`,
+    }), 1_900_000_000)).toBe(false);
     expect(isAllowedGithubOidcClaims(claims({ ref: "refs/heads/main" }), 1_900_000_000)).toBe(false);
     expect(isAllowedGithubOidcClaims(claims({ repository: "attacker/repo" }), 1_900_000_000)).toBe(false);
     expect(isAllowedGithubOidcClaims(claims({ event_name: "pull_request" }), 1_900_000_000)).toBe(false);
