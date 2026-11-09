@@ -81,7 +81,7 @@ export class NexoraBackgroundWorkflow extends WorkflowEntrypoint {
             const stages = ["started", "planned", "researched", "patched", "verified", "complete", "blocked", "failed"];
             const statuses = ["running", "complete", "blocked", "failed"];
             if (checkpoint.taskId !== taskId || !Number.isInteger(checkpoint.sequence)
-              || checkpoint.sequence < 1 || checkpoint.sequence > 20
+              || checkpoint.sequence < 1 || checkpoint.sequence > 60
               || !stages.includes(checkpoint.stage) || !statuses.includes(checkpoint.status)) {
               throw new Error("invalid_night_worker_checkpoint");
             }
@@ -209,7 +209,7 @@ export default {
     if (request.method === "POST" && match[2] === "checkpoint") {
       let body;
       try { body = await request.json(); } catch { return json({ error: "invalid_json" }, 400); }
-      if (!Number.isInteger(body?.sequence) || body.sequence < 1 || body.sequence > 20
+      if (!Number.isInteger(body?.sequence) || body.sequence < 1 || body.sequence > 60
         || typeof body.stage !== "string" || typeof body.status !== "string"
         || typeof body.summary !== "string" || body.summary.length > 500) {
         return json({ error: "invalid_checkpoint_payload" }, 400);
