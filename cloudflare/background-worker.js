@@ -61,7 +61,7 @@ export class NexoraBackgroundWorkflow extends WorkflowEntrypoint {
     if (accepted.status === "rejected") return accepted;
 
     if (kind === "night-worker") {
-      const maxCheckpoints = Math.min(20, Math.max(1, Number(payload.maxCheckpoints) || 20));
+      const maxCheckpoints = Math.min(60, Math.max(1, Number(payload.maxCheckpoints) || 60));
       await step.do(
         "night-worker-durable-start",
         { retries: { limit: 2, delay: "2 seconds", backoff: "exponential" }, timeout: "30 seconds" },
@@ -179,7 +179,7 @@ export default {
       if (!/^[A-Za-z0-9_-]{1,64}$/.test(taskId || "")) return json({ error: "invalid_task_id" }, 400);
       if (!["phone-sleep-proof", "preview-validation", "night-worker"].includes(kind)) return json({ error: "task_kind_not_allowlisted" }, 400);
       if ((body.environment || "preview") !== "preview") return json({ error: "production_locked" }, 403);
-      const maxCheckpoints = Math.min(20, Math.max(1, Number(body.maxCheckpoints) || 20));
+      const maxCheckpoints = Math.min(60, Math.max(1, Number(body.maxCheckpoints) || 60));
       let instance;
       let created = true;
       try {
