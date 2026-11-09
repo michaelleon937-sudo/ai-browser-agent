@@ -1,4 +1,5 @@
 import { WorkflowEntrypoint } from "cloudflare:workers";
+import { handleNightWorkerAI } from "./night-worker-ai.js";
 
 const json = (body, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -81,12 +82,11 @@ export class NexoraBackgroundWorkflow extends WorkflowEntrypoint {
       type: "approval",
       timeout: "24 hours",
     });
-
     if (approval?.payload?.approved !== true) {
       return { taskId, status: "rejected", productionWrites: false };
     }
 
-    return await step.do(
+    return step.do(
       "execute-approved-preview-task",
       { retries: { limit: 3, delay: "5 seconds", backoff: "exponential" }, timeout: "1 minute" },
       async () => ({
@@ -114,13 +114,19 @@ export default {
         environment: "preview",
         tokenConfigured: Boolean(env.BACKGROUND_AGENT_TOKEN),
         workflowConfigured: Boolean(env.TASK_WORKFLOW),
+        aiConfigured: Boolean(env.AI && typeof env.AI.run === "function"),
+        aiModel: env.AI_MODEL || null,
         productionWrites: false,
       });
     }
-    const denied = await auth(request, env);
-    if (denied) return denied;
+
+    if (request.method === "POST" && url.pathname.startsWith("/v1/agent/")) {
+      return handleNightWorkerAI(request, env);
+    }
 
     if (request.method === "POST" && url.pathname === "/v1/tasks") {
+      const denied = await auth(request, env);
+      if (denied) return denied;
       let body;
       try { body = await request.json(); } catch { return json({ error: "invalid_json" }, 400); }
       const { taskId, kind } = body || {};
@@ -130,29 +136,36 @@ export default {
       let instance;
       let created = true;
       try {
-        instance = await env.TASK_WORKFLOW.create({ id: taskId, params: { taskId, kind, environment: "preview" } });
-      } catch (error) {
+        instance = await env.TASK_WORKFLOW.create({
+          id: taskId,
+          params: { taskId, kind, environment: "preview" },
+        });
+      } catch {
         try { instance = await env.TASK_WORKFLOW.get(taskId); created = false; }
-        catch { throw error; }
+        catch { return json({ error: "workflow_create_failed" }, 503); }
       }
       return json({ taskId, instanceId: instance.id, created, status: await instance.status() }, created ? 202 : 200);
     }
 
     const match = url.pathname.match(/^\/v1\/tasks\/([A-Za-z0-9_-]{1,64})(?:\/(approval))?$/);
     if (!match) return json({ error: "not_found" }, 404);
-    const [, taskId, approvalRoute] = match;
+    const denied = await auth(request, env);
+    if (denied) return denied;
     let instance;
-    try { instance = await env.TASK_WORKFLOW.get(taskId); }
+    try { instance = await env.TASK_WORKFLOW.get(match[1]); }
     catch { return json({ error: "task_not_found" }, 404); }
-    if (request.method === "GET" && !approvalRoute) {
-      return json({ taskId, status: await instance.status(), productionWrites: false });
+    if (request.method === "GET" && !match[2]) {
+      return json({ taskId: match[1], status: await instance.status(), productionWrites: false });
     }
-    if (request.method === "POST" && approvalRoute === "approval") {
+    if (request.method === "POST" && match[2] === "approval") {
       let body;
       try { body = await request.json(); } catch { return json({ error: "invalid_json" }, 400); }
       if (typeof body?.approved !== "boolean") return json({ error: "approved_boolean_required" }, 400);
-      await instance.sendEvent({ type: "approval", payload: { approved: body.approved, approvedAt: new Date().toISOString() } });
-      return json({ taskId, approvalRecorded: true, approved: body.approved });
+      await instance.sendEvent({
+        type: "approval",
+        payload: { approved: body.approved, approvedAt: new Date().toISOString() },
+      });
+      return json({ taskId: match[1], approvalRecorded: true, approved: body.approved });
     }
     return json({ error: "method_not_allowed" }, 405);
   },
