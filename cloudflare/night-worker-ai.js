@@ -101,7 +101,8 @@ function systemPrompt(operation) {
   if (operation === "plan") {
     return [...common,
       "Plan a single small, independently verifiable task. Choose the smallest useful next step.",
-      "JSON schema: {summary:string, requiresApproval:boolean, blockedReason:string|null, browserUrls:string[], filesToInspect:string[]}.",
+      "JSON schema: {isComplete:boolean, nextStep:string|null, summary:string, requiresApproval:boolean, blockedReason:string|null, browserUrls:string[], filesToInspect:string[]}.",
+      "Set isComplete=true only when the task's acceptance criteria are already satisfied by verified repository state; otherwise set false and propose exactly one small next step.",
       "browserUrls must be public HTTPS research URLs only; never include login pages or private endpoints.",
       "filesToInspect must contain repository-relative paths only, from the allowlist, maximum 8.",
     ].join("\n");
