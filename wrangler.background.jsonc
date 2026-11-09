@@ -1,0 +1,18 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "nexora-background-runner-preview",
+  "main": "cloudflare/background-worker.js",
+  "compatibility_date": "2026-11-07",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": true,
+  "ai": { "binding": "AI" },
+  "vars": { "AI_MODEL": "@cf/zai-org/glm-4.7-flash" },
+  "workflows": [
+    {
+      "name": "nexora-background-task-preview",
+      "binding": "TASK_WORKFLOW",
+      "class_name": "NexoraBackgroundWorkflow"
+    }
+  ]
+}
