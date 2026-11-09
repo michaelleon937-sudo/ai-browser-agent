@@ -54,6 +54,18 @@ describe("Nexora background runner Preview contract", () => {
     expect(isAllowedGithubOidcClaims(claims({
       ref: resumedRef,
       event_name: "workflow_dispatch",
+      workflow_ref: `michaelleon937-sudo/nexora-intelligence/.github/workflows/ci.yml@${resumedRef}`,
+      sub: "repo:michaelleon937-sudo/nexora-intelligence:environment:phase7-preview",
+    }), 1_900_000_000)).toBe(true);
+    expect(isAllowedGithubOidcClaims(claims({
+      ref: resumedRef,
+      event_name: "workflow_dispatch",
+      workflow_ref: `michaelleon937-sudo/nexora-intelligence/.github/workflows/ci.yml@${resumedRef}`,
+      sub: "repo:michaelleon937-sudo/nexora-intelligence:environment:production",
+    }), 1_900_000_000)).toBe(false);
+    expect(isAllowedGithubOidcClaims(claims({
+      ref: resumedRef,
+      event_name: "workflow_dispatch",
       workflow_ref: `michaelleon937-sudo/nexora-intelligence/.github/workflows/untrusted.yml@${resumedRef}`,
       sub: `repo:michaelleon937-sudo/nexora-intelligence:ref:${resumedRef}`,
     }), 1_900_000_000)).toBe(false);
