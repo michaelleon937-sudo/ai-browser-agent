@@ -58,6 +58,7 @@ describe("Nexora background runner Preview contract", () => {
     expect(worker).toContain('timeout: "7 days"');
     expect(worker).toContain('limit: 3');
     expect(worker).toContain('match[2] === "checkpoint"');
+    expect(worker).toContain("clientSequence: checkpoint.sequence");
     expect(worker).toContain('await githubOidcAuth(request)');
   });
 
