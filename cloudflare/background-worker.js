@@ -69,8 +69,9 @@ export class NexoraBackgroundWorkflow extends WorkflowEntrypoint {
       );
       let lastCheckpoint = null;
       for (let sequence = 1; sequence <= maxCheckpoints; sequence += 1) {
-        const event = await step.waitForEvent(`night-worker-checkpoint-${sequence}`, {
-          type: "checkpoint",
+        const checkpointEventType = `night-worker-checkpoint-${sequence}`;
+        const event = await step.waitForEvent(checkpointEventType, {
+          type: checkpointEventType,
           timeout: "7 days",
         });
         const checkpoint = event?.payload || {};
@@ -215,7 +216,7 @@ export default {
         return json({ error: "invalid_checkpoint_payload" }, 400);
       }
       await instance.sendEvent({
-        type: "checkpoint",
+        type: `night-worker-checkpoint-${body.sequence}`,
         payload: { taskId: match[1], sequence: body.sequence, stage: body.stage, status: body.status, summary: body.summary, timestamp: new Date().toISOString() },
       });
       return json({ taskId: match[1], checkpointAccepted: true, sequence: body.sequence });
