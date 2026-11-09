@@ -66,7 +66,8 @@ describe("Nexora background runner Preview contract", () => {
 
   it("persists Night Worker checkpoints with bounded retries and Preview-only execution", () => {
     expect(worker).toContain('kind === "night-worker"');
-    expect(worker).toContain('step.waitForEvent(`night-worker-checkpoint-${sequence}`');
+    expect(worker).toContain('const checkpointEventType = `night-worker-checkpoint-${sequence}`;');
+    expect(worker).toContain('step.waitForEvent(checkpointEventType');
     expect(worker).toContain('persist-night-worker-checkpoint-${sequence}');
     expect(worker).toContain('timeout: "7 days"');
     expect(worker).toContain("Math.min(60, Math.max(1, Number(body.maxCheckpoints) || 60))");
