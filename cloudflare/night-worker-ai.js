@@ -158,11 +158,15 @@ export async function handleNightWorkerAI(request, env) {
         { role: "system", content: systemPrompt(operation) },
         { role: "user", content: userContent },
       ],
-      max_tokens: operation === "plan" ? 1024 : 4096,
+      max_tokens: operation === "plan" ? 3072 : 4096,
       temperature: 0.1,
       stream: false,
     });
-    const output = result?.choices?.[0]?.message?.content ?? result?.response;
+    const choice = result?.choices?.[0];
+    if (choice?.finish_reason === "length") {
+      return json({ ok: false, error: "ai_output_truncated" }, 502);
+    }
+    const output = choice?.message?.content ?? result?.response;
     if (typeof output !== "string" || !output.trim()) {
       return json({ ok: false, error: "ai_empty_response" }, 502);
     }
