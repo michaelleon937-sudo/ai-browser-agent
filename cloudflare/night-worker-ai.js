@@ -40,7 +40,7 @@ export function isAllowedGithubOidcClaims(claims, nowSeconds = Math.floor(Date.n
     && claims?.workflow_ref === `${REPOSITORY}/.github/workflows/ci.yml@${claims?.ref}`
     && typeof claims?.sub === "string"
     && (claims.sub === `repo:${REPOSITORY}:ref:${claims?.ref}`
-      || claims.sub === `repo:${REPOSITORY}:environment:phase7-preview`)
+      || claims.sub === `repo:michaelleon937-sudo@288107619/nexora-intelligence@1425832119:ref:${claims?.ref}`)
     && Number.isFinite(claims?.exp)
     && claims.exp > nowSeconds
     && (!Number.isFinite(claims?.nbf) || claims.nbf <= nowSeconds + 30);
