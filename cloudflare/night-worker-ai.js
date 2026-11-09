@@ -36,7 +36,7 @@ export function isAllowedGithubOidcClaims(claims, nowSeconds = Math.floor(Date.n
     && audience.includes(AUDIENCE)
     && claims?.repository === REPOSITORY
     && claims?.ref === REF
-    && claims?.event_name === "push"
+    && ["push", "workflow_dispatch"].includes(claims?.event_name)
     && claims?.workflow_ref === WORKFLOW_REF
     && typeof claims?.sub === "string"
     && claims.sub === `repo:${REPOSITORY}:ref:${REF}`
