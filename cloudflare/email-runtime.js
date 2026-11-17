@@ -134,7 +134,7 @@ async function storeCall(env, operation, data = {}) {
 
 async function callNexoraAssistant(message, history, env) {
   const endpoint = String(env.NEXORA_EMAIL_ASSISTANT_URL || "").trim();
-  const secret = String(env.NEXORA_EMAIL_AGENT_SHARED_SECRET || env.NEXORA_AGENT_SHARED_SECRET || "").trim();
+  const secret = String(env.NEXORA_AGENT_SHARED_SECRET || "").trim();
   if (!endpoint || !secret) throw new Error("Nexora Gemini assistant is not configured for this Worker environment");
   const response = await fetch(endpoint, {
     method: "POST",
@@ -477,6 +477,22 @@ export function installEmailRuntime(ReplayGuard, worker) {
   worker.fetch = async (request, env, ctx) => {
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/api/email/v1/health") {
+      const nexoraSecret = String(env.NEXORA_EMAIL_AGENT_SHARED_SECRET || env.NEXORA_AGENT_SHARED_SECRET || "").trim();
+      let nexoraAssistant = { reachable: false, httpStatus: null, modelConfigured: false };
+      if (env.NEXORA_EMAIL_ASSISTANT_URL && nexoraSecret) {
+        try {
+          const response = await fetch(env.NEXORA_EMAIL_ASSISTANT_URL, {
+            method: "GET",
+            headers: { authorization: "Bearer " + nexoraSecret },
+            signal: AbortSignal.timeout(8000),
+            cache: "no-store",
+          });
+          const result = await response.json().catch(() => ({}));
+          nexoraAssistant = { reachable: response.ok, httpStatus: response.status, modelConfigured: result.modelConfigured === true, provider: result.provider || null };
+        } catch {
+          nexoraAssistant = { reachable: false, httpStatus: null, modelConfigured: false };
+        }
+      }
       return emailJson({
         ok: true,
         service: "ai-browser-agent-email",
@@ -485,7 +501,8 @@ export function installEmailRuntime(ReplayGuard, worker) {
         outboundConfigured: Boolean(env.CLOUDMAILIN_OUTBOUND_ACCOUNT_ID && env.CLOUDMAILIN_OUTBOUND_API_TOKEN && env.CLOUDMAILIN_OUTBOUND_FROM),
         outboundTestMode: bool(env.CLOUDMAILIN_OUTBOUND_TEST_MODE, true),
         autoReplyEnabled: bool(env.EMAIL_AUTOREPLY_ENABLED, false),
-        nexoraGeminiBridgeConfigured: Boolean(env.NEXORA_EMAIL_ASSISTANT_URL && env.NEXORA_AGENT_SHARED_SECRET),
+        nexoraGeminiBridgeConfigured: Boolean(env.NEXORA_EMAIL_ASSISTANT_URL && nexoraSecret),
+        nexoraAssistant,
         durableStoreConfigured: Boolean(env.REPLAY_GUARD),
         productionSafe: !bool(env.EMAIL_AUTOREPLY_ENABLED, false) || bool(env.CLOUDMAILIN_OUTBOUND_TEST_MODE, true),
       });
