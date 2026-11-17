@@ -134,7 +134,7 @@ async function storeCall(env, operation, data = {}) {
 
 async function callNexoraAssistant(message, history, env) {
   const endpoint = String(env.NEXORA_EMAIL_ASSISTANT_URL || "").trim();
-  const secret = String(env.NEXORA_AGENT_SHARED_SECRET || "").trim();
+  const secret = String(env.NEXORA_EMAIL_AGENT_SHARED_SECRET || env.NEXORA_AGENT_SHARED_SECRET || "").trim();
   if (!endpoint || !secret) throw new Error("Nexora Gemini assistant is not configured for this Worker environment");
   const response = await fetch(endpoint, {
     method: "POST",
