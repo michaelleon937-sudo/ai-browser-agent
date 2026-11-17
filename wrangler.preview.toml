@@ -28,6 +28,16 @@ EMAIL_AUTOREPLY_ENABLED = "false"
 CLOUDMAILIN_API_BASE_URL = "https://api.cloudmailin.com/api/v0.1"
 CLOUDMAILIN_OUTBOUND_TEST_MODE = "true"
 
+[previews.ai]
+binding = "AI"
+
+[previews.browser]
+binding = "BROWSER"
+
+[[previews.durable_objects.bindings]]
+name = "REPLAY_GUARD"
+class_name = "ReplayGuard"
+
 [previews.vars]
 AI_MODEL = "@cf/openai/gpt-oss-20b"
 BUILD_SHA = "cloudflare-email-preview"
@@ -36,7 +46,3 @@ NEXORA_EMAIL_ASSISTANT_URL = "https://nexora-intelligence-git-fe-919e70-michaell
 EMAIL_AUTOREPLY_ENABLED = "false"
 CLOUDMAILIN_API_BASE_URL = "https://api.cloudmailin.com/api/v0.1"
 CLOUDMAILIN_OUTBOUND_TEST_MODE = "true"
-
-[[previews.durable_objects.bindings]]
-name = "REPLAY_GUARD"
-class_name = "ReplayGuard"
