@@ -26,8 +26,10 @@ The test address forwards only to the Cloudflare Preview Worker. It is not the l
 - `GEMINI_API_KEY` is configured in the Vercel Preview environment. Its value is never read or exposed.
 - The CloudMailin Preview inbound address is confirmed to forward to the Worker Preview route above.
 - CloudMailin currently has no inbound messages recorded for the Preview test address.
-- CloudMailin currently has no verified outbound sending domain configured. Outbound Test Mode is enabled, but this does not establish live sender-domain readiness.
-- The connected Cloudflare account currently returns zero DNS zones. The candidate domain `mlcreativedesign.com` returned NXDOMAIN during public DNS verification. No DNS records were changed.
+- CloudMailin sending domain `mlcreativedesign.com` has been created but remains unverified. A CloudMailin outbound request was accepted in Test Mode and recorded as `Test`; no email was delivered.
+- A Cloudflare zone for `mlcreativedesign.com` has been recreated in pending state on the Free plan. The required CloudMailin CNAME and DKIM TXT records plus recommended root SPF and monitoring-only DMARC TXT records are staged in that zone. No MX, A, AAAA, or website records were changed.
+- Cloudflare assigned nameservers `joaquin.ns.cloudflare.com` and `melinda.ns.cloudflare.com`. Verisign .com RDAP returned HTTP 404 for `mlcreativedesign.com` while a known registered control domain returned HTTP 200, so the domain currently has no active .com registration record. The zone cannot become authoritative until the domain is registered and those nameservers are set at its registrar.
+- CloudMailin `verifyDomain` confirms that its required CNAME and DKIM records are still unverified because public DNS delegation is not active.
 - The separate Vercel MCP connection can see the team but does not list the Nexora project. The native Vercel connector can access the project and its Preview deployments; this does not block the current Preview health check.
 
 A successful health probe proves configuration and bridge reachability only. It does not prove that a real Gemini inference request, inbound message processing, or outbound provider delivery has completed end to end.
@@ -71,8 +73,8 @@ Quotes, proposals, invoices, payments, project status, delivery claims, revision
 ## Go-live blockers and order
 
 1. Run an authenticated synthetic POST through the actual Worker → Nexora assistant route and verify a real Gemini response, bilingual output, policy handling and conversation persistence.
-2. Confirm the registered sender domain. The connected Cloudflare account currently has no DNS zones, and the candidate `mlcreativedesign.com` is not publicly resolving. A valid active domain and its authoritative DNS host are required before CloudMailin sender-domain records can be published.
-3. Add and verify CloudMailin's required sender-domain SPF/DKIM/return-path records only after the correct active DNS zone is available.
+2. Register `mlcreativedesign.com` or provide another active registered sender domain. The Cloudflare zone and CloudMailin records are already staged; set the registrar nameservers to `joaquin.ns.cloudflare.com` and `melinda.ns.cloudflare.com`.
+3. After public delegation is active, run CloudMailin `verifyDomain` until the required CNAME and DKIM records pass. Root SPF and monitoring-only DMARC records are already staged.
 4. Run an isolated inbound message through the CloudMailin Preview address, verify the Worker response, replay deduplication, draft/escalation, and notification state.
 5. Run CloudMailin outbound Test Mode and authenticated delivery-event/idempotency checks after a sender domain is verified.
 6. Obtain separate explicit go-live approval before deploying the Worker to Production or changing live CloudMailin routing.
@@ -82,4 +84,4 @@ Quotes, proposals, invoices, payments, project status, delivery claims, revision
 
 The existing customer inbound address is intentionally unchanged and still points to the legacy Render URL. Render has not been reintroduced into the new Preview architecture. Do not switch live traffic to the Preview Worker. The separate CloudMailin Preview test address is available for safe validation.
 
-No Production Worker deployment, Production database write, real customer email, DNS write, or paid service action was performed during this Preview work.
+DNS records were written only into the pending Cloudflare zone. No public DNS delegation, MX change, Production Worker deployment, Production database write, real customer email, or paid service action occurred during this Preview work.
