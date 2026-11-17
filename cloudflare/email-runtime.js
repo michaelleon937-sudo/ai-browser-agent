@@ -145,7 +145,7 @@ async function callNexoraAssistant(message, history, env) {
       customerName: message.sender.split("<")[0].replace(/["']/g, "").trim(),
       subject: message.subject,
       message: message.body,
-      conversationHistory: history.slice(-20).map((item) => ({
+      conversationHistory: history.filter((item) => item.id !== message.externalMessageId).slice(-20).map((item) => ({
         direction: item.direction,
         subject: item.subject,
         body: item.body,
@@ -186,6 +186,7 @@ async function sendCloudMailin(delivery, env) {
           subject: delivery.subject,
           plain: delivery.body,
           test_mode: testMode,
+          headers: delivery.clientMessageId ? { "Message-ID": delivery.clientMessageId } : undefined,
           tags: ["nexora", "ai-browser-agent", delivery.intent || "customer-email"],
         }),
         signal: AbortSignal.timeout(15000),
@@ -280,11 +281,21 @@ async function handleInbound(request, env, ctx) {
     messageId: normalized.externalMessageId,
     status: policy.requiresHumanReview ? "NEEDS_HUMAN_REVIEW" : "DRAFT_READY",
     createdAt: new Date().toISOString(),
+    clientMessageId: "<" + await sha256("nexora-email:" + normalized.externalMessageId + "|" + normalized.sender.toLowerCase()) + "@mail.nexora.local>",
+    extractedRequirements: assistant.extractedRequirements || {},
+    missingFields: assistant.missingFields || [],
+    summary: assistant.summary || "",
+    language: assistant.language || "en",
+    escalationReason: assistant.escalationReason || null,
+    requiresHumanReview: policy.requiresHumanReview,
     attempts: [],
   };
   try {
     const reserved = await storeCall(env, "reserveDelivery", { delivery });
-    if (!reserved.replay && policy.autoSendEligible && bool(env.EMAIL_AUTOREPLY_ENABLED, false)) {
+    if (reserved.replay) {
+      return emailJson({ ok: true, duplicate: true, messageId: normalized.externalMessageId, conversationId, intent: delivery.intent, deliveryStatus: reserved.delivery?.status || "PENDING", externalSideEffect: false }, 200);
+    }
+    if (policy.autoSendEligible && bool(env.EMAIL_AUTOREPLY_ENABLED, false)) {
       try {
         const sent = await sendCloudMailin(delivery, env);
         delivery.status = sent.testMode ? "TEST_ACCEPTED" : "SENT";
@@ -416,6 +427,8 @@ function installDurableObjectEmailStore(ReplayGuard) {
           const updated = { ...current, ...body.patch, idempotencyKey: body.idempotencyKey, updatedAt: new Date().toISOString() };
           await tx.put(key, updated);
           await tx.put("email:delivery-id:" + updated.id, updated);
+          if (updated.providerMessageId) await tx.put("email:provider:" + updated.providerMessageId, body.idempotencyKey);
+          if (updated.clientMessageId) await tx.put("email:client:" + updated.clientMessageId, body.idempotencyKey);
           return { ok: true, delivery: updated };
         }
         if (body.operation === "escalate") {
@@ -431,7 +444,17 @@ function installDurableObjectEmailStore(ReplayGuard) {
           const existing = await tx.get(eventKey);
           if (existing) return { duplicate: true, matched: false };
           await tx.put(eventKey, body.event);
-          return { duplicate: false, matched: false };
+          const byProvider = body.event.providerMessageId ? await tx.get("email:provider:" + body.event.providerMessageId) : null;
+          const byClient = body.event.originalMessageId ? await tx.get("email:client:" + body.event.originalMessageId) : null;
+          const idempotencyKey = byProvider || byClient;
+          if (!idempotencyKey) return { duplicate: false, matched: false };
+          const deliveryKey = "email:delivery:" + idempotencyKey;
+          const current = await tx.get(deliveryKey);
+          if (!current) return { duplicate: false, matched: false };
+          const updated = { ...current, status: body.event.status, lastDeliveryEvent: body.event, updatedAt: new Date().toISOString() };
+          await tx.put(deliveryKey, updated);
+          await tx.put("email:delivery-id:" + updated.id, updated);
+          return { duplicate: false, matched: true, deliveryId: updated.id, status: updated.status };
         }
         return { error: "unknown_operation" };
       });
