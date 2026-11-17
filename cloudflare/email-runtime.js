@@ -486,7 +486,12 @@ export function installEmailRuntime(ReplayGuard, worker) {
         try {
           const response = await fetch(env.NEXORA_EMAIL_ASSISTANT_URL, {
             method: "GET",
-            headers: { authorization: "Bearer " + nexoraSecret },
+            headers: {
+              authorization: "Bearer " + nexoraSecret,
+              ...(String(env.NEXORA_VERCEL_PROTECTION_BYPASS || "").trim()
+                ? { "x-vercel-protection-bypass": String(env.NEXORA_VERCEL_PROTECTION_BYPASS).trim() }
+                : {}),
+            },
             signal: AbortSignal.timeout(8000),
             cache: "no-store",
           });
