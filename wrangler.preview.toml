@@ -15,10 +15,6 @@ binding = "BROWSER"
 name = "REPLAY_GUARD"
 class_name = "ReplayGuard"
 
-[[migrations]]
-tag = "email-preview-v1"
-new_sqlite_classes = ["ReplayGuard"]
-
 [exports.ReplayGuard]
 type = "durable-object"
 storage = "sqlite"
