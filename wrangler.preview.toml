@@ -14,10 +14,7 @@ binding = "BROWSER"
 [[durable_objects.bindings]]
 name = "REPLAY_GUARD"
 class_name = "ReplayGuard"
-
-[[migrations]]
-tag = "email-preview-v1"
-new_sqlite_classes = ["ReplayGuard"]
+namespace_id = "22ce2c91c1254c36844076001a9a896e"
 
 [vars]
 AI_MODEL = "@cf/openai/gpt-oss-20b"
