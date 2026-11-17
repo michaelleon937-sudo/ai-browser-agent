@@ -132,15 +132,18 @@ async function storeCall(env, operation, data = {}) {
   return response.json();
 }
 
-async function callNexoraAssistant(message, history, env) {
+export async function callNexoraAssistant(message, history, env) {
   const endpoint = String(env.NEXORA_EMAIL_ASSISTANT_URL || "").trim();
-  const secret = String(env.NEXORA_AGENT_SHARED_SECRET || "").trim();
+  const secret = String(env.NEXORA_EMAIL_AGENT_SHARED_SECRET || env.NEXORA_AGENT_SHARED_SECRET || "").trim();
   if (!endpoint || !secret) throw new Error("Nexora Gemini assistant is not configured for this Worker environment");
   const response = await fetch(endpoint, {
     method: "POST",
     headers: {
       "content-type": "application/json",
       authorization: "Bearer " + secret,
+      ...(String(env.NEXORA_VERCEL_PROTECTION_BYPASS || "").trim()
+        ? { "x-vercel-protection-bypass": String(env.NEXORA_VERCEL_PROTECTION_BYPASS).trim() }
+        : {}),
     },
     body: JSON.stringify({
       messageId: message.externalMessageId,
