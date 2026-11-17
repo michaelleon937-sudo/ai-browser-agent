@@ -4,7 +4,8 @@ import { installEmailRuntime } from "../../cloudflare/email-runtime.js";
 function createMemoryStore() {
   const deliveries = new Map();
   const stub = {
-    async fetch(request) {
+    async fetch(input, init) {
+      const request = input instanceof Request ? input : new Request(input, init);
       const body = await request.json();
       if (body.operation === "reserveDelivery") {
         const key = body.delivery.idempotencyKey;
