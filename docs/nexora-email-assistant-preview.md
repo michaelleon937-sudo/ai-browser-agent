@@ -2,7 +2,7 @@
 
 ## Architecture
 
-CloudMailin inbound email → Cloudflare AI Browser Agent Worker → isolated ReplayGuard Durable Object (conversation history, idempotency, delivery state) → authenticated Nexora email-assistant API → Gemini.
+CloudMailin inbound email → Cloudflare AI Browser Agent Worker Preview → isolated ReplayGuard Durable Object (conversation history, idempotency, delivery state) → authenticated Nexora email-assistant Preview API → Gemini.
 
 Outbound replies use the CloudMailin outbound account. Delivery events are accepted through the authenticated Worker event endpoint and recorded against the message/conversation. The Worker keeps the customer-facing send gate separate from the assistant draft.
 
@@ -17,47 +17,69 @@ Outbound replies use the CloudMailin outbound account. Delivery events are accep
 
 The test address forwards only to the Cloudflare Preview Worker. It is not the live customer address.
 
+## Current verified Preview state — 2026-11-17
+
+- Cloudflare Worker Preview health returns `ok: true`.
+- Inbound authentication, outbound configuration, outbound Test Mode, notifications, and Durable Object storage are configured.
+- Automatic replies remain disabled.
+- The Nexora Gemini bridge is configured and reachable from the Worker Preview; the health probe reports HTTP 200, provider `gemini`, and `modelConfigured: true`.
+- `GEMINI_API_KEY` is configured in the Vercel Preview environment. Its value is never read or exposed.
+- The CloudMailin Preview inbound address is confirmed to forward to the Worker Preview route above.
+- CloudMailin currently has no inbound messages recorded for the Preview test address.
+- CloudMailin currently has no verified outbound sending domain configured. Outbound Test Mode is enabled, but this does not establish live sender-domain readiness.
+- The connected Cloudflare account currently returns zero DNS zones. The candidate domain `mlcreativedesign.com` returned NXDOMAIN during public DNS verification. No DNS records were changed.
+- The separate Vercel MCP connection can see the team but does not list the Nexora project. The native Vercel connector can access the project and its Preview deployments; this does not block the current Preview health check.
+
+A successful health probe proves configuration and bridge reachability only. It does not prove that a real Gemini inference request, inbound message processing, or outbound provider delivery has completed end to end.
+
 ## Required bindings and variables
 
-Cloudflare Preview secrets (names only; values are stored as secret bindings):
+Cloudflare Preview secrets (names only; values remain in secret bindings):
 - `CLOUDMAILIN_WEBHOOK_AUTH_SECRET`
 - `CLOUDMAILIN_OUTBOUND_API_TOKEN`
 - `CLOUDMAILIN_OUTBOUND_EVENTS_AUTH_SECRET`
+- `CLOUDMAILIN_OUTBOUND_ACCOUNT_ID`
+- `CLOUDMAILIN_OUTBOUND_FROM`
 - `NEXORA_EMAIL_AGENT_SHARED_SECRET`
 - `NEXORA_VERCEL_PROTECTION_BYPASS`
 - CloudMailin SMTP/account settings.
 
 Nexora Vercel Preview:
 - `NEXORA_EMAIL_AGENT_SHARED_SECRET` is configured for the Cloudflare-to-Nexora machine connection.
-- `GEMINI_API_KEY` is not configured in Preview yet. The assistant health route therefore reports `modelConfigured: false`. Do not copy the Production key into Preview without explicit approval; use a dedicated Preview key.
+- `GEMINI_API_KEY` is configured in Preview. Do not copy it to Production or expose its value.
 
 ## Safety gates
 
 Current Preview values:
 - `EMAIL_AUTOREPLY_ENABLED=false`
 - `CLOUDMAILIN_OUTBOUND_TEST_MODE=true`
+- `EMAIL_NOTIFICATIONS_ENABLED=true`
 
 These gates prevent customer-facing auto-replies and prevent outbound test messages from being delivered. The Vercel Preview protection remains enabled for human access; Cloudflare uses a separate machine-only bypass token plus the Bearer shared secret.
 
-## Verified Preview checks
+Quotes, proposals, invoices, payments, project status, delivery claims, revisions, complaints and urgent requests require human review. The assistant must not invent prices, deadlines, payment status, project progress, completion or delivery links.
 
-- Cloudflare Workers Build runs the dedicated email unit suites before deployment.
-- Latest completed email test gate: 16 tests passed across inbound, outbound, idempotency and Nexora bridge suites.
-- Worker health returned HTTP 200; the isolated Durable Object store, inbound auth and outbound test configuration were ready.
-- Nexora Preview authenticated health returned HTTP 200 and exposed the live service/package context (50 services, 5 packages). Gemini inference remains blocked only by the missing Preview `GEMINI_API_KEY`.
-- A synthetic inbound payload was accepted once and a replay of the same message ID was deduplicated.
-- CloudMailin outbound Test mode accepted a synthetic validation request and recorded it as `Test`; no email was delivered.
+## Verified code and deployment checks
+
+- The email Worker Preview deployment is deployed on the isolated branch `feature/cloudflare-customer-email-automation`.
+- The latest email-specific Worker tests previously passed: 16 tests across inbound, outbound, idempotency and Nexora bridge suites.
+- The Worker health endpoint returns HTTP 200 and confirms the Gemini bridge is reachable.
+- The Nexora Preview API is protected by Vercel Preview authentication; the Worker health probe confirms its machine-to-machine health check succeeds.
+- A synthetic inbound payload and replay-deduplication check were previously exercised in the isolated test path; CloudMailin's current message list is empty, so no provider-delivered inbound message is claimed here.
+- CloudMailin outbound Test Mode was previously accepted as a validation request; no email was delivered.
 
 ## Go-live blockers and order
 
-1. Add a dedicated `GEMINI_API_KEY` to the Nexora Vercel Preview environment and redeploy Preview.
-2. Configure and verify a sending domain in CloudMailin; publish the provider's DNS records at the domain's DNS host.
-3. Re-run authenticated Gemini inference, bilingual draft checks, customer-data authorization checks and outbound Test mode checks.
-4. Obtain explicit go-live approval, deploy the Worker to Production with auto-reply still disabled, then move the existing CloudMailin inbound address from Render to the Production Worker.
-5. Enable auto-replies only after live sender-domain verification, human escalation checks and end-to-end delivery tracking pass.
+1. Run an authenticated synthetic POST through the actual Worker → Nexora assistant route and verify a real Gemini response, bilingual output, policy handling and conversation persistence.
+2. Confirm the registered sender domain. The connected Cloudflare account currently has no DNS zones, and the candidate `mlcreativedesign.com` is not publicly resolving. A valid active domain and its authoritative DNS host are required before CloudMailin sender-domain records can be published.
+3. Add and verify CloudMailin's required sender-domain SPF/DKIM/return-path records only after the correct active DNS zone is available.
+4. Run an isolated inbound message through the CloudMailin Preview address, verify the Worker response, replay deduplication, draft/escalation, and notification state.
+5. Run CloudMailin outbound Test Mode and authenticated delivery-event/idempotency checks after a sender domain is verified.
+6. Obtain separate explicit go-live approval before deploying the Worker to Production or changing live CloudMailin routing.
+7. Enable automatic replies only after bilingual, service-routing, pricing-safety, escalation, and delivery tests pass.
 
 ## Live routing status
 
 The existing customer inbound address is intentionally unchanged and still points to the legacy Render URL. Render has not been reintroduced into the new Preview architecture. Do not switch live traffic to the Preview Worker. The separate CloudMailin Preview test address is available for safe validation.
 
-No Production Worker deployment, Production database write, real customer email or paid service action was performed during this Preview work.
+No Production Worker deployment, Production database write, real customer email, DNS write, or paid service action was performed during this Preview work.
