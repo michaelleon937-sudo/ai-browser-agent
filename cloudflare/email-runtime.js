@@ -56,14 +56,17 @@ export function normalizeCloudMailinMessage(payload) {
   }
   const envelope = payload.envelope && typeof payload.envelope === "object" ? payload.envelope : {};
   const headers = payload.headers && typeof payload.headers === "object" ? payload.headers : {};
-  const sender = String(headerValue(headers, "from") || envelope.from || "").trim();
+  const senderRaw = String(headerValue(headers, "from") || envelope.from || "").trim();
+  const senderMatch = senderRaw.match(/^(.*?)\s*<([^<>]+)>$/);
+  const sender = (senderMatch ? senderMatch[2] : senderRaw).trim();
+  const senderName = senderMatch ? senderMatch[1].replace(/^["']|["']$/g, "").trim().slice(0, 160) : "";
   const recipient = String(envelope.to || (Array.isArray(envelope.recipients) ? envelope.recipients[0] : envelope.recipients) || headerValue(headers, "to") || "").trim();
   const externalMessageId = String(headerValue(headers, "message_id") || headerValue(headers, "message-id") || "").trim();
   const subject = String(headerValue(headers, "subject") || "").trim().slice(0, 500);
   const plain = typeof payload.plain === "string" ? payload.plain : "";
   const html = typeof payload.html === "string" ? payload.html : "";
   const body = (plain || payload.reply_plain || stripHtml(html)).trim().slice(0, 12000);
-  if (!sender || !sender.includes("@")) throw Object.assign(new Error("sender is required"), { status: 400 });
+  if (!/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(sender)) throw Object.assign(new Error("sender email address is invalid"), { status: 400 });
   if (!recipient) throw Object.assign(new Error("recipient is required"), { status: 400 });
   if (!externalMessageId) throw Object.assign(new Error("message_id is required"), { status: 400 });
   if (!body && !subject) throw Object.assign(new Error("message content is required"), { status: 400 });
@@ -71,6 +74,7 @@ export function normalizeCloudMailinMessage(payload) {
     provider: "cloudmailin",
     externalMessageId,
     sender: sender.slice(0, 320),
+    senderName,
     recipient: recipient.slice(0, 320),
     subject,
     body,
@@ -142,7 +146,7 @@ async function callNexoraAssistant(message, history, env) {
       messageId: message.externalMessageId,
       conversationId: message.conversationId,
       customerEmail: message.sender,
-      customerName: message.sender.split("<")[0].replace(/["']/g, "").trim(),
+      customerName: message.senderName || "",
       subject: message.subject,
       message: message.body,
       conversationHistory: history.filter((item) => item.id !== message.externalMessageId).slice(-20).map((item) => ({
