@@ -36,3 +36,7 @@ NEXORA_EMAIL_ASSISTANT_URL = "https://nexora-intelligence-git-fe-919e70-michaell
 EMAIL_AUTOREPLY_ENABLED = "false"
 CLOUDMAILIN_API_BASE_URL = "https://api.cloudmailin.com/api/v0.1"
 CLOUDMAILIN_OUTBOUND_TEST_MODE = "true"
+
+[[previews.durable_objects.bindings]]
+name = "REPLAY_GUARD"
+class_name = "ReplayGuard"
