@@ -5,6 +5,9 @@ const INBOUND_ROUTES = new Set([
   "/api/inbound/email/resend.json",
 ]);
 const EVENTS_ROUTE = "/api/outbound/email/cloudmailin/events";
+const NOTIFICATIONS_ROUTE = "/api/email/v1/notifications";
+const NOTIFICATION_TYPES = new Set(["onboarding", "project_update", "delivery_ready", "support_update", "revision_update", "quotation_draft", "proposal_draft"]);
+const HUMAN_APPROVAL_TYPES = new Set(["revision_update", "quotation_draft", "proposal_draft"]);
 
 function emailJson(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -358,6 +361,99 @@ async function handleInbound(request, env, ctx) {
   }, 202);
 }
 
+async function handleNexoraNotification(request, env) {
+  const secret = String(env.NEXORA_EMAIL_AGENT_SHARED_SECRET || env.NEXORA_AGENT_SHARED_SECRET || "").trim();
+  if (!secret) return emailJson({ ok: false, error: "notification_auth_not_configured" }, 503);
+  if (!constantTimeEqual(request.headers.get("authorization") || "", "Bearer " + secret)) {
+    return emailJson({ ok: false, error: "unauthorized" }, 401);
+  }
+  if (!bool(env.EMAIL_NOTIFICATIONS_ENABLED, false)) {
+    return emailJson({ ok: false, error: "notifications_disabled" }, 503);
+  }
+  let payload;
+  try { payload = await readJson(request); } catch (error) {
+    return emailJson({ ok: false, error: error.message || "invalid_payload" }, error.status || 400);
+  }
+  const eventId = String(payload.eventId || "").trim();
+  const eventType = String(payload.eventType || "").trim().toLowerCase();
+  const sourceRecordId = String(payload.sourceRecordId || "").trim();
+  const recipient = String(payload.recipient || "").trim().toLowerCase();
+  const subject = String(payload.subject || "").trim();
+  const body = String(payload.body || "").trim();
+  if (!eventId || eventId.length > 160 || !sourceRecordId || sourceRecordId.length > 128) {
+    return emailJson({ ok: false, error: "event_and_source_record_required" }, 400);
+  }
+  if (!NOTIFICATION_TYPES.has(eventType)) return emailJson({ ok: false, error: "unsupported_notification_type" }, 400);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient) || recipient.length > 254) {
+    return emailJson({ ok: false, error: "invalid_recipient" }, 400);
+  }
+  if (!subject || subject.length > 180 || /[\r\n]/.test(subject) || !body || body.length > 8000) {
+    return emailJson({ ok: false, error: "invalid_notification_content" }, 400);
+  }
+  if (payload.verified !== true) return emailJson({ ok: false, error: "unverified_source_record" }, 403);
+  const approvalId = String(payload.approvalId || "").trim();
+  if (HUMAN_APPROVAL_TYPES.has(eventType) && (payload.humanApproved !== true || !approvalId)) {
+    return emailJson({ ok: false, error: "human_approval_required" }, 409);
+  }
+
+  const idempotencyKey = "nexora-notification:" + await sha256(eventId + "|" + recipient);
+  const conversationId = await sha256(recipient);
+  const delivery = {
+    idempotencyKey,
+    id: eventId,
+    messageId: eventId,
+    conversationId,
+    recipient,
+    subject,
+    body,
+    intent: eventType,
+    sourceRecordId,
+    verified: true,
+    humanApproved: payload.humanApproved === true,
+    approvalId: approvalId || null,
+    status: "PENDING",
+    createdAt: new Date().toISOString(),
+    clientMessageId: "<" + await sha256(idempotencyKey) + "@mail.nexora.local>",
+    attempts: [],
+  };
+
+  let reserved;
+  try {
+    reserved = await storeCall(env, "reserveDelivery", { delivery });
+  } catch {
+    return emailJson({ ok: false, error: "delivery_state_unavailable" }, 503);
+  }
+  if (reserved.replay) {
+    return emailJson({ ok: true, duplicate: true, eventId, deliveryStatus: reserved.delivery?.status || "PENDING", externalSideEffect: false }, 200);
+  }
+
+  try {
+    const sent = await sendCloudMailin(delivery, env);
+    delivery.status = sent.testMode ? "TEST_ACCEPTED" : "SENT";
+    delivery.providerMessageId = sent.providerMessageId;
+    delivery.testMode = sent.testMode;
+    delivery.sentAt = new Date().toISOString();
+    delivery.attempts.push({ status: "SUCCESS", at: delivery.sentAt, testMode: sent.testMode });
+    await storeCall(env, "updateDelivery", { idempotencyKey, patch: delivery });
+    return emailJson({
+      ok: true,
+      duplicate: false,
+      eventId,
+      eventType,
+      deliveryStatus: delivery.status,
+      testMode: sent.testMode,
+      providerMessageId: sent.providerMessageId,
+      externalSideEffect: !sent.testMode,
+    }, 202);
+  } catch (error) {
+    delivery.status = "FAILED";
+    delivery.error = error.message || "outbound_failed";
+    delivery.attempts.push({ status: "FAILED", at: new Date().toISOString(), error: delivery.error });
+    await storeCall(env, "updateDelivery", { idempotencyKey, patch: delivery }).catch(() => null);
+    return emailJson({ ok: false, eventId, deliveryStatus: "FAILED", error: "outbound_failed", externalSideEffect: false }, 502);
+  }
+}
+
 async function handleDeliveryEvents(request, env) {
   const secret = String(env.CLOUDMAILIN_OUTBOUND_EVENTS_AUTH_SECRET || "");
   if (!secret) return emailJson({ ok: false, error: "events_not_configured" }, 503);
@@ -508,6 +604,7 @@ export function installEmailRuntime(ReplayGuard, worker) {
         inboundAuthConfigured: Boolean(env.CLOUDMAILIN_WEBHOOK_AUTH_SECRET),
         outboundConfigured: Boolean(env.CLOUDMAILIN_OUTBOUND_ACCOUNT_ID && env.CLOUDMAILIN_OUTBOUND_API_TOKEN && env.CLOUDMAILIN_OUTBOUND_FROM),
         outboundTestMode: bool(env.CLOUDMAILIN_OUTBOUND_TEST_MODE, true),
+        notificationsEnabled: bool(env.EMAIL_NOTIFICATIONS_ENABLED, false),
         autoReplyEnabled: bool(env.EMAIL_AUTOREPLY_ENABLED, false),
         nexoraGeminiBridgeConfigured: Boolean(env.NEXORA_EMAIL_ASSISTANT_URL && nexoraSecret),
         nexoraAssistant,
@@ -520,6 +617,9 @@ export function installEmailRuntime(ReplayGuard, worker) {
     }
     if (request.method === "POST" && url.pathname === EVENTS_ROUTE) {
       return handleDeliveryEvents(request, env);
+    }
+    if (request.method === "POST" && url.pathname === NOTIFICATIONS_ROUTE) {
+      return handleNexoraNotification(request, env);
     }
     return originalFetch(request, env, ctx);
   };
