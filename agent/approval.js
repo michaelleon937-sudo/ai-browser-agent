@@ -12,6 +12,7 @@ import { getDb } from '../database/index.js';
 import { nanoid } from 'nanoid';
 import { notify } from '../notifications/index.js';
 import { config, redact } from '../config/index.js';
+import { isApprovalNotificationEnabled } from './approval-notifications.js';
 
 
 export async function enqueueApproval({ runId, tool, args, reasoning, goal }) {
@@ -38,11 +39,13 @@ export async function enqueueApproval({ runId, tool, args, reasoning, goal }) {
   `).run(id, runId || null, tool, JSON.stringify(redact(args || {})), reasoning || null, goal || null, requestedAt);
 
 
-  notify({
-    level: 'warn',
-    subject: `Approval required: ${tool}`,
-    body: `Run ${runId || '(ad-hoc)'}: ${reasoning || tool}\nArgs: ${JSON.stringify(redact(args || {}))}`,
-  });
+  if (isApprovalNotificationEnabled()) {
+    notify({
+      level: 'warn',
+      subject: `Approval required: ${tool}`,
+      body: `Run ${runId || '(ad-hoc)'}: ${reasoning || tool}\nArgs: ${JSON.stringify(redact(args || {}))}`,
+    });
+  }
 
 
   return { id, requestedAt };

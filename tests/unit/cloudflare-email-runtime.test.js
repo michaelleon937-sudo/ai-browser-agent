@@ -30,7 +30,7 @@ describe("CloudMailin email runtime", () => {
     expect(classifyEmailIntent("I have an urgent complaint")).toBe("urgent_escalation");
   });
 
-  it("allows only high-confidence low-risk FAQ and intake messages", () => {
+  it("keeps even high-confidence low-risk FAQ replies as drafts requiring human approval", () => {
     const result = resolveWorkerEmailPolicy({
       intent: "service_faq",
       confidence: 0.93,
@@ -38,7 +38,11 @@ describe("CloudMailin email runtime", () => {
       message: "What does your logo design service include?",
       reply: "We can explain the brief and the deliverables.",
     });
-    expect(result.autoSendEligible).toBe(true);
+    expect(result.requiresHumanReview).toBe(true);
+    expect(result.autoSendEligible).toBe(false);
+    expect(result.draftEligible).toBe(true);
+    expect(result.approvalRequired).toBe(true);
+    expect(result.reason).toBe("nexora_draft_only_requires_human_approval");
   });
 
   it("blocks automatic sends for money and unverified completion claims", () => {

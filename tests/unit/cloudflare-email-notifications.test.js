@@ -130,6 +130,17 @@ describe("Nexora-triggered CloudMailin notifications", () => {
     expect(outbound).toHaveBeenCalledTimes(1);
   });
 
+
+  it("blocks live customer notifications even when an approval claim is supplied", async () => {
+    const { worker, env } = createRuntime({ CLOUDMAILIN_OUTBOUND_TEST_MODE: "false" });
+    const outbound = vi.fn();
+    vi.stubGlobal("fetch", outbound);
+    const response = await worker.fetch(request(notification({ humanApproved: true, approvalId: "synthetic-approval-1" })), env, ctx);
+    expect(response.status).toBe(503);
+    expect((await response.json()).error).toBe("live_customer_notifications_disabled_by_policy");
+    expect(outbound).not.toHaveBeenCalled();
+  });
+
   it("keeps the notification route disabled unless explicitly enabled", async () => {
     const { worker, env } = createRuntime({ EMAIL_NOTIFICATIONS_ENABLED: "false" });
     const outbound = vi.fn();

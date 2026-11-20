@@ -100,12 +100,18 @@ export function resolveWorkerEmailPolicy({ intent, confidence, requiresHumanRevi
   const unsupported = /(?:TZS|KES|USD|\$)\s?[\d,.]+|\b(?:completed|fully delivered|payment received|paid in full|will deliver by|work has started)\b/i.test(String(reply || ""));
   const allowed = ["service_faq", "lead_intake", "onboarding", "general_support"].includes(intent);
   const score = Number.isFinite(Number(confidence)) ? Math.max(0, Math.min(1, Number(confidence))) : 0;
-  const human = Boolean(requiresHumanReview) || sensitive || unsupported || !allowed || score < 0.75;
-  return {
-    requiresHumanReview: human,
-    autoSendEligible: !human,
-    reason: human ? (sensitive ? "commercial_or_customer_specific_claim_requires_review" : unsupported ? "unsupported_claim_requires_review" : !allowed ? "intent_requires_human_review" : "low_confidence_requires_review") : "safe_faq_or_intake",
-  };
+  const reason = sensitive
+    ? "commercial_or_customer_specific_claim_requires_review"
+    : requiresHumanReview === true
+      ? "assistant_requested_human_review"
+      : unsupported
+      ? "unsupported_claim_requires_review"
+      : !allowed
+        ? "intent_requires_human_review"
+        : score < 0.75
+          ? "low_confidence_requires_review"
+          : "nexora_draft_only_requires_human_approval";
+  return { requiresHumanReview: true, autoSendEligible: false, draftEligible: Boolean(String(reply || "").trim()), approvalRequired: true, reason };
 }
 
 async function sha256(value) {
@@ -392,6 +398,10 @@ async function handleNexoraNotification(request, env) {
   }
   if (payload.verified !== true) return emailJson({ ok: false, error: "unverified_source_record" }, 403);
   const approvalId = String(payload.approvalId || "").trim();
+  const liveDelivery = !bool(env.CLOUDMAILIN_OUTBOUND_TEST_MODE, true);
+  if (liveDelivery) {
+    return emailJson({ ok: false, error: "live_customer_notifications_disabled_by_policy" }, 503);
+  }
   if (HUMAN_APPROVAL_TYPES.has(eventType) && (payload.humanApproved !== true || !approvalId)) {
     return emailJson({ ok: false, error: "human_approval_required" }, 409);
   }
@@ -605,7 +615,10 @@ export function installEmailRuntime(ReplayGuard, worker) {
         outboundConfigured: Boolean(env.CLOUDMAILIN_OUTBOUND_ACCOUNT_ID && env.CLOUDMAILIN_OUTBOUND_API_TOKEN && env.CLOUDMAILIN_OUTBOUND_FROM),
         outboundTestMode: bool(env.CLOUDMAILIN_OUTBOUND_TEST_MODE, true),
         notificationsEnabled: bool(env.EMAIL_NOTIFICATIONS_ENABLED, false),
-        autoReplyEnabled: bool(env.EMAIL_AUTOREPLY_ENABLED, false),
+        autoReplyEnabled: false,
+        autoReplyConfigured: bool(env.EMAIL_AUTOREPLY_ENABLED, false),
+        customerMessagesRequireApproval: true,
+        agentMode: String(env.NEXORA_AGENT_MODE || "draft").trim().toLowerCase(),
         nexoraGeminiBridgeConfigured: Boolean(env.NEXORA_EMAIL_ASSISTANT_URL && nexoraSecret),
         nexoraAssistant,
         durableStoreConfigured: Boolean(env.REPLAY_GUARD),

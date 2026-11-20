@@ -15,6 +15,7 @@ import { createSample } from '../integrations/sample-generation.js';
 import { generateProposal } from '../integrations/proposal-generation.js';
 import { webSearch } from '../integrations/web-search.js';
 import { buildOutreachDraft } from '../integrations/outreach-prep.js';
+import { evaluateAgentAction, resolveAgentMode } from './operating-modes.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -22,6 +23,7 @@ export async function runAgent({ taskId, goal: providedGoal, onEvent, runId: pro
   const task = taskId ? tasks.get(taskId) : null;
   const goal = providedGoal || task?.goal;
   if (!goal) throw new Error('runAgent requires either taskId or goal');
+  const agentMode = resolveAgentMode(config.agent?.mode);
 
   let run;
   if (providedRunId) run = runs.get(providedRunId);
@@ -137,8 +139,20 @@ export async function runAgent({ taskId, goal: providedGoal, onEvent, runId: pro
         break;
       }
 
-      if (isSensitive(action.tool, action.args)) {
-        const approval = await enqueueApproval({ runId: run.id, tool: action.tool, args: action.args, reasoning: action.reasoning, goal });
+      const modePolicy = evaluateAgentAction({ mode: agentMode, tool: action.tool, args: action.args || {}, observation });
+      if (!modePolicy.allow) {
+        const stepRow = steps.create({ runId: run.id, seq: state.steps.length + 1, action, reasoning: action.reasoning });
+        steps.start(stepRow.id);
+        steps.finish(stepRow.id, { status: 'failed', errorMessage: modePolicy.reason });
+        state.steps.push({ tool: action.tool, action, status: 'failed', errorMessage: modePolicy.reason });
+        event({ type: 'step_blocked', stepId: stepRow.id, tool: action.tool, mode: agentMode, reason: modePolicy.reason });
+        state.finished = true; state.finalStatus = 'failed'; state.finalError = modePolicy.reason;
+        break;
+      }
+
+      if (modePolicy.requiresApproval || isSensitive(action.tool, action.args)) {
+        const approvalArgs = modePolicy.approvalContext ? { ...(action.args || {}), approvalContext: modePolicy.approvalContext } : action.args;
+        const approval = await enqueueApproval({ runId: run.id, tool: action.tool, args: approvalArgs, reasoning: action.reasoning, goal });
         event({ type: 'awaiting_approval', approvalId: approval.id, tool: action.tool });
         runs.finish(run.id, { status: 'awaiting_approval' });
         if (task) tasks.setStatus(task.id, 'awaiting_approval');
