@@ -59,7 +59,7 @@ export function evaluateAgentAction({mode,tool,args={},observation=null}={}) {
   if(DRAFT_TOOLS.has(name))return activeMode==='draft'?allow(activeMode,'Internal draft or sample creation; no external delivery.'):deny(activeMode,'Draft creation is disabled in research-only mode.');
   if(APPROVAL_TOOLS.has(name)) {
     if(activeMode!=='draft')return deny(activeMode,'Browser interaction requires draft mode and a human approval checkpoint.');
-    if(name==='browser_press'&&/^(enter|return)$/i.test(String(args.key||'')))return deny(activeMode,'Enter/Return can submit a form; form submission is blocked.');
+    if(name==='browser_press'&&/enter|return/i.test(String(args.key||'')))return deny(activeMode,'Enter/Return can submit a form; form submission is blocked.');
     if(['browser_click','browser_type','browser_fill','browser_select_option','browser_upload_file'].includes(name)) {
       const element=findTargetElement(observation,args.target); if(!element)return deny(activeMode,'Target must match a visible element in the current browser snapshot.');
       const context=describeTarget(element); const labelAndHref=`${context?.label||''} ${context?.href||''}`;
