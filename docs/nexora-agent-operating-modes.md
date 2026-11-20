@@ -11,7 +11,7 @@
 ## Customer communications and money movement
 
 - Inbound email replies are always drafts and always require human review. `EMAIL_AUTOREPLY_ENABLED` cannot bypass this policy.
-- Live customer notifications are hard-disabled by policy in this phase, even if an approval claim is supplied. Quote/proposal/revision notifications require human approval even in provider test mode. A future live-send release needs a separately reviewed, signed, action-bound approval integration.
+- Live customer notifications are hard-disabled by policy in this phase, even if an approval claim is supplied. Quote/proposal/revision notifications require human approval even in provider test mode. A future live-send release needs a separately reviewed, signed, tenant-scoped approval integration.
 - Cloudflare Preview keeps `EMAIL_AUTOREPLY_ENABLED=false`, `EMAIL_NOTIFICATIONS_ENABLED=false` and `CLOUDMAILIN_OUTBOUND_TEST_MODE=true`.
 - Agent approval email/webhook notifications are disabled unless `NEXORA_APPROVAL_NOTIFICATIONS_ENABLED=true`; approval records remain in the dashboard.
 - No payment, invoice sending, customer messaging, public publishing, Production database writes or Production deployment is enabled by this workflow.

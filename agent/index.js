@@ -156,7 +156,7 @@ export async function runAgent({ taskId, goal: providedGoal, onEvent, runId: pro
         event({ type: 'awaiting_approval', approvalId: approval.id, tool: action.tool });
         runs.finish(run.id, { status: 'awaiting_approval' });
         if (task) tasks.setStatus(task.id, 'awaiting_approval');
-        const decision = await awaitApproval(approval.id);
+        const decision = await awaitApproval(approval.id, { tool: action.tool, args: approvalArgs || {}, runId: run.id });
         if (decision !== 'approve') {
           const stepRow = steps.create({ runId: run.id, seq: state.steps.length + 1, action, reasoning: action.reasoning });
           steps.start(stepRow.id);
