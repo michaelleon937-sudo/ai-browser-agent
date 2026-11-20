@@ -55,7 +55,7 @@ Nexora Vercel Preview:
 Current Preview values:
 - `EMAIL_AUTOREPLY_ENABLED=false`
 - `CLOUDMAILIN_OUTBOUND_TEST_MODE=true`
-- `EMAIL_NOTIFICATIONS_ENABLED=true`
+- `EMAIL_NOTIFICATIONS_ENABLED=false`
 
 These gates prevent customer-facing auto-replies and prevent outbound test messages from being delivered. The Vercel Preview protection remains enabled for human access; Cloudflare uses a separate machine-only bypass token plus the Bearer shared secret.
 
@@ -63,12 +63,12 @@ Quotes, proposals, invoices, payments, project status, delivery claims, revision
 
 ## Verified code and deployment checks
 
-- The email Worker Preview deployment is deployed on the isolated branch `feature/cloudflare-customer-email-automation`.
-- The latest email-specific Worker tests previously passed: 16 tests across inbound, outbound, idempotency and Nexora bridge suites.
-- The Worker health endpoint returns HTTP 200 and confirms the Gemini bridge is reachable.
-- The Nexora Preview API is protected by Vercel Preview authentication; the Worker health probe confirms its machine-to-machine health check succeeds.
+- The Cloudflare `ai-browser-agent` script currently runs version 40 from commit `0396b63`; the A2-certified branch head `ec6379c` is ahead of that deployment and is not yet synchronized. The script has no custom routes or domains; Nexora agent environment-variable references are scoped to Preview only.
+- Local verification on branch head `ec6379c`: 39 tests passed across Cloudflare provider, inbound/outbound email runtime, notification policy and Nexora assistant bridge suites. A2 Certification workflow `44154848091` also passed.
+- The connected Cloudflare API can verify Worker version/binding metadata, but an external HTTP health probe was not available through the current connector path; live endpoint health and Gemini bridge reachability remain unverified.
+- The configured Nexora Gemini email-assistant deployment is a READY Vercel Preview deployment. The authenticated machine-to-machine request still requires an end-to-end probe after Worker source synchronization.
 - A synthetic inbound payload and replay-deduplication check were previously exercised in the isolated test path; CloudMailin's current message list is empty, so no provider-delivered inbound message is claimed here.
-- CloudMailin outbound Test Mode was previously accepted as a validation request; no email was delivered.
+- CloudMailin outbound test mode is enabled in configuration, but no outbound credentials are present in the current Preview Worker and no email was delivered.
 
 ## Go-live blockers and order
 

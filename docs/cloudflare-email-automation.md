@@ -10,12 +10,12 @@ The Cloudflare Worker email extension is installed around the existing `ai-brows
 2. The Worker verifies the webhook secret, validates the message, and uses the existing Durable Object namespace for idempotent ingestion and a 25-message per-sender history.
 3. The Worker calls Nexora's authenticated `/api/agent/email-assistant` endpoint. Nexora uses the configured Gemini model and its canonical service catalogue.
 4. Deterministic policy rules block automatic replies for pricing, quotations, payments, contracts, deadlines, project status, revisions, complaints, urgent requests, low confidence, or unsupported claims.
-5. Safe FAQ/intake replies remain drafts unless `EMAIL_AUTOREPLY_ENABLED=true`. Outbound calls use CloudMailin's test-mode flag by default and retry transient failures up to three times.
+5. Safe FAQ/intake replies remain drafts unless `EMAIL_AUTOREPLY_ENABLED=true`. Preview keeps auto-reply and notification delivery disabled; outbound test mode defaults to true, and no outbound message is sent unless all delivery credentials and explicit enablement are configured.
 6. CloudMailin delivery events are authenticated and deduplicated at `/api/outbound/email/cloudmailin/events`.
 
 ## Required Worker environment
 
-- Existing secret bindings: `CLOUDMAILIN_WEBHOOK_AUTH_SECRET`, `CLOUDMAILIN_OUTBOUND_ACCOUNT_ID`, `CLOUDMAILIN_OUTBOUND_API_TOKEN`, `CLOUDMAILIN_OUTBOUND_EVENTS_AUTH_SECRET`, `CLOUDMAILIN_OUTBOUND_FROM`, `CLOUDMAILIN_OUTBOUND_TEST_MODE`, `NEXORA_AGENT_SHARED_SECRET`.
+- Required secret bindings for live outbound delivery (not configured in the current Preview Worker): `CLOUDMAILIN_WEBHOOK_AUTH_SECRET`, `CLOUDMAILIN_OUTBOUND_ACCOUNT_ID`, `CLOUDMAILIN_OUTBOUND_API_TOKEN`, `CLOUDMAILIN_OUTBOUND_EVENTS_AUTH_SECRET`, `CLOUDMAILIN_OUTBOUND_FROM`, `NEXORA_AGENT_SHARED_SECRET`. `CLOUDMAILIN_OUTBOUND_TEST_MODE` is a safety flag and remains true in Preview.
 - Plain-text binding: `NEXORA_EMAIL_ASSISTANT_URL` (the Nexora Preview endpoint URL).
 - Optional plain-text binding: `EMAIL_AUTOREPLY_ENABLED`. Defaults to false; enable only after sender-domain verification and explicit owner approval.
 - Existing `REPLAY_GUARD` Durable Object namespace is required.
