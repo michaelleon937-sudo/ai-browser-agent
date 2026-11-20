@@ -65,6 +65,8 @@ export const config = {
   },
 
   agent: {
+    mode: process.env.NEXORA_AGENT_MODE || 'draft',
+    approvalTimeoutMs: num(process.env.AGENT_APPROVAL_TIMEOUT_MS, 30 * 60 * 1000),
     maxSteps: num(process.env.AGENT_MAX_STEPS, 40),
     stepTimeoutMs: num(process.env.AGENT_STEP_TIMEOUT_MS, 30_000),
     totalTimeoutMs: num(process.env.AGENT_TOTAL_TIMEOUT_MS, 10 * 60 * 1000),

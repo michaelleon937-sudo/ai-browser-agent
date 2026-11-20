@@ -1,0 +1,30 @@
+name = "ai-browser-agent"
+main = "cloudflare/worker.js"
+compatibility_date = "2026-11-02"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+preview_urls = true
+
+[ai]
+binding = "AI"
+
+[browser]
+binding = "BROWSER"
+
+[[durable_objects.bindings]]
+name = "REPLAY_GUARD"
+class_name = "ReplayGuard"
+
+[exports.ReplayGuard]
+type = "durable-object"
+storage = "sqlite"
+
+[vars]
+AI_MODEL = "@cf/openai/gpt-oss-20b"
+BUILD_SHA = "97b268230a9c0ea3359541fa63f25ebfe6dc30b1"
+SENTRY_DSN = "https://47e0b1a4805c45a64665bd46b1f0990b@o4512361266937856.ingest.us.sentry.io/4512361789128705"
+SENTRY_ENVIRONMENT = "preview"
+EMAIL_AUTOREPLY_ENABLED = "false"
+EMAIL_NOTIFICATIONS_ENABLED = "false"
+NEXORA_AGENT_MODE = "draft"
+CLOUDMAILIN_OUTBOUND_TEST_MODE = "true"
