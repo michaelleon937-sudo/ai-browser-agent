@@ -144,6 +144,7 @@ export async function runAgent({ taskId, goal: providedGoal, onEvent, runId: pro
         const stepRow = steps.create({ runId: run.id, seq: state.steps.length + 1, action, reasoning: action.reasoning });
         steps.start(stepRow.id);
         steps.finish(stepRow.id, { status: 'failed', errorMessage: modePolicy.reason });
+        dbErrors.record({ runId: run.id, stepId: stepRow.id, level: 'error', message: modePolicy.reason, context: { tool: action.tool, args: redact(action.args), policyDenied: true, mode: agentMode } });
         state.steps.push({ tool: action.tool, action, status: 'failed', errorMessage: modePolicy.reason });
         event({ type: 'step_blocked', stepId: stepRow.id, tool: action.tool, mode: agentMode, reason: modePolicy.reason });
         state.finished = true; state.finalStatus = 'failed'; state.finalError = modePolicy.reason;
